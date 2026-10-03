@@ -221,10 +221,10 @@ Related: the DLQ of an entity with `ForwardDeadLetteredMessagesTo` can't be peek
 
 DLQ Repair with the Listen-only rule (target info read with the owner credential, everything else with the rule): **SendFailed**, the original abandoned back into the DLQ, nothing in the target, no abandon errors, DeliveryCount unchanged. The classifier needs no change: a token rejected at the claims-based-security step comes back as `*azservicebus.Error` Code `unauthorized`, a missing Send claim as the same code around the `amqp:unauthorized-access` error.
 
-Two things lazybus shows less well than it could (not changed in S4):
+Two things lazybus showed less well than it could; both addressed after S4:
 
-- A connection string without Manage rights can peek and repair but can't list entities (`HTTP 401`), so lazybus opens it to an error.
-- The SendFailed detail for the missing Send claim reads `(unauthorized): *Error{Condition: amqp:unauthorized-access, Description: Unauthorized access. 'Send' claim(s) are required…`: `classify` matches the `*azservicebus.Error` code and prints its whole text, because that error does not unwrap to the `*amqp.Error`.
+- A connection string without Manage rights can peek and repair but can't list entities (`HTTP 401`), so lazybus opened it to an error. Now the listing error says it needs Manage rights and points to `--entity <queue|topic/subscription>`, which opens named entities without listing (counts from runtime properties, `?` when those are refused too). Repair treats an unauthorized target-info read as an unknown target: new MessageId by default, no zero-subscription guard, a warning in the confirm popup.
+- The SendFailed detail for the missing Send claim read `(unauthorized): *Error{Condition: amqp:unauthorized-access, Description: Unauthorized access. 'Send' claim(s) are required…`: `classify` matches the `*azservicebus.Error` code and prints its whole text, because that error does not unwrap to the `*amqp.Error`. The row and status line now show a short first sentence (`unauthorized: 'Send' claim(s) are required to perform…`); the log keeps the full error.
 
 ### d. Partitioned queue: peek order and paging
 

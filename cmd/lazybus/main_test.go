@@ -6,13 +6,18 @@ import (
 	"errors"
 	"flag"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 
+	"github.com/samuelstrom93/lazybus/internal/bus"
 	"github.com/samuelstrom93/lazybus/internal/bus/azure"
+	"github.com/samuelstrom93/lazybus/internal/bus/fake"
+	"github.com/samuelstrom93/lazybus/internal/ui"
 )
 
 func TestParseFlags(t *testing.T) {
@@ -39,6 +44,41 @@ func TestParseFlags(t *testing.T) {
 	}
 	if _, err := parseFlags([]string{"stray"}, io.Discard, io.Discard, env); err == nil {
 		t.Fatal("stray argument accepted")
+	}
+}
+
+func TestParseEntityFlags(t *testing.T) {
+	noEnv := func(string) string { return "" }
+	c, err := parseFlags([]string{"--emulator", "--entity", "orders", "--entity", "order-events/billing"}, io.Discard, io.Discard, noEnv)
+	want := []bus.Entity{{Path: "orders", Kind: bus.KindQueue}, {Path: "order-events/billing", Kind: bus.KindSubscription}}
+	if err != nil || !reflect.DeepEqual(c.entities, want) {
+		t.Fatalf("entities %+v, %v", c.entities, err)
+	}
+	for _, tc := range []struct {
+		args   []string
+		stderr string
+	}{
+		{[]string{"--emulator", "--entity", ""}, "empty entity path"},
+		{[]string{"--emulator", "--entity", "/billing"}, "want queue or topic/subscription"},
+		{[]string{"--emulator", "--entity", "order-events/"}, "want queue or topic/subscription"},
+		{[]string{"--emulator", "--entity", "a/b/c"}, "want queue or topic/subscription"},
+		{[]string{"--entity", "orders"}, "--entity needs --connection-string, --namespace or --emulator"},
+		{[]string{"--emulator", "--namespace", "sb-prod", "--entity", "orders"}, "--entity needs exactly one of"},
+	} {
+		var errOut bytes.Buffer
+		if _, err := parseFlags(tc.args, io.Discard, &errOut, noEnv); err == nil || !strings.Contains(errOut.String(), tc.stderr) {
+			t.Errorf("%q: err %v, stderr %q", tc.args, err, errOut.String())
+		}
+	}
+	// A connection string from the environment counts as one.
+	env := func(k string) string {
+		if k == "LAZYBUS_CONNECTION_STRING" {
+			return "from-env"
+		}
+		return ""
+	}
+	if _, err := parseFlags([]string{"--emulator", "--entity", "orders"}, io.Discard, io.Discard, env); err == nil {
+		t.Fatal("--emulator with LAZYBUS_CONNECTION_STRING accepted")
 	}
 }
 
@@ -144,6 +184,32 @@ func TestBackendWiring(t *testing.T) {
 	if _, _, err := backend(config{}, noAz); !errors.Is(err, errNoToken) {
 		t.Fatalf("credential error = %v", err)
 	}
+	// --entity: those entities, no listing, no discovery, no az credential.
+	be, closeFn, err = backend(config{emulator: true, emulatorAMQPPort: 5682, emulatorAdminPort: 5310,
+		entities: []bus.Entity{{Path: "orders", Kind: bus.KindQueue}}}, noCred)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nss, _ = be.Namespaces(ctx)
+	ents, entErr := be.ListEntities(ctx, nss[0])
+	subs, subErr = be.Subscriptions(ctx)
+	closeFn()
+	if len(ents) != 1 || ents[0].Path != "orders" || ents[0].CountsKnown || entErr != nil || len(subs) != 0 || subErr != nil {
+		t.Fatalf("--entity: entities %+v %v, subscriptions %+v %v", ents, entErr, subs, subErr)
+	}
+	// --namespace --entity: the credential, but no discovery.
+	credCalls = 0
+	be, closeFn, err = backend(config{namespace: "sb-prod-weu", entities: []bus.Entity{{Path: "orders", Kind: bus.KindQueue}}}, cred)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nss, _ = be.Namespaces(ctx)
+	subs, subErr = be.Subscriptions(ctx)
+	closeFn()
+	if credCalls != 1 || len(nss) != 1 || nss[0].Name != "sb-prod-weu" || len(subs) != 0 || subErr != nil {
+		t.Fatalf("--namespace --entity: namespaces %+v, subscriptions %+v %v, credential calls %d", nss, subs, subErr, credCalls)
+	}
+
 	// The emulator still opens without the az credential, minus discovery.
 	be, closeFn, err = backend(config{emulator: true, emulatorAMQPPort: 5682, emulatorAdminPort: 5310}, noAz)
 	if err != nil {
@@ -162,4 +228,25 @@ type failingCred struct{}
 
 func (failingCred) GetToken(context.Context, policy.TokenRequestOptions) (azcore.AccessToken, error) {
 	return azcore.AccessToken{}, errNoToken
+}
+
+// TestExitCode covers the wiring; the report itself is tested in ui
+// (TestExitReportAfterDeferredQuit).
+func TestExitCode(t *testing.T) {
+	m := ui.New(fake.New(), ui.Options{})
+	for _, tc := range []struct {
+		final tea.Model
+		err   error
+		code  int
+		out   string
+	}{
+		{m, nil, 0, ""},
+		{m, tea.ErrInterrupted, 1, "lazybus: program was interrupted\n"},
+		{nil, tea.ErrProgramKilled, 1, "lazybus: program was killed\n"},
+	} {
+		var out bytes.Buffer
+		if code := exitCode(tc.final, tc.err, &out); code != tc.code || out.String() != tc.out {
+			t.Errorf("exitCode(%v) = %d, %q; want %d, %q", tc.err, code, out.String(), tc.code, tc.out)
+		}
+	}
 }

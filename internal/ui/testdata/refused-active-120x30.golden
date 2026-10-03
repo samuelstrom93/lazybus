@@ -1,30 +1,30 @@
-[90m┌[m 1 Namespaces [90m────────────────────┐[m[90m┌[m [1mBody[m[90m │ [m[90mProperties[m[90m │ [m[90mSystem[m [90m──────────────────────────────────────────────────────┐[m
-[90m│[m▸ sb-prod-weu                     [90m│[m[90m│[m {                                                                                [90m│[m
-[90m│[m  sb-test-weu                     [90m│[m[90m│[m   "orderId": 4039,                                                               [90m│[m
-[90m├[m 2 Entities [90m──────────────────────┤[m[90m│[m   "status": "new"                                                                [90m│[m
-[90m│[m  invoices                  [33mDLQ  3[m[90m│[m[90m│[m }                                                                                [90m│[m
-[90m│[m  order-events/billing      [33mDLQ 12[m[90m│[m[90m│[m                                                                                  [90m│[m
-[90m│[m  order-events/shipping     [90mDLQ  0[m[90m│[m[90m│[m                                                                                  [90m│[m
-[90m│[m▸ orders                    [33mDLQ 37[m[90m│[m[90m│[m                                                                                  [90m│[m
-[1;32m├[m [1;32m3 Messages[m  [90mDLQ[m[90m│[m[1;32mActive[m [1;32m──────────┤[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m[1;44m▸ [m[1;44m39 [m[1;44m06:37 [m[1;44mOrderPlaced[m[1;44m ord-4039[m[1;44m   [m[1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m  40 [90m06:38 [mOrderPlaced[90m ord-4040[m   [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m  41 [90m06:39 [mOrderPlaced[90m ord-4041[m   [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m  42 [90m06:40 [mOrderPlaced[90m ord-4042[m   [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m  43 [90m06:41 [mOrderPlaced[90m ord-4043[m   [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m  44 [90m06:42 [mOrderPlaced[90m ord-4044[m   [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m  45 [90m06:43 [mOrderPlaced[90m ord-4045[m   [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m  46 [90m06:44 [mOrderPlaced[90m ord-4046[m   [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m  47 [90m06:45 [mOrderPlaced[90m ord-4047[m   [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m  48 [90m06:46 [mOrderPlaced[90m ord-4048[m   [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m  49 [90m06:47 [mOrderPlaced[90m ord-4049[m   [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m  50 [90m06:48 [mOrderPlaced[90m ord-4050[m   [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m  51 [90m06:49 [mOrderPlaced[90m ord-4051[m   [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m  52 [90m06:50 [mOrderPlaced[90m ord-4052[m   [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m  53 [90m06:51 [mOrderPlaced[90m ord-4053[m   [1;32m│[m[90m├[m Log [90m─────────────────────────────────────────────────────────────────────────────┤[m
-[1;32m│[m  54 [90m06:52 [mOrderPlaced[90m ord-4054[m   [1;32m│[m[90m│[m[90m 16:00 [mlist entities sb-prod-weu → 4                                              [90m│[m
-[1;32m│[m  55 [90m06:53 [mOrderPlaced[90m ord-4055[m   [1;32m│[m[90m│[m[90m 16:00 [mpeek invoices/$DLQ → 3                                                     [90m│[m
-[1;32m│[m  56 [90m06:54 [mOrderPlaced[90m ord-4056[m   [1;32m│[m[90m│[m[90m 16:00 [mpeek orders/$DLQ → 37                                                      [90m│[m
-[1;32m│[m  57 [90m06:55 [mOrderPlaced[90m ord-4057[m   [1;32m│[m[90m│[m[90m 16:00 [mpeek orders → 50                                                           [90m│[m
-[1;32m└──────────────────────────────────┘[m[90m└──────────────────────────────────────────────────────────────────────────────────┘[m
+[90m┌[m 1 Namespaces [90m────────────────────────┐[m[90m┌[m [1mBody[m[90m │ [m[90mProperties[m[90m │ [m[90mSystem[m [90m──────────────────────────────────────────────────┐[m
+[90m│[m▸ sb-prod-weu                         [90m│[m[90m│[m {                                                                            [90m│[m
+[90m│[m  sb-test-weu                         [90m│[m[90m│[m   "orderId": 4039,                                                           [90m│[m
+[90m├[m 2 Entities [90m──────────────────────────┤[m[90m│[m   "status": "new"                                                            [90m│[m
+[90m│[m  invoices              act  12 [33mDLQ  3[m[90m│[m[90m│[m }                                                                            [90m│[m
+[90m│[m  order-events/billing  [90mact   0 [m[33mDLQ 12[m[90m│[m[90m│[m                                                                              [90m│[m
+[90m│[m  order-events/shipping act   4 [90mDLQ  0[m[90m│[m[90m│[m                                                                              [90m│[m
+[90m│[m▸ orders                act 120 [33mDLQ 37[m[90m│[m[90m│[m                                                                              [90m│[m
+[1;32m├[m [1;32m3 Messages[m  [90mDLQ[m[90m│[m[1;32mActive[m [1;32m──────────────┤[m[90m│[m                                                                              [90m│[m
+[1;32m│[m[1;44m▸ [m[1;44m39 [m[1;44m06:37 [m[1;44mOrderPlaced[m[1;44m ord-4039[m[1;44m       [m[1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m│[m  40 [90m06:38 [mOrderPlaced[90m ord-4040[m       [1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m│[m  41 [90m06:39 [mOrderPlaced[90m ord-4041[m       [1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m│[m  42 [90m06:40 [mOrderPlaced[90m ord-4042[m       [1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m│[m  43 [90m06:41 [mOrderPlaced[90m ord-4043[m       [1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m│[m  44 [90m06:42 [mOrderPlaced[90m ord-4044[m       [1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m│[m  45 [90m06:43 [mOrderPlaced[90m ord-4045[m       [1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m│[m  46 [90m06:44 [mOrderPlaced[90m ord-4046[m       [1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m│[m  47 [90m06:45 [mOrderPlaced[90m ord-4047[m       [1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m│[m  48 [90m06:46 [mOrderPlaced[90m ord-4048[m       [1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m│[m  49 [90m06:47 [mOrderPlaced[90m ord-4049[m       [1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m│[m  50 [90m06:48 [mOrderPlaced[90m ord-4050[m       [1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m│[m  51 [90m06:49 [mOrderPlaced[90m ord-4051[m       [1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m│[m  52 [90m06:50 [mOrderPlaced[90m ord-4052[m       [1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m│[m  53 [90m06:51 [mOrderPlaced[90m ord-4053[m       [1;32m│[m[90m├[m Log [90m─────────────────────────────────────────────────────────────────────────┤[m
+[1;32m│[m  54 [90m06:52 [mOrderPlaced[90m ord-4054[m       [1;32m│[m[90m│[m[90m 16:00 [mlist entities sb-prod-weu → 4                                          [90m│[m
+[1;32m│[m  55 [90m06:53 [mOrderPlaced[90m ord-4055[m       [1;32m│[m[90m│[m[90m 16:00 [mpeek invoices/$DLQ → 3                                                 [90m│[m
+[1;32m│[m  56 [90m06:54 [mOrderPlaced[90m ord-4056[m       [1;32m│[m[90m│[m[90m 16:00 [mpeek orders/$DLQ → 37                                                  [90m│[m
+[1;32m│[m  57 [90m06:55 [mOrderPlaced[90m ord-4057[m       [1;32m│[m[90m│[m[90m 16:00 [mpeek orders → 50                                                       [90m│[m
+[1;32m└──────────────────────────────────────┘[m[90m└──────────────────────────────────────────────────────────────────────────────┘[m
  [33mread-only: Active messages can't be repaired[m                                                                           

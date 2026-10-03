@@ -297,6 +297,17 @@ func TestRepairSendFailed(t *testing.T) {
 	if len(dlq(b, orders)) != 37 || len(active(b, orders)) != 120 || !hasEvent(b, Event{OpAbandon, "orders/$DLQ", 2}) {
 		t.Fatal("SendFailed changed something or kept the lock")
 	}
+
+	// S4, a Listen-only rule: Detail is the short form, the log has the
+	// SDK's whole text.
+	long := &bus.Error{Kind: bus.ErrUnauthorized, Msg: "(unauthorized): *Error{Condition: amqp:unauthorized-access, " +
+		"Description: Unauthorized access. 'Send' claim(s) are required to perform this operation. Resource: 'sb://x/orders'"}
+	b.SetFault(OpSend, Fault{Err: long, Definite: true})
+	res = repair(t, b, req(orders, 2, 0))
+	if res.Detail != "unauthorized: 'Send' claim(s) are required to perform…" ||
+		!hasLog(res, "send orders/$DLQ seq 2 → queue orders (MessageId ord-4002) → rejected: "+long.Msg) {
+		t.Fatalf("detail %q log %+v", res.Detail, res.Log)
+	}
 }
 
 func TestRepairSendUncertain(t *testing.T) {
@@ -478,6 +489,49 @@ func TestRepairSubscriptionToTopic(t *testing.T) {
 	// does not match an OrderPlaced message.
 	if len(active(b, billing)) != 1 || len(active(b, shipping)) != 4 || len(dlq(b, billing)) != 11 {
 		t.Fatalf("fan-out: billing %d shipping %d DLQ %d", len(active(b, billing)), len(active(b, shipping)), len(dlq(b, billing)))
+	}
+}
+
+func TestRepairTargetInfoUnauthorized(t *testing.T) {
+	// Listen+Send without Manage: the admin API refuses to read the target
+	// (HTTP 401, S4), while peek, receive and send work.
+	b := New()
+	ctx := context.Background()
+	b.SetFault(OpTargetInfo, Fault{Err: &bus.Error{Kind: bus.ErrUnauthorized, Op: "get queue orders", Msg: "HTTP 401"}})
+	orders := queue("orders")
+	plan, err := b.PlanRepair(ctx, req(orders, 2, 0))
+	if err != nil || !plan.TargetUnknown || !plan.DuplicateDetection || !plan.NewIDByDefault || plan.NewMessageID == "" {
+		t.Fatalf("plan: %+v %v", plan, err)
+	}
+	if len(plan.Warnings) != 1 || !strings.HasPrefix(plan.Warnings[0], "duplicate detection unknown (no Manage rights): new MessageId") {
+		t.Fatalf("warnings %q", plan.Warnings)
+	}
+	r := req(orders, 2, 0)
+	r.NewMessageID = plan.NewMessageID
+	res := repair(t, b, r)
+	if res.Outcome != bus.Resubmitted || res.OldMessageID != "ord-4002" || res.NewMessageID != plan.NewMessageID {
+		t.Fatalf("default: %v %s → %s (%s)", res.Outcome, res.OldMessageID, res.NewMessageID, res.Detail)
+	}
+	// m still keeps the original id.
+	r = req(orders, 3, 0)
+	r.MessageID = bus.MessageIDKeep
+	if res = repair(t, b, r); res.Outcome != bus.Resubmitted || res.NewMessageID != "ord-4003" {
+		t.Fatalf("keep: %v %s", res.Outcome, res.NewMessageID)
+	}
+
+	// A subscription DLQ: the parent topic's subscriptions can't be
+	// counted, so the zero-subscription guard is skipped.
+	plan, err = b.PlanRepair(ctx, req(sub("order-events/billing"), 2, 0))
+	if err != nil || !plan.TargetUnknown || len(plan.Warnings) != 2 ||
+		!strings.HasPrefix(plan.Warnings[0], "fans out to an unknown number of subscriptions (no Manage rights): delivered only") {
+		t.Fatalf("topic plan: %+v %v", plan, err)
+	}
+
+	// Any other failure to read the target still stops the repair.
+	b.SetFault(OpTargetInfo, Fault{Err: &bus.Error{Kind: bus.ErrConnection, Msg: "dial tcp: refused"}})
+	b.ResetEvents()
+	if _, err := b.Repair(ctx, req(orders, 4, 0)); bus.KindOf(err) != bus.ErrConnection || len(b.Events()) != 0 {
+		t.Fatalf("connection error: %v, events %v", err, b.Events())
 	}
 }
 

@@ -15,13 +15,14 @@ import (
 
 // --- / filter ------------------------------------------------------------------
 
-// entityText is an entity's visible text (path, DLQ count), for the filter.
+// entityText is an entity's visible text (path, active and DLQ count),
+// for the filter.
 func (m Model) entityText(e bus.Entity) string {
-	count := "?"
+	act, count := "?", "?"
 	if e.CountsKnown {
-		count = strconv.FormatInt(e.DeadLetterCount, 10)
+		act, count = strconv.FormatInt(e.ActiveCount, 10), strconv.FormatInt(e.DeadLetterCount, 10)
 	}
-	return e.Path + " DLQ " + count
+	return e.Path + " act " + act + " DLQ " + count
 }
 
 // messageText is a message row's visible text (sequence number, time,

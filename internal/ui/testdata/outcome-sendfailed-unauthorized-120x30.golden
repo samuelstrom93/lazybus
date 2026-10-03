@@ -25,6 +25,6 @@
 [1;32m│[m  17 [90m21:00 [mSchemaMismatch  [90m ord-4017[m  [1;32m│[m[90m│[m[90m 16:00 [mabandon orders/$DLQ seq 3-11 → ok                                      [90m│[m
 [1;32m│[m  18 [90m22:00 [mMaxDeliveryCoun…[90m ord-4018[m  [1;32m│[m[90m│[m[90m 16:00 [m[31msend orders/$DLQ seq 2 → queue orders (MessageId ord-4002) → rejected:…[m[90m│[m
 [1;32m│[m  19 [90m23:00 [mDownstreamTimeo…[90m ord-4019[m  [1;32m│[m[90m│[m[90m 16:00 [mabandon orders/$DLQ seq 2 → ok                                         [90m│[m
-[1;32m│[m  20 [90m09-20 [mSchemaMismatch  [90m ord-4020[m  [1;32m│[m[90m│[m[90m 16:00 [m[31mresubmit orders/$DLQ seq 2 → orders  SendFailed: amqp:not-allowed: The…[m[90m│[m
+[1;32m│[m  20 [90m09-20 [mSchemaMismatch  [90m ord-4020[m  [1;32m│[m[90m│[m[90m 16:00 [m[31mresubmit orders/$DLQ seq 2 → orders  SendFailed: unauthorized: 'Send' …[m[90m│[m
 [1;32m└──────────────────────────────────────┘[m[90m└──────────────────────────────────────────────────────────────────────────────┘[m
- [31mSendFailed (nothing changed): queue orders rejected the copy (amqp:not-allowed: The message does not have a SessionId)[m 
+ [31mSendFailed (nothing changed): queue orders rejected the copy (unauthorized: 'Send' claim(s) are required to perform…)[m  

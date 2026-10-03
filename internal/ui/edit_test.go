@@ -523,7 +523,7 @@ func TestPendingEditsAfterFailedResubmit(t *testing.T) {
 			seq := selectedSeq(t, m)
 			be.SetFault(fault.op, fault.f)
 			m = keysIn(t, m, "r", "y")
-			if !strings.HasPrefix(m.status.text, name+":") || m.editsOf(seq).Count() != 1 {
+			if !strings.HasPrefix(m.status.text, name+" (") || m.editsOf(seq).Count() != 1 {
 				t.Fatalf("status %q, edits %d", m.status.text, m.editsOf(seq).Count())
 			}
 			if name == "SendFailed" {

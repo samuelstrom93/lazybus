@@ -1,30 +1,30 @@
-[1;32m┌[m [1;32m1 Namespaces[m [1;32m────────────────────┐[m[90m┌[m [1mNamespace[m [90m───────────────────────────────────────────────────────────────────────┐[m
-[1;32m│[m  sb-prod-weu                     [1;32m│[m[90m│[m[90m Namespace        [msb-dev-neu                                                      [90m│[m
-[1;32m│[m  sb-test-weu                     [1;32m│[m[90m│[m[90m FQDN             [msb-dev-neu.servicebus.windows.net                               [90m│[m
-[1;32m│[m[1;44m▸ [m[1;44msb-dev-neu[m[1;44m                      [m[1;32m│[m[90m│[m[90m Subscription     [mcontoso-dev                                                     [90m│[m
-[1;32m│[m                                  [1;32m│[m[90m│[m[90m Subscription ID  [m2f7c4d1e-8a3b-4c6d-9e0f-1a2b3c4d5e6f                            [90m│[m
-[1;32m│[m                                  [1;32m│[m[90m│[m[90m Resource group   [mrg-messaging-dev                                                [90m│[m
-[1;32m│[m                                  [1;32m│[m[90m│[m[90m SKU              [mStandard                                                        [90m│[m
-[1;32m│[m                                  [1;32m│[m[90m│[m[90m Location         [mnortheurope                                                     [90m│[m
-[1;32m│[m                                  [1;32m│[m[90m│[m[90m Auth             [mEntra ID (az login)                                             [90m│[m
-[1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m                                  [1;32m│[m[90m│[m[90m enter opens it in Entities[m                                                       [90m│[m
-[1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m├[m 2 Entities [1;32m──────────────────────┤[m[90m│[m                                                                                  [90m│[m
-[90m│[m▸ invoices                  [33mDLQ  3[m[90m│[m[90m│[m                                                                                  [90m│[m
-[90m│[m  order-events/billing      [33mDLQ 12[m[90m│[m[90m│[m                                                                                  [90m│[m
-[90m│[m  order-events/shipping     [90mDLQ  0[m[90m│[m[90m│[m                                                                                  [90m│[m
-[90m│[m  orders                    [33mDLQ 37[m[90m│[m[90m├[m Log [90m─────────────────────────────────────────────────────────────────────────────┤[m
-[90m├[m 3 Messages  [1mDLQ[m[90m│[m[90mActive[m [90m──────────┤[m[90m│[m[90m 16:00 [mpeek invoices/$DLQ → 3                                                     [90m│[m
-[90m│[m▸ 2 [90m13:00 [mSchemaMismatch[90m inv-1002[m [90m│[m[90m│[m[90m 16:00 [mdiscover subscriptions → 2                                                 [90m│[m
-[90m│[m  3 [90m14:00 [mMaxDeliveryCo…[90m inv-1003[m [90m│[m[90m│[m[90m 16:00 [mdiscover contoso-dev → 1 namespace                                         [90m│[m
-[90m│[m  4 [90m15:00 [mDownstreamTim…[90m inv-1004[m [90m│[m[90m│[m[90m 16:00 [mdiscover contoso-sandbox → 0 namespaces                                    [90m│[m
-[90m└──────────────────────────────────┘[m[90m└──────────────────────────────────────────────────────────────────────────────────┘[m
+[1;32m┌[m [1;32m1 Namespaces[m [1;32m────────────────────────┐[m[90m┌[m [1mNamespace[m [90m───────────────────────────────────────────────────────────────────┐[m
+[1;32m│[m  sb-prod-weu                         [1;32m│[m[90m│[m[90m Namespace        [msb-dev-neu                                                  [90m│[m
+[1;32m│[m  sb-test-weu                         [1;32m│[m[90m│[m[90m FQDN             [msb-dev-neu.servicebus.windows.net                           [90m│[m
+[1;32m│[m[1;44m▸ [m[1;44msb-dev-neu[m[1;44m                          [m[1;32m│[m[90m│[m[90m Subscription     [mcontoso-dev                                                 [90m│[m
+[1;32m│[m                                      [1;32m│[m[90m│[m[90m Subscription ID  [m2f7c4d1e-8a3b-4c6d-9e0f-1a2b3c4d5e6f                        [90m│[m
+[1;32m│[m                                      [1;32m│[m[90m│[m[90m Resource group   [mrg-messaging-dev                                            [90m│[m
+[1;32m│[m                                      [1;32m│[m[90m│[m[90m SKU              [mStandard                                                    [90m│[m
+[1;32m│[m                                      [1;32m│[m[90m│[m[90m Location         [mnortheurope                                                 [90m│[m
+[1;32m│[m                                      [1;32m│[m[90m│[m[90m Auth             [mEntra ID (az login)                                         [90m│[m
+[1;32m│[m                                      [1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m│[m                                      [1;32m│[m[90m│[m[90m enter opens it in Entities[m                                                   [90m│[m
+[1;32m│[m                                      [1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m│[m                                      [1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m│[m                                      [1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m│[m                                      [1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m│[m                                      [1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m│[m                                      [1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m│[m                                      [1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m│[m                                      [1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m├[m 2 Entities [1;32m──────────────────────────┤[m[90m│[m                                                                              [90m│[m
+[90m│[m▸ invoices              act  12 [33mDLQ  3[m[90m│[m[90m│[m                                                                              [90m│[m
+[90m│[m  order-events/billing  [90mact   0 [m[33mDLQ 12[m[90m│[m[90m│[m                                                                              [90m│[m
+[90m│[m  order-events/shipping act   4 [90mDLQ  0[m[90m│[m[90m│[m                                                                              [90m│[m
+[90m│[m  orders                act 120 [33mDLQ 37[m[90m│[m[90m├[m Log [90m─────────────────────────────────────────────────────────────────────────┤[m
+[90m├[m 3 Messages  [1mDLQ[m[90m│[m[90mActive[m [90m──────────────┤[m[90m│[m[90m 16:00 [mpeek invoices/$DLQ → 3                                                 [90m│[m
+[90m│[m▸ 2 [90m13:00 [mSchemaMismatch  [90m inv-1002[m   [90m│[m[90m│[m[90m 16:00 [mdiscover subscriptions → 2                                             [90m│[m
+[90m│[m  3 [90m14:00 [mMaxDeliveryCoun…[90m inv-1003[m   [90m│[m[90m│[m[90m 16:00 [mdiscover contoso-dev → 1 namespace                                     [90m│[m
+[90m│[m  4 [90m15:00 [mDownstreamTimeo…[90m inv-1004[m   [90m│[m[90m│[m[90m 16:00 [mdiscover contoso-sandbox → 0 namespaces                                [90m│[m
+[90m└──────────────────────────────────────┘[m[90m└──────────────────────────────────────────────────────────────────────────────┘[m
  [36menter[m open  [36m[ ][m tab  [36m/[m filter  [36m:[m jump  [36m?[m keybindings  [36mq[m quit                                                           

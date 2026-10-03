@@ -312,8 +312,9 @@ func (m Model) execute(c confirmState) (Model, tea.Cmd) {
 	be, timeout := m.be, m.repairTimeout()
 	run := func() tea.Msg {
 		// The outcome must reach the log and the row: a closed terminal
-		// (SIGHUP) waits for the call like ctrl-c does (spec §2).
-		defer holdHangup()()
+		// (SIGHUP) waits for the call like ctrl-c does, and Filter defers
+		// the quit Bubble Tea makes of a SIGTERM or SIGINT (spec §2).
+		defer holdSignals()()
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 		res, err := call(func() (bus.RepairResult, error) {
@@ -384,11 +385,11 @@ func (m *Model) applyResult(kind confirmKind, req bus.RepairRequest, res bus.Rep
 	case bus.LockLost:
 		level, text = statusWarn, fmt.Sprintf("LockLost: nothing changed; %s to retry", retry)
 	case bus.SendFailed:
-		level, text = statusErr, fmt.Sprintf("SendFailed: %s %s rejected the copy (%s); nothing changed", t.Kind, t.Name, res.Detail)
+		level, text = statusErr, fmt.Sprintf("SendFailed (nothing changed): %s %s rejected the copy (%s)", t.Kind, t.Name, res.Detail)
 	case bus.SendUncertain:
-		level, text = statusWarn, fmt.Sprintf("SendUncertain: the copy may or may not be in %s %s; check the target before retrying", t.Kind, t.Name)
+		level, text = statusWarn, fmt.Sprintf("SendUncertain (check the target before retrying): the copy may or may not be in %s %s", t.Kind, t.Name)
 	case bus.CleanupPending:
-		level, text = statusErr, fmt.Sprintf("CleanupPending: copy is in %s %s and the original is still in %s seq %d — press c to finish cleanup",
+		level, text = statusErr, fmt.Sprintf("CleanupPending (press c to finish cleanup): copy is in %s %s and the original is still in %s seq %d",
 			t.Kind, t.Name, src, req.SequenceNumber)
 	}
 	if n := len(res.AbandonErrors); n > 0 {
@@ -400,7 +401,7 @@ func (m *Model) applyResult(kind confirmKind, req bus.RepairRequest, res bus.Rep
 	k := reqMarkKey(req)
 	switch res.Outcome {
 	case bus.Resubmitted, bus.Cleaned:
-		m.decDLQCount(req)
+		m.moveCounts(req, res)
 		return m.removeRow(req)
 	case bus.NotFound:
 		if res.NotFound == bus.NotFoundScan {
@@ -480,23 +481,37 @@ func (m *Model) removeRow(req bus.RepairRequest) tea.Cmd {
 	return cmd
 }
 
-// decDLQCount lowers the shown DLQ count of req's entity by one, when it
-// is known.
-func (m *Model) decDLQCount(req bus.RepairRequest) {
+// moveCounts updates the shown counts after the original left req's DLQ:
+// its DLQ count drops by one, and a Resubmitted copy in a queue adds one to
+// that queue's active count. Unknown counts stay unknown; a topic's
+// subscriptions are left alone (which ones got a copy depends on rules).
+func (m *Model) moveCounts(req bus.RepairRequest, res bus.RepairResult) {
 	if m.openNS == nil || m.openNS.FQDN != req.Namespace.FQDN {
 		return
 	}
-	for i, e := range m.entities.all {
-		if e.Path == req.Entity.Path && e.Kind == req.Entity.Kind && e.CountsKnown && e.DeadLetterCount > 0 {
-			prev, ok := m.entities.selected()
-			items := append([]bus.Entity(nil), m.entities.all...)
-			items[i].DeadLetterCount--
-			m.entities.setAll(sortEntities(items, m.sortDLQ), m.entityText)
-			if ok {
-				m.selectEntity(prev)
-			}
-			return
+	items := append([]bus.Entity(nil), m.entities.all...)
+	changed := false
+	for i, e := range items {
+		if !e.CountsKnown {
+			continue
 		}
+		if e.Path == req.Entity.Path && e.Kind == req.Entity.Kind && e.DeadLetterCount > 0 {
+			items[i].DeadLetterCount--
+			changed = true
+		}
+		if res.Outcome == bus.Resubmitted && res.Target.Kind == bus.TargetQueue &&
+			e.Kind == bus.KindQueue && e.Path == res.Target.Name {
+			items[i].ActiveCount++
+			changed = true
+		}
+	}
+	if !changed {
+		return
+	}
+	prev, ok := m.entities.selected()
+	m.entities.setAll(sortEntities(items, m.sortDLQ), m.entityText)
+	if ok {
+		m.selectEntity(prev)
 	}
 }
 

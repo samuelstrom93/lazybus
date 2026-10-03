@@ -1,15 +1,15 @@
-[90m┌[m 1 Namespaces [90m────────────────────┐┌[m [1mBody[90;22m │ Properties │ System[m [90m──────────────────────────────────────────────────────┐[m
+[90m┌[m 1 Namespaces [90m────────────────────────┐┌[m [1mBody[90;22m │ Properties │ System[m [90m──────────────────────────────────────────────────┐[m
 [90m│[m▸ sb-prod-weu                  [32;1m┌[m [32;1mKeybindings[m [32;1m─────────────────────────────────────────┐[m                               [90m│[m
 [90m│[m  sb-test-weu                  [32;1m│[90;22m Filter: [32;1m▏[m                                            [32;1m│[m                               [90m│[m
 [90m├[m 2 Entities [90m───────────────────[32;1m├──────────────────────────────────────────────────────┤[m                               [90m│[m
-[90m│[m▸ invoices                  [33mDLQ[32;1m│[39m Messages[m                                             [32;1m│[m                               [90m│[m
-[90m│[m  order-events/billing      [33mDLQ[32;1m│[36;22m   enter    [mfocus main pane                           [32;1m│[m                               [90m│[m
-[90m│[m  order-events/shipping     [90mDLQ[32;1m│[36;22m   tab      [mDLQ / Active                              [32;1m│[m                               [90m│[m
-[90m│[m  orders                    [33mDLQ[32;1m│[36;22m   r        [mresubmit                                  [32;1m│[m                               [90m│[m
+[90m│[m▸ invoices              act  12[32;1m│[39m Messages[m                                             [32;1m│[m                               [90m│[m
+[90m│[m  order-events/billing  [90mact   0[32;1m│[36;22m   enter    [mfocus main pane                           [32;1m│[m                               [90m│[m
+[90m│[m  order-events/shipping act   4[32;1m│[36;22m   tab      [mDLQ / Active                              [32;1m│[m                               [90m│[m
+[90m│[m  orders                act 120[32;1m│[36;22m   r        [mresubmit                                  [32;1m│[m                               [90m│[m
 [32;1m├[m [32;1m3 Messages[m  [32;1mDLQ[90;22m│Active[m [32;1m───────│[36;22m   c        [mfinish cleanup                            [32;1m│[m                               [90m│[m
-[32;1m│[39;44m▸ 2 13:00 SchemaMismatch inv-10[32;49m│[36;22m   e        [madd prop                                  [32;1m│[m                               [90m│[m
-[32;1m│[m  3 [90m14:00 [mMaxDeliveryCo…[90m inv-10[32;1m│[36;22m   E        [medit body                                 [32;1m│[m                               [90m│[m
-[32;1m│[m  4 [90m15:00 [mDownstreamTim…[90m inv-10[32;1m│[36;22m   x        [mdiscard edits                             [32;1m│[m                               [90m│[m
+[32;1m│[39;44m▸ 2 13:00 SchemaMismatch   inv-[32;49m│[36;22m   e        [madd prop                                  [32;1m│[m                               [90m│[m
+[32;1m│[m  3 [90m14:00 [mMaxDeliveryCoun…[90m inv-[32;1m│[36;22m   E        [medit body                                 [32;1m│[m                               [90m│[m
+[32;1m│[m  4 [90m15:00 [mDownstreamTimeo…[90m inv-[32;1m│[36;22m   x        [mdiscard edits                             [32;1m│[m                               [90m│[m
 [32;1m│[m                               [32;1m│[39m Filter (/)[m                                           [32;1m│[m                               [90m│[m
 [32;1m│[m                               [32;1m│[36;22m   enter    [mkeep filter                               [32;1m│[m                               [90m│[m
 [32;1m│[m                               [32;1m│[36;22m   esc      [mclear filter                              [32;1m│[m                               [90m│[m
@@ -25,6 +25,6 @@
 [32;1m│[m                               [32;1m│[36;22m   m        [mMessageId keep/new                        [32;1m│[m                               [90m│[m
 [32;1m│[m                               [32;1m│[39m Edit popup[m                                           [32;1m│[m                               [90m│[m
 [32;1m│[m                               [32;1m└[m [90mtype to filter · esc close[m [32;1m──────────────────────────┘[m                               [90m│[m
-[32;1m│[m                                  [32;1m│[90;22m│[m                                                                                  [90m│[m
-[32;1m└──────────────────────────────────┘[90;22m└──────────────────────────────────────────────────────────────────────────────────┘[m
+[32;1m│[m                                      [32;1m│[90;22m│[m                                                                              [90m│[m
+[32;1m└──────────────────────────────────────┘[90;22m└──────────────────────────────────────────────────────────────────────────────┘[m
  [36mesc[m close  [36m↑[m scroll up  [36m↓[m scroll down                                                                                  

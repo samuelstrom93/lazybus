@@ -33,6 +33,8 @@ lazybus --namespace sb-prod-weu                          # one namespace, az log
 lazybus --connection-string 'Endpoint=sb://…;SharedAccessKeyName=…;SharedAccessKey=…'
 lazybus --emulator                                       # local emulator, ports 5672 / 5300
 lazybus --read-only --namespace sb-prod-weu              # browse and peek only
+lazybus --connection-string "$CS" --entity orders --entity order-events/billing
+                                                         # only these entities: no Manage rights needed
 ```
 
 In lazybus, press `?` for the keybindings and `q` to quit. In the demo: `2` focuses Entities, `j`/`k` and `enter` open `orders`, `3` focuses its dead-letter messages, `r` resubmits the selected message and `y` confirms.
@@ -44,6 +46,7 @@ In lazybus, press `?` for the keybindings and `q` to quit. In the demo: `2` focu
 | `--emulator` | Open the local Service Bus emulator on `localhost` with its development connection string. |
 | `--emulator-amqp-port <n>` | Emulator AMQP port (default 5672). |
 | `--emulator-admin-port <n>` | Emulator admin HTTP port (default 5300). Also used for a `--connection-string` with `UseDevelopmentEmulator=true`. |
+| `--entity <path>` | Open this entity instead of listing the namespace's entities, which needs Manage rights: a queue name, or `topic/subscription`. Repeatable. Needs exactly one of `--connection-string`, `--namespace` or `--emulator`; skips discovery. |
 | `--read-only` | Disable every state-changing key (`r`, `c`). Edits still work: they only change lazybus's memory. |
 | `--demo` | Run against built-in demo data. |
 | `--version` | Print the version and exit. |
@@ -51,13 +54,13 @@ In lazybus, press `?` for the keybindings and `q` to quit. In the demo: `2` focu
 
 ### Permissions
 
-Discovered namespaces and `--namespace` open with the Azure CLI credential, so your account needs a Service Bus data-plane role on them: **Azure Service Bus Data Owner** covers listing, peeking and resubmitting. A SAS connection string needs a rule with **Manage**: a Listen or Send-only rule can't list entities, so lazybus opens it to an `HTTP 401` error. A rejected credential shows as `unauthorized` in the panel and the log.
+Discovered namespaces and `--namespace` open with the Azure CLI credential, so your account needs a Service Bus data-plane role on them: **Azure Service Bus Data Owner** covers listing, peeking and resubmitting. Listing a namespace's entities needs **Manage** rights; without them (for example a SAS rule with Listen and Send) the Entities panel says `listing needs Manage rights (HTTP 401); open entities with --entity <queue|topic/subscription>`. With `--entity` lazybus opens those entities without listing: peek needs Listen, resubmit Listen and Send. Their counts show `?` when the credential can't read them. A resubmit can't read the target either, so it assumes duplicate detection and gives the copy a new MessageId by default (the confirm popup says so; `m` keeps the original), and it can't count a topic's subscriptions. A rejected credential shows as `unauthorized` in the panel and the log.
 
 ### Discovery
 
-Without `--namespace` or `--demo`, lazybus discovers namespaces with the Azure CLI credential: it lists the enabled subscriptions you can read, then each subscription's Service Bus namespaces (four at a time). A subscription shows `loading <name>…` until its list arrives; one that fails shows `<name>: error`, with the error in the log, and the others still load. `--connection-string` and `--emulator` add their namespace on top of the discovered ones and open first; a discovered namespace never opens until you press `enter` on it. With Namespaces focused, the main pane shows the selected namespace's subscription, resource group, SKU, location and auth. A Basic-tier namespace has no topics: its queues list, and the topics error goes to the log.
+Without `--namespace`, `--entity` or `--demo`, lazybus discovers namespaces with the Azure CLI credential: it lists the enabled subscriptions you can read, then each subscription's Service Bus namespaces (four at a time). A subscription shows `loading <name>…` until its list arrives; one that fails shows `<name>: error`, with the error in the log, and the others still load. `--connection-string` and `--emulator` add their namespace on top of the discovered ones and open first; a discovered namespace never opens until you press `enter` on it. With Namespaces focused, the main pane shows the selected namespace's subscription, resource group, SKU, location and auth. A Basic-tier namespace has no topics: its queues list, and the topics error goes to the log.
 
-Entities show their dead-letter and active counts. On the emulator they show `?`: its admin API does not report runtime counts.
+Entities show their active and dead-letter counts (`act 120 DLQ 37`; the active count gives way when the paths need the room). On the emulator they show `?`: its admin API does not report runtime counts.
 
 ### Messages
 
@@ -96,7 +99,7 @@ The status bar confirms each copy (`copied …`). Copy uses OSC 52, so it reache
 | `m` | resubmit popup | Toggle the copy's MessageId between the original and a new one. |
 | `c` | Messages, main pane | Finish Cleanup on a CleanupPending row (confirm popup; nothing is sent). |
 
-After a successful resubmit the cursor stays on the same row, which now holds the next message, so `r y r y …` works down the list. `--read-only` disables `r` and `c`. The Active tab is read-only. While a resubmit or cleanup runs, keys wait, and `ctrl-c` and a closed terminal (SIGHUP) do not quit, so its outcome is never lost.
+After a successful resubmit the cursor stays on the same row, which now holds the next message, so `r y r y …` works down the list. `--read-only` disables `r` and `c`. The Active tab is read-only. While a resubmit or cleanup runs, keys wait, and `ctrl-c` and a closed terminal (SIGHUP) do not quit; `kill` (SIGTERM) quits once the outcome is logged, prints it to stderr, and exits 1 if the message did not get through. Its outcome is never lost.
 
 ### Edit before resubmit
 

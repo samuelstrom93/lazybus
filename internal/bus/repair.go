@@ -187,6 +187,9 @@ type RepairPlan struct {
 	Target             Target
 	Subscriptions      int  // topic targets: number of subscriptions
 	DuplicateDetection bool // the target has RequiresDuplicateDetection
+	// TargetUnknown: the target could not be read (no Manage rights), so
+	// DuplicateDetection is assumed and Subscriptions is not counted.
+	TargetUnknown bool
 	// NewIDByDefault is true when the repair uses a new MessageId unless
 	// the request keeps the original.
 	NewIDByDefault bool
@@ -211,8 +214,9 @@ type RepairResult struct {
 	Target         Target
 	OldMessageID   string
 	NewMessageID   string // equal to OldMessageID when kept; empty for cleanup
-	// Detail is a short reason for the outcome ("already gone", the send
-	// error, …).
+	// Detail is a short, single-line reason for the outcome ("already
+	// gone", the send error cut to its first sentence, …); the full error
+	// is in Err and the Log.
 	Detail string
 	// NotFound says which NotFound this is; only set with Outcome NotFound.
 	NotFound NotFoundCause
@@ -276,6 +280,11 @@ type TargetInfo struct {
 	// Subscriptions is the number of subscriptions of a topic, counted by
 	// listing them (runtime properties fail on the emulator).
 	Subscriptions int
+	// Unknown is set by the Service, not the driver, when the driver could
+	// not read the target because the credential has no Manage rights:
+	// Exists and DuplicateDetection are then assumed, Subscriptions is not
+	// counted.
+	Unknown bool
 }
 
 // Locked is a message received in peek-lock by a DeadLetterReceiver.
@@ -346,7 +355,13 @@ func refused(op, format string, args ...any) error {
 
 // guard enforces §6.1 before anything is locked: source is a DLQ, the
 // edits are valid (no Dead-letter Marker among them), the target exists on
-// the same namespace, a topic target has subscriptions.
+// the same namespace, a topic target has subscriptions. A credential
+// without Manage rights (Listen and Send only) can repair but can't read
+// the target: then the target is assumed to exist with duplicate
+// detection, so the copy gets a new MessageId by default (a kept id the
+// target has seen would be dropped while the original is completed, §2).
+// Its subscriptions can't be counted; the target is the parent topic of
+// the source subscription, so it has at least that one.
 func (s *Service) guard(ctx context.Context, op string, req RepairRequest) (Target, TargetInfo, error) {
 	if req.SubQueue != DeadLetter {
 		return Target{}, TargetInfo{}, refused(op, "repair only from a dead-letter queue")
@@ -359,13 +374,16 @@ func (s *Service) guard(ctx context.Context, op string, req RepairRequest) (Targ
 		return Target{}, TargetInfo{}, refused(op, "%v", err)
 	}
 	info, err := s.d.TargetInfo(ctx, req.Namespace, t)
+	if KindOf(err) == ErrUnauthorized {
+		info, err = TargetInfo{Exists: true, DuplicateDetection: true, Unknown: true}, nil
+	}
 	if err != nil {
 		return t, info, err
 	}
 	if !info.Exists {
 		return t, info, refused(op, "target %s %s does not exist", t.Kind, t.Name)
 	}
-	if t.Kind == TargetTopic && info.Subscriptions == 0 {
+	if t.Kind == TargetTopic && !info.Unknown && info.Subscriptions == 0 {
 		return t, info, refused(op, "topic %s has no subscriptions: the copy would be dropped and the original deleted", t.Name)
 	}
 	return t, info, nil
@@ -404,17 +422,24 @@ func (s *Service) PlanRepair(ctx context.Context, req RepairRequest) (RepairPlan
 		return p, err
 	}
 	p.Target, p.Subscriptions, p.DuplicateDetection = t, info.Subscriptions, info.DuplicateDetection
+	p.TargetUnknown = info.Unknown
 	p.NewIDByDefault = info.DuplicateDetection
 	p.NewMessageID = req.NewMessageID
 	if p.NewMessageID == "" {
 		p.NewMessageID = s.newID()
 	}
 	if t.Kind == TargetTopic {
-		p.Warnings = append(p.Warnings, fmt.Sprintf(
-			"fans out to %d subscription%s: delivered only to subscriptions whose rules match; no match = dropped",
-			info.Subscriptions, plural(info.Subscriptions)))
+		subs := fmt.Sprintf("%d subscription%s", info.Subscriptions, plural(info.Subscriptions))
+		if info.Unknown {
+			subs = "an unknown number of subscriptions (no Manage rights)"
+		}
+		p.Warnings = append(p.Warnings, "fans out to "+subs+": delivered only to subscriptions whose rules match; no match = dropped")
 	}
-	if info.DuplicateDetection {
+	switch {
+	case info.Unknown:
+		p.Warnings = append(p.Warnings,
+			"duplicate detection unknown (no Manage rights): new MessageId by default; the original MessageId may be dropped as a duplicate")
+	case info.DuplicateDetection:
 		p.Warnings = append(p.Warnings, fmt.Sprintf(
 			"%s has duplicate detection: a copy with the original MessageId may be dropped as a duplicate", t.Name))
 	}
@@ -523,10 +548,10 @@ func (s *Service) repair(ctx context.Context, rcv DeadLetterReceiver, req Repair
 		res.Err = err
 		if definite {
 			res.logf(true, "send %s seq %d → %s %s (%s) → rejected: %s", src, req.SequenceNumber, t.Kind, t.Name, ids, errMsg(err))
-			res.Outcome, res.Detail = SendFailed, errMsg(err)
+			res.Outcome, res.Detail = SendFailed, shortDetail(err)
 		} else {
 			res.logf(true, "send %s seq %d → %s %s (%s) → uncertain: %s", src, req.SequenceNumber, t.Kind, t.Name, ids, errMsg(err))
-			res.Outcome, res.Detail = SendUncertain, errMsg(err)
+			res.Outcome, res.Detail = SendUncertain, shortDetail(err)
 		}
 		s.abandon(ctx, rcv, res, []Locked{match})
 		return nil
@@ -536,7 +561,7 @@ func (s *Service) repair(ctx context.Context, rcv DeadLetterReceiver, req Repair
 	// §6 step 3.5: complete the original.
 	if err := s.complete(ctx, rcv, res, match); err != nil {
 		res.Err = err
-		res.Outcome, res.Detail = CleanupPending, errMsg(err)
+		res.Outcome, res.Detail = CleanupPending, shortDetail(err)
 		return nil
 	}
 	res.Outcome = Resubmitted
@@ -766,6 +791,77 @@ func errMsg(err error) string {
 		return be.Msg
 	}
 	return err.Error()
+}
+
+// maxDetail caps RepairResult.Detail, so the SendFailed status line fits
+// 120 columns; the full error is in the command log.
+const maxDetail = 56
+
+// shortDetail is the reason a status bar shows for a failed send or
+// complete: the first sentence of the error, cut to maxDetail. An AMQP
+// error wrapped by the SDK ("(unauthorized): *Error{Condition:
+// amqp:unauthorized-access, Description: Unauthorized access. 'Send'
+// claim(s) are required…", S4) becomes its kind and the first sentence of
+// the description that does more than repeat the condition.
+func shortDetail(err error) string {
+	msg := strings.Join(strings.Fields(errMsg(err)), " ")
+	head, desc, wrapped := strings.Cut(msg, "Description: ")
+	if !wrapped {
+		return cut(firstSentence(msg, ""), maxDetail)
+	}
+	desc, _, _ = strings.Cut(desc, ", Info: ")
+	desc = strings.TrimSuffix(desc, "}")
+	prefix := KindOf(err).String()
+	if KindOf(err) == ErrUnknown {
+		_, cond, _ := strings.Cut(head, "Condition: ")
+		prefix, _, _ = strings.Cut(cond, ",")
+	}
+	switch s := firstSentence(desc, letters(head)); {
+	case prefix == "":
+		prefix = s
+	case s != "":
+		prefix += ": " + s
+	}
+	return cut(prefix, maxDetail)
+}
+
+// firstSentence returns the first sentence of s, without its period, that
+// is not just a restatement of skip (compared as letters only); the first
+// sentence when every one is.
+func firstSentence(s, skip string) string {
+	sentences := strings.Split(s, ". ")
+	for _, st := range sentences {
+		st = strings.TrimSuffix(strings.TrimSpace(st), ".")
+		if l := letters(st); l != "" && !strings.Contains(skip, l) {
+			return st
+		}
+	}
+	return strings.TrimSuffix(strings.TrimSpace(sentences[0]), ".")
+}
+
+// letters is s lowercased, without anything but ASCII letters.
+func letters(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if r >= 'a' && r <= 'z' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// cut caps s at n runes, the last one an ellipsis, at a word boundary
+// when there is one in the second half.
+func cut(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	s = string(r[:n-1])
+	if i := strings.LastIndex(s, " "); i > len(s)/2 {
+		s = s[:i]
+	}
+	return strings.TrimRight(s, " ") + "…"
 }
 
 // seqList formats sequence numbers in order, runs collapsed: "2-4,7".

@@ -49,7 +49,8 @@ const (
 	subAll = "lazybus-e2e-all"     // $Default rule (true filter)
 	subOff = "lazybus-e2e-shipped" // eventType = 'OrderShipped'
 
-	listenRule = "lazybus-e2e-listen" // Listen-only SAS rule on qMain
+	listenRule     = "lazybus-e2e-listen"      // Listen-only SAS rule on qMain
+	listenSendRule = "lazybus-e2e-listen-send" // Listen+Send SAS rule on qMain
 )
 
 // loc is a queue or a topic subscription of the test namespace.
@@ -670,7 +671,7 @@ func TestAzure(t *testing.T) {
 		// A Listen-only SAS rule can peek and receive but not send: the
 		// repair's send is a definite rejection → SendFailed, nothing
 		// changed.
-		key := e.listenOnlyRule(t)
+		key := e.queueRule(t, listenRule, admin.AccessRightListen)
 		listen := azure.New()
 		defer listen.Close(context.Background())
 		lns, err := listen.AddConnectionString("Endpoint=sb://"+e.fqdn+"/;SharedAccessKeyName="+listenRule+";SharedAccessKey="+key, 0)
@@ -710,6 +711,60 @@ func TestAzure(t *testing.T) {
 		}
 		if n := len(peekAll(t, e.b, e.ns, q.entity(), bus.Active)); n != 0 {
 			t.Fatalf("%s has %d active after SendFailed", q, n)
+		}
+	})
+
+	t.Run("listen+send rule with --entity", func(t *testing.T) {
+		// Without Manage: no listing, no target info; --entity opens the
+		// queue, and the repair goes through with a new MessageId.
+		q := queue(qMain)
+		key := e.queueRule(t, listenSendRule, admin.AccessRightListen, admin.AccessRightSend)
+		ls := azure.New()
+		defer ls.Close(context.Background())
+		lns, err := ls.AddConnectionString("Endpoint=sb://"+e.fqdn+"/;SharedAccessKeyName="+listenSendRule+";SharedAccessKey="+key, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		e.drainAll(t, q)
+		e.seedDLQ(t, q, seed.QueueMessages()[:2])
+		before := peekAll(t, e.b, e.ns, q.entity(), bus.DeadLetter)
+		eventually(t, 60*time.Second, func() string { // the new rule takes a moment
+			ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
+			defer cancel()
+			if _, err := ls.Peek(ctx, bus.PeekRequest{Namespace: lns, Entity: q.entity(), SubQueue: bus.DeadLetter}); err != nil {
+				return "listen+send peek: " + err.Error()
+			}
+			return ""
+		})
+		ctx, cancel := context.WithTimeout(context.Background(), repairTimeout)
+		defer cancel()
+		if _, err := ls.ListEntities(ctx, lns); bus.KindOf(err) != bus.ErrUnauthorized || !strings.Contains(err.Error(), "--entity") {
+			t.Errorf("list entities: %v, want unauthorized with the --entity hint", err)
+		} else {
+			t.Logf("list entities → %v", err)
+		}
+		if err := ls.UseEntities(lns, []bus.Entity{q.entity()}); err != nil {
+			t.Fatal(err)
+		}
+		ents, err := ls.ListEntities(ctx, lns)
+		if err != nil || len(ents) != 1 || ents[0] != q.entity() {
+			t.Fatalf("--entity list: %+v, %v (counts unknown without Manage)", ents, err)
+		}
+		r := repairReq(lns, q.entity(), before[0].SequenceNumber)
+		p, err := ls.PlanRepair(ctx, r)
+		if err != nil || !p.TargetUnknown || !p.NewIDByDefault || !p.Found {
+			t.Fatalf("plan: %+v, %v", p, err)
+		}
+		r.NewMessageID = p.NewMessageID
+		res := doRepair(t, ls, r)
+		if res.Outcome != bus.Resubmitted || res.OldMessageID != before[0].MessageID || res.NewMessageID != p.NewMessageID {
+			t.Fatalf("repair: %v (%s), %s → %s", res.Outcome, res.Detail, res.OldMessageID, res.NewMessageID)
+		}
+		if _, ok := findByID(peekAll(t, e.b, e.ns, q.entity(), bus.Active), p.NewMessageID); !ok {
+			t.Fatalf("no copy with MessageId %s in %s", p.NewMessageID, q)
+		}
+		if n := len(peekAll(t, e.b, e.ns, q.entity(), bus.DeadLetter)); n != 1 {
+			t.Fatalf("%s/$DLQ: 2 → %d", q, n)
 		}
 	})
 
@@ -779,9 +834,9 @@ func pageAll(t *testing.T, b *azure.Backend, ns bus.Namespace, ent bus.Entity, s
 	}
 }
 
-// listenOnlyRule sets a Listen-only SAS rule with a fresh random key on
-// qMain and returns the key. The key stays in memory.
-func (e *azEnv) listenOnlyRule(t *testing.T) string {
+// queueRule sets name as the only SAS rule of qMain, with rights and a
+// fresh random key, and returns the key. The key stays in memory.
+func (e *azEnv) queueRule(t *testing.T, name string, rights ...admin.AccessRight) string {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
 	defer cancel()
@@ -792,8 +847,8 @@ func (e *azEnv) listenOnlyRule(t *testing.T) string {
 	key := randomKey(t)
 	props := q.QueueProperties
 	props.AuthorizationRules = []admin.AuthorizationRule{{
-		KeyName:      ptr(listenRule),
-		AccessRights: []admin.AccessRight{admin.AccessRightListen},
+		KeyName:      ptr(name),
+		AccessRights: rights,
 		PrimaryKey:   &key,
 		SecondaryKey: ptr(randomKey(t)),
 	}}

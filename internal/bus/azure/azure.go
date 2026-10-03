@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -69,6 +70,9 @@ type conn struct {
 	client   *azservicebus.Client
 	admin    *admin.Client
 	emulator bool // never call runtime-properties APIs (S−1: they fail or panic)
+	// entities, when set (--entity), is the entity list: nothing is
+	// listed, which needs Manage rights.
+	entities []bus.Entity
 
 	mu        sync.Mutex
 	receivers map[receiverKey]*azservicebus.Receiver
@@ -224,6 +228,19 @@ func (b *Backend) conn(ns bus.Namespace) (*conn, error) {
 	return nil, &bus.Error{Kind: bus.ErrNotFound, Op: "open namespace", Msg: fmt.Sprintf("namespace %q is not configured", ns.Name)}
 }
 
+// UseEntities makes ents the entity list of ns instead of listing its
+// entities, which needs Manage rights: a credential with Listen and Send
+// only can still peek and repair them (--entity).
+func (b *Backend) UseEntities(ns bus.Namespace, ents []bus.Entity) error {
+	c, err := b.conn(ns)
+	if err != nil {
+		return err
+	}
+	c.entities = slices.Clone(ents)
+	sort.Slice(c.entities, func(i, j int) bool { return c.entities[i].Path < c.entities[j].Path })
+	return nil
+}
+
 // Namespaces implements bus.Discovery: the configured namespaces, not the
 // ones discovery added.
 func (b *Backend) Namespaces(ctx context.Context) ([]bus.Namespace, error) {
@@ -245,11 +262,14 @@ func (b *Backend) Namespaces(ctx context.Context) ([]bus.Namespace, error) {
 // sorted by path. Topics are not listed (they have no dead-letter queue).
 // When the queues list but the topics or their subscriptions don't (a
 // Basic-tier namespace has no topics), the queues come back with a
-// *bus.PartialError.
+// *bus.PartialError. Entities given with UseEntities are not listed.
 func (b *Backend) ListEntities(ctx context.Context, ns bus.Namespace) ([]bus.Entity, error) {
 	c, err := b.conn(ns)
 	if err != nil {
 		return nil, err
+	}
+	if c.entities != nil {
+		return c.namedEntities(ctx)
 	}
 	var out []bus.Entity
 	err = Safe("list entities "+ns.Name, func() error {
@@ -258,7 +278,7 @@ func (b *Backend) ListEntities(ctx context.Context, ns bus.Namespace) ([]bus.Ent
 		return err
 	})
 	if err != nil {
-		return nil, err
+		return nil, manageHint(err)
 	}
 	var subs []bus.Entity
 	var partial error
@@ -281,6 +301,52 @@ func (b *Backend) ListEntities(ctx context.Context, ns bus.Namespace) ([]bus.Ent
 		return out[i].Kind < out[j].Kind
 	})
 	return out, partial
+}
+
+// namedEntities returns the entities given with UseEntities, with the
+// runtime counts of each where the credential may read them; without
+// Manage rights (or on the emulator) counts stay unknown.
+func (c *conn) namedEntities(ctx context.Context) ([]bus.Entity, error) {
+	out := slices.Clone(c.entities)
+	if c.emulator {
+		return out, nil
+	}
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(maxParallelTopics)
+	for i := range out {
+		e := &out[i]
+		g.Go(func() error {
+			_ = Safe("get runtime properties "+e.Path, func() error {
+				var active, dead int32
+				switch e.Kind {
+				case bus.KindQueue:
+					q, err := c.admin.GetQueueRuntimeProperties(gctx, e.Path, nil)
+					if err != nil || q == nil { // (nil, nil) for a missing entity
+						return err
+					}
+					active, dead = q.ActiveMessageCount, q.DeadLetterMessageCount
+				case bus.KindSubscription:
+					i := strings.LastIndex(e.Path, "/")
+					if i <= 0 {
+						return nil
+					}
+					s, err := c.admin.GetSubscriptionRuntimeProperties(gctx, e.Path[:i], e.Path[i+1:], nil)
+					if err != nil || s == nil {
+						return err
+					}
+					active, dead = s.ActiveMessageCount, s.DeadLetterMessageCount
+				}
+				e.CountsKnown, e.ActiveCount, e.DeadLetterCount = true, int64(active), int64(dead)
+				return nil
+			})
+			return nil
+		})
+	}
+	_ = g.Wait()
+	if err := ctx.Err(); err != nil {
+		return nil, mapErr("list entities "+c.ns.Name, err)
+	}
+	return out, nil
 }
 
 // maxParallelTopics bounds the concurrent per-topic subscription listings.

@@ -1,30 +1,30 @@
-[90m┌[m 1 Namespaces [90m────────────────────┐┌[m [1mBody[90;22m │ Properties │ System[m [90m──────────────────────────────────────────────────────┐[m
-[90m│[m▸ sb-prod-weu                     [90m││[m {                                                                                [90m│[m
-[90m│[m  sb-test-weu                     [90m││[m   "orderId": 4002,                                                               [90m│[m
-[90m├[m 2 Entities [90m──────────────────────┤│[m   "status": "pending",                                                           [90m│[m
-[90m│[m  invoices                  [33mDLQ  3[90m││[m   "customer": null,                                                              [90m│[m
-[90m│[m  order-events/billing      [33mDLQ 12[90m││[m   "items": [                                                                     [90m│[m
-[90m│[m  order-events/shipping     [90mDLQ  0││[m     {                                                                            [90m│[m
-[90m│[m▸ orders                    [33mDLQ 37[90m││[m       "sku": "A-100",                                                            [90m│[m
-[32;1m├[m [32;1m3 Messages[m  [32;1mDLQ[90;22m│Active[m [32;1m──────────┤[90;22m│[m       "qty": 2                                                                   [90m│[m
-[32;1m│[39;44m▸  2 06:00 SchemaMismat… ord-4002 [32;49m│[90;22m│[m     },                                                                           [90m│[m
-[32;1m│[m   3 [90m07:00 [mMaxDeliveryC…[90m ord-4003[m [32;1m│[90;22m│[m     {                                                                            [90m│[m
-[32;1m│[m   4 [90m08:00 [mDownstreamTi…[90m ord-4004[m [32;1m│[90;22m│[m       "sku": "B-220",                                                            [90m│[m
-[32;1m│[m   5 [90m09:00 [mSchemaMismat…[90m ord-4005[m [32;1m│[90;22m│[m       "qty": 1                                                                   [90m│[m
-[32;1m│[m   6 [90m10:00 [mPoisonMessage[90m ord-400[32;1m┌[m [32;1mWorking[m [32;1m───────────────────────────────────────────┐[m                                [90m│[m
-[32;1m│[m   7 [90m11:00 [mSchemaMismat…[90m ord-400[32;1m│[36;22m ⠋ [mresubmitting orders/$DLQ seq 2 → queue orders…   [32;1m│[m                                [90m│[m
-[32;1m│[m   8 [90m12:00 [mMaxDeliveryC…[90m ord-400[32;1m└[m [90mlocks are released before this returns[m [32;1m────────────┘[m                                [90m│[m
-[32;1m│[m   9 [90m13:00 [mDownstreamTi…[90m ord-4009[m [32;1m│[90;22m│[m                                                                                  [90m│[m
-[32;1m│[m  10 [90m14:00 [mSchemaMismat…[90m ord-4010[m [32;1m│[90;22m│[m                                                                                  [90m│[m
-[32;1m│[m  11 [90m15:00 [mPoisonMessage[90m ord-4011[m [32;1m│[90;22m│[m                                                                                  [90m│[m
-[32;1m│[m  12 [90m16:00 [mSchemaMismat…[90m ord-4012[m [32;1m│[90;22m│[m                                                                                  [90m│[m
-[32;1m│[m  13 [90m17:00 [mMaxDeliveryC…[90m ord-4013[m [32;1m│[90;22m│[m                                                                                  [90m│[m
-[32;1m│[m  14 [90m18:00 [mDownstreamTi…[90m ord-4014[m [32;1m│[90;22m│[m                                                                                  [90m│[m
-[32;1m│[m  15 [90m19:00 [mSchemaMismat…[90m ord-4015[m [32;1m│[90;22m│[m                                                                                  [90m│[m
-[32;1m│[m  16 [90m20:00 [mPoisonMessage[90m ord-4016[m [32;1m│[90;22m├[m Log [90m─────────────────────────────────────────────────────────────────────────────┤[m
-[32;1m│[m  17 [90m21:00 [mSchemaMismat…[90m ord-4017[m [32;1m│[90;22m│ 16:00 [mlist namespaces → 2                                                        [90m│[m
-[32;1m│[m  18 [90m22:00 [mMaxDeliveryC…[90m ord-4018[m [32;1m│[90;22m│ 16:00 [mlist entities sb-prod-weu → 4                                              [90m│[m
-[32;1m│[m  19 [90m23:00 [mDownstreamTi…[90m ord-4019[m [32;1m│[90;22m│ 16:00 [mpeek invoices/$DLQ → 3                                                     [90m│[m
-[32;1m│[m  20 [90m09-20 [mSchemaMismat…[90m ord-4020[m [32;1m│[90;22m│ 16:00 [mpeek orders/$DLQ → 37                                                      [90m│[m
-[32;1m└──────────────────────────────────┘[90;22m└──────────────────────────────────────────────────────────────────────────────────┘[m
+[90m┌[m 1 Namespaces [90m────────────────────────┐┌[m [1mBody[90;22m │ Properties │ System[m [90m──────────────────────────────────────────────────┐[m
+[90m│[m▸ sb-prod-weu                         [90m││[m {                                                                            [90m│[m
+[90m│[m  sb-test-weu                         [90m││[m   "orderId": 4002,                                                           [90m│[m
+[90m├[m 2 Entities [90m──────────────────────────┤│[m   "status": "pending",                                                       [90m│[m
+[90m│[m  invoices              act  12 [33mDLQ  3[90m││[m   "customer": null,                                                          [90m│[m
+[90m│[m  order-events/billing  [90mact   0 [33mDLQ 12[90m││[m   "items": [                                                                 [90m│[m
+[90m│[m  order-events/shipping act   4 [90mDLQ  0││[m     {                                                                        [90m│[m
+[90m│[m▸ orders                act 120 [33mDLQ 37[90m││[m       "sku": "A-100",                                                        [90m│[m
+[32;1m├[m [32;1m3 Messages[m  [32;1mDLQ[90;22m│Active[m [32;1m──────────────┤[90;22m│[m       "qty": 2                                                               [90m│[m
+[32;1m│[39;44m▸  2 06:00 SchemaMismatch   ord-4002  [32;49m│[90;22m│[m     },                                                                       [90m│[m
+[32;1m│[m   3 [90m07:00 [mMaxDeliveryCoun…[90m ord-4003[m  [32;1m│[90;22m│[m     {                                                                        [90m│[m
+[32;1m│[m   4 [90m08:00 [mDownstreamTimeo…[90m ord-4004[m  [32;1m│[90;22m│[m       "sku": "B-220",                                                        [90m│[m
+[32;1m│[m   5 [90m09:00 [mSchemaMismatch  [90m ord-4005[m  [32;1m│[90;22m│[m       "qty": 1                                                               [90m│[m
+[32;1m│[m   6 [90m10:00 [mPoisonMessage   [90m ord-[32;1m┌[m [32;1mWorking[m [32;1m───────────────────────────────────────────┐[m                                [90m│[m
+[32;1m│[m   7 [90m11:00 [mSchemaMismatch  [90m ord-[32;1m│[36;22m ⠋ [mresubmitting orders/$DLQ seq 2 → queue orders…   [32;1m│[m                                [90m│[m
+[32;1m│[m   8 [90m12:00 [mMaxDeliveryCoun…[90m ord-[32;1m└[m [90mlocks are released before this returns[m [32;1m────────────┘[m                                [90m│[m
+[32;1m│[m   9 [90m13:00 [mDownstreamTimeo…[90m ord-4009[m  [32;1m│[90;22m│[m                                                                              [90m│[m
+[32;1m│[m  10 [90m14:00 [mSchemaMismatch  [90m ord-4010[m  [32;1m│[90;22m│[m                                                                              [90m│[m
+[32;1m│[m  11 [90m15:00 [mPoisonMessage   [90m ord-4011[m  [32;1m│[90;22m│[m                                                                              [90m│[m
+[32;1m│[m  12 [90m16:00 [mSchemaMismatch  [90m ord-4012[m  [32;1m│[90;22m│[m                                                                              [90m│[m
+[32;1m│[m  13 [90m17:00 [mMaxDeliveryCoun…[90m ord-4013[m  [32;1m│[90;22m│[m                                                                              [90m│[m
+[32;1m│[m  14 [90m18:00 [mDownstreamTimeo…[90m ord-4014[m  [32;1m│[90;22m│[m                                                                              [90m│[m
+[32;1m│[m  15 [90m19:00 [mSchemaMismatch  [90m ord-4015[m  [32;1m│[90;22m│[m                                                                              [90m│[m
+[32;1m│[m  16 [90m20:00 [mPoisonMessage   [90m ord-4016[m  [32;1m│[90;22m├[m Log [90m─────────────────────────────────────────────────────────────────────────┤[m
+[32;1m│[m  17 [90m21:00 [mSchemaMismatch  [90m ord-4017[m  [32;1m│[90;22m│ 16:00 [mlist namespaces → 2                                                    [90m│[m
+[32;1m│[m  18 [90m22:00 [mMaxDeliveryCoun…[90m ord-4018[m  [32;1m│[90;22m│ 16:00 [mlist entities sb-prod-weu → 4                                          [90m│[m
+[32;1m│[m  19 [90m23:00 [mDownstreamTimeo…[90m ord-4019[m  [32;1m│[90;22m│ 16:00 [mpeek invoices/$DLQ → 3                                                 [90m│[m
+[32;1m│[m  20 [90m09-20 [mSchemaMismatch  [90m ord-4020[m  [32;1m│[90;22m│ 16:00 [mpeek orders/$DLQ → 37                                                  [90m│[m
+[32;1m└──────────────────────────────────────┘[90;22m└──────────────────────────────────────────────────────────────────────────────┘[m
                                                                                                                         

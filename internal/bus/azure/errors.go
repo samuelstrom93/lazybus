@@ -119,6 +119,19 @@ func classify(err error) (bus.ErrorKind, string) {
 	return bus.ErrUnknown, brief(err.Error())
 }
 
+// manageHint adds what to do to an entity listing the namespace refused
+// with HTTP 401/403: listing needs Manage rights, which a Listen and Send
+// credential lacks although it can peek and repair (S4).
+func manageHint(err error) error {
+	var be *bus.Error
+	var re *azcore.ResponseError
+	if !errors.As(err, &be) || be.Kind != bus.ErrUnauthorized || !errors.As(err, &re) {
+		return err
+	}
+	be.Msg = fmt.Sprintf("listing needs Manage rights (HTTP %d); open entities with --entity <queue|topic/subscription>", re.StatusCode)
+	return be
+}
+
 // maxMsg caps an error message; the UI truncates further to fit.
 const maxMsg = 300
 

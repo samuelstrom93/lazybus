@@ -32,7 +32,7 @@ func (m Model) layout() layout {
 	w, h := m.width, m.height
 	frameH := h - 1 // options bar
 	var l layout
-	l.leftW = max(26, min(40, w*3/10))
+	l.leftW = max(26, min(48, w/3))
 	l.mainW = w - l.leftW
 	l.logRows = max(2, min(5, frameH/7))
 	l.mainRows = max(1, frameH-3-l.logRows)
@@ -247,30 +247,60 @@ func (m Model) entityRows(width, n int) []string {
 	if m.openNS == nil {
 		empty = "open a namespace"
 	}
-	digits := 1
+	digits, actDigits := 1, 1
 	for _, e := range m.entities.all {
 		if e.CountsKnown {
 			digits = max(digits, len(strconv.FormatInt(e.DeadLetterCount, 10)))
+			actDigits = max(actDigits, len(strconv.FormatInt(e.ActiveCount, 10)))
 		}
 	}
+	// cursor(2) path " " ["act " N " "] "DLQ " N. The active column gives
+	// way when it would cut the path below minEntityPathW (80×24), or cut
+	// any path that fits without it. Decided over all rows, so the columns
+	// stay aligned.
 	countW := len("DLQ ") + digits
-	pathW := max(1, width-2-1-countW)
+	actW := len("act ") + actDigits + 1
+	fullW := width - 2 - 1 - countW
+	pathW := fullW - actW
+	showActive := pathW >= minEntityPathW
+	for _, e := range m.entities.all {
+		if pw := ansi.StringWidth(sanitize(e.Path)); pw > pathW && pw <= fullW {
+			showActive = false
+			break
+		}
+	}
+	if !showActive {
+		pathW = fullW
+	}
+	pathW = max(1, pathW)
 	return listRows(m.entities, m.stack.Root() == CtxEntities, width, n,
 		listStatus(m.entities, empty),
 		func(e bus.Entity) []seg {
-			// Unknown counts (emulator) show "?", never a made-up 0.
-			count, text := stWarn, "?"
-			if e.CountsKnown {
-				text = strconv.FormatInt(e.DeadLetterCount, 10)
+			segs := []seg{{fitPlain(e.Path, pathW) + " ", stPlain}}
+			if showActive {
+				text, st := countText(e, e.ActiveCount, stPlain)
+				segs = append(segs, seg{"act " + padLeft(text, actDigits) + " ", st})
 			}
-			if !e.CountsKnown || e.DeadLetterCount == 0 {
-				count = stDim
-			}
-			return []seg{
-				{fitPlain(e.Path, pathW) + " ", stPlain},
-				{"DLQ " + padLeft(text, digits), count},
-			}
+			text, st := countText(e, e.DeadLetterCount, stWarn)
+			return append(segs, seg{"DLQ " + padLeft(text, digits), st})
 		})
+}
+
+// minEntityPathW is the narrowest path column the Entities panel keeps
+// before it drops the active count.
+const minEntityPathW = 12
+
+// countText is a runtime count of e and its style: nonzero in st, 0 and
+// unknown dimmed. Unknown counts (emulator, no Manage rights) show "?",
+// never a made-up 0.
+func countText(e bus.Entity, n int64, st lipgloss.Style) (string, lipgloss.Style) {
+	if !e.CountsKnown {
+		return "?", stDim
+	}
+	if n == 0 {
+		st = stDim
+	}
+	return strconv.FormatInt(n, 10), st
 }
 
 func (m Model) messageRows(width, n int) []string {

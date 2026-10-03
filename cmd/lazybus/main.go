@@ -40,6 +40,9 @@ type config struct {
 	emulatorAMQPPort  int
 	emulatorAdminPort int
 	readOnly          bool
+	// entities (--entity) replace the entity listing of the one namespace
+	// opened; nil lists them.
+	entities []bus.Entity
 }
 
 const usageHead = `lazybus: a terminal UI for Azure Service Bus dead-letter queues.
@@ -49,7 +52,9 @@ Usage:
   lazybus [flags]
 
 Without --namespace, --connection-string, --emulator or --demo, lazybus
-discovers your namespaces from az login.
+discovers your namespaces from az login. With --entity it opens only the
+entities named, without listing them (listing needs Manage rights) and
+without discovery.
 
 Examples:
   lazybus                                   discover namespaces from az login
@@ -58,6 +63,8 @@ Examples:
   lazybus --emulator                        the local Service Bus emulator (ports 5672 / 5300)
   lazybus --demo                            built-in demo data, no Azure
   lazybus --read-only --namespace sb-prod   browse and peek only: r and c are off
+  lazybus --connection-string "$CS" --entity orders --entity order-events/billing
+                                            only these entities: works without Manage rights
 
 Flags:
 `
@@ -80,6 +87,13 @@ func parseFlags(args []string, stdout, stderr io.Writer, getenv func(string) str
 	fs.IntVar(&c.emulatorAMQPPort, "emulator-amqp-port", azure.DefaultEmulatorAMQPPort, "emulator AMQP port")
 	fs.IntVar(&c.emulatorAdminPort, "emulator-admin-port", azure.DefaultEmulatorAdminPort, "emulator admin (HTTP) port")
 	fs.BoolVar(&c.readOnly, "read-only", false, "disable every state-changing key (r resubmit, c finish cleanup)")
+	fs.Func("entity", "open entity `path` (queue or topic/subscription) instead of listing the entities, which needs Manage rights; repeatable; needs exactly one of --connection-string, --namespace or --emulator", func(s string) error {
+		e, err := bus.ParseEntity(s)
+		if err == nil {
+			c.entities = append(c.entities, e)
+		}
+		return err
+	})
 	usage := func(w io.Writer) {
 		fmt.Fprint(w, usageHead)
 		fs.SetOutput(w)
@@ -101,6 +115,25 @@ func parseFlags(args []string, stdout, stderr io.Writer, getenv func(string) str
 	}
 	if c.connectionString == "" {
 		c.connectionString = getenv("LAZYBUS_CONNECTION_STRING")
+	}
+	if len(c.entities) > 0 {
+		opened := 0
+		for _, set := range []bool{c.connectionString != "", c.namespace != "", c.emulator} {
+			if set {
+				opened++
+			}
+		}
+		var msg string
+		switch {
+		case opened == 0:
+			msg = "--entity needs --connection-string, --namespace or --emulator"
+		case opened > 1:
+			msg = "--entity needs exactly one of --connection-string (or LAZYBUS_CONNECTION_STRING), --namespace or --emulator"
+		}
+		if msg != "" {
+			fmt.Fprintf(stderr, "lazybus: %s (see lazybus --help)\n", msg)
+			return c, errors.New(msg)
+		}
 	}
 	return c, nil
 }
@@ -141,9 +174,10 @@ func versionString() string {
 
 // backend builds the bus backend for c. newCred creates the az CLI
 // credential, used for --namespace or for ARM discovery, which
-// runs unless --namespace or --demo is given (spec §4, §7: discovered
-// namespaces plus any --connection-string/--emulator entry). The returned
-// close func releases connections.
+// runs unless --namespace, --entity or --demo is given (spec §4, §7:
+// discovered namespaces plus any --connection-string/--emulator entry).
+// With --entity, the one namespace opened gets c.entities instead of a
+// listing. The returned close func releases connections.
 func backend(c config, newCred func() (azcore.TokenCredential, error)) (bus.Backend, func(), error) {
 	if c.demo {
 		return fake.New(fake.WithDiscovery()), func() {}, nil
@@ -158,15 +192,31 @@ func backend(c config, newCred func() (azcore.TokenCredential, error)) (bus.Back
 		closeFn()
 		return nil, nil, err
 	}
+	// opened is the namespace --entity applies to (parseFlags allows one).
+	var opened bus.Namespace
 	if c.emulator {
-		if _, err := b.AddConnectionString(azure.EmulatorConnectionString("localhost", c.emulatorAMQPPort), c.emulatorAdminPort); err != nil {
+		ns, err := b.AddConnectionString(azure.EmulatorConnectionString("localhost", c.emulatorAMQPPort), c.emulatorAdminPort)
+		if err != nil {
 			return fail(err)
 		}
+		opened = ns
 	}
 	if c.connectionString != "" {
-		if _, err := b.AddConnectionString(c.connectionString, c.emulatorAdminPort); err != nil {
+		ns, err := b.AddConnectionString(c.connectionString, c.emulatorAdminPort)
+		if err != nil {
 			return fail(err)
 		}
+		opened = ns
+	}
+	useEntities := func() (bus.Backend, func(), error) {
+		if err := b.UseEntities(opened, c.entities); err != nil {
+			return fail(err)
+		}
+		return b, closeFn, nil
+	}
+	if len(c.entities) > 0 && c.namespace == "" {
+		// No discovery, so no az credential needed.
+		return useEntities()
 	}
 	raw, err := newCred()
 	if err != nil {
@@ -180,11 +230,16 @@ func backend(c config, newCred func() (azcore.TokenCredential, error)) (bus.Back
 	// One token per scope shared by every client, not one az run each.
 	cred := azure.CachedCredential(raw)
 	if c.namespace != "" {
-		if _, err := b.AddNamespace(c.namespace, cred); err != nil {
+		ns, err := b.AddNamespace(c.namespace, cred)
+		if err != nil {
 			return fail(err)
 		}
+		opened = ns
 	} else {
 		b.EnableDiscovery(cred)
+	}
+	if len(c.entities) > 0 {
+		return useEntities()
 	}
 	return b, closeFn, nil
 }
@@ -212,9 +267,30 @@ func main() {
 	}
 	defer closeFn()
 	m := ui.New(be, ui.Options{ReadOnly: c.readOnly})
-	if _, err := tea.NewProgram(m).Run(); err != nil {
+	final, err := tea.NewProgram(m, tea.WithFilter(ui.Filter)).Run()
+	if code := exitCode(final, err, os.Stderr); code != 0 {
 		closeFn()
-		fmt.Fprintln(os.Stderr, "lazybus:", err)
-		os.Exit(1)
+		os.Exit(code)
 	}
+}
+
+// exitCode reports how the program ended, after the terminal is restored:
+// the outcome of a call a signal's quit waited for (ui.Filter), which the
+// alt screen no longer shows, and the program's error. 1 when either
+// failed.
+func exitCode(final tea.Model, runErr error, stderr io.Writer) int {
+	code := 0
+	if m, ok := final.(ui.Model); ok {
+		if text, failed := m.ExitReport(); text != "" {
+			fmt.Fprintln(stderr, text)
+			if failed {
+				code = 1
+			}
+		}
+	}
+	if runErr != nil {
+		fmt.Fprintln(stderr, "lazybus:", runErr)
+		code = 1
+	}
+	return code
 }

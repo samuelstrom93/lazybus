@@ -1,18 +1,23 @@
 package ui
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/charmbracelet/x/exp/teatest/v2"
 
 	"github.com/samuelstrom93/lazybus/internal/bus"
 	"github.com/samuelstrom93/lazybus/internal/bus/fake"
@@ -29,6 +34,15 @@ func dlqCount(m Model, path string) int64 {
 	for _, e := range m.entities.items {
 		if e.Path == path {
 			return e.DeadLetterCount
+		}
+	}
+	return -1
+}
+
+func activeCount(m Model, path string) int64 {
+	for _, e := range m.entities.items {
+		if e.Path == path {
+			return e.ActiveCount
 		}
 	}
 	return -1
@@ -67,6 +81,7 @@ func TestRepairRYRYWalksTheList(t *testing.T) {
 	be := fake.New()
 	m := onOrders(t, be)
 	third := m.messages.items[2].SequenceNumber
+	active := activeCount(m, "orders")
 
 	m = keysIn(t, m, "r")
 	if m.stack.Top() != CtxConfirm {
@@ -78,6 +93,9 @@ func TestRepairRYRYWalksTheList(t *testing.T) {
 	}
 	if got := dlqCount(m, "orders"); got != 35 {
 		t.Fatalf("Entities DLQ count = %d, want 35", got)
+	}
+	if got := activeCount(m, "orders"); got != active+2 {
+		t.Fatalf("Entities active count = %d, want %d", got, active+2)
 	}
 	if got := len(be.Messages("sb-prod-weu", "orders", bus.KindQueue, bus.DeadLetter)); got != 35 {
 		t.Fatalf("broker DLQ has %d, want 35", got)
@@ -149,9 +167,11 @@ func TestRepairFromMainPane(t *testing.T) {
 func TestRepairPreCheckError(t *testing.T) {
 	be := fake.New()
 	m := onOrders(t, be)
-	be.SetFault(fake.OpTargetInfo, fake.Fault{Err: &bus.Error{Kind: bus.ErrUnauthorized, Op: "get queue orders", Msg: "401 Unauthorized"}})
+	// (An unauthorized target read is not an error: no Manage rights, see
+	// confirm-no-manage.)
+	be.SetFault(fake.OpTargetInfo, fake.Fault{Err: &bus.Error{Kind: bus.ErrThrottled, Op: "get queue orders", Msg: "HTTP 503 ServerBusy"}})
 	m = keysIn(t, m, "r")
-	if !m.stack.AtRoot() || m.status.level != statusErr || !strings.Contains(m.status.text, "401 Unauthorized") || !hasLog(m, "401 Unauthorized") {
+	if !m.stack.AtRoot() || m.status.level != statusErr || !strings.Contains(m.status.text, "HTTP 503 ServerBusy") || !hasLog(m, "HTTP 503 ServerBusy") {
 		t.Fatalf("top %v status %+v", m.stack.Top(), m.status)
 	}
 	if len(m.messages.items) != 37 {
@@ -280,7 +300,7 @@ func TestRepairLockLostAndSendFailedKeepRow(t *testing.T) {
 			if len(m.messages.items) != 37 || selectedSeq(t, m) != seq || len(m.marks) != 0 || dlqCount(m, "orders") != 37 {
 				t.Fatalf("%d rows, seq %d, marks %v", len(m.messages.items), selectedSeq(t, m), m.marks)
 			}
-			if !strings.HasPrefix(m.status.text, name+":") || !hasLog(m, "→ orders  "+name) {
+			if !strings.HasPrefix(m.status.text, name) || !hasLog(m, "→ orders  "+name) {
 				t.Fatalf("status %q log %+v", m.status.text, m.log)
 			}
 		})
@@ -371,7 +391,7 @@ func TestRepairHoldsHangupWhileRunning(t *testing.T) {
 			t.Error(err)
 		}
 		<-sink                            // delivered
-		time.Sleep(20 * time.Millisecond) // to every channel, holdHangup's too
+		time.Sleep(20 * time.Millisecond) // to every channel, holdSignals's too
 		sent = true
 	}})
 	m = keysIn(t, m, "r", "y")
@@ -383,6 +403,172 @@ func TestRepairHoldsHangupWhileRunning(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the held SIGHUP was not sent again after the call")
 	}
+}
+
+func TestFilterDefersQuitDuringCall(t *testing.T) {
+	m := onOrders(t, fake.New())
+	if got := Filter(m, tea.QuitMsg{}); got != (tea.QuitMsg{}) {
+		t.Fatalf("idle: QuitMsg became %T", got)
+	}
+
+	// Confirm a Repair and hold its call: the batch is (call, spinner tick).
+	next, cmd := keysIn(t, m, "r").Update(press("y"))
+	m = next.(Model)
+	for _, msg := range []tea.Msg{tea.QuitMsg{}, tea.InterruptMsg{}} {
+		if _, ok := Filter(m, msg).(deferredQuitMsg); !ok {
+			t.Fatalf("during the call: %T not deferred", msg)
+		}
+	}
+	if got := Filter(m, tea.WindowSizeMsg{Width: 120, Height: 30}); got != (tea.WindowSizeMsg{Width: 120, Height: 30}) {
+		t.Fatalf("during the call: WindowSizeMsg became %T", got)
+	}
+	next, _ = m.Update(Filter(m, tea.QuitMsg{}))
+	m = next.(Model)
+	if m.status.text != "quit after the call finishes" {
+		t.Fatalf("status %q", m.status.text)
+	}
+
+	// The outcome is logged, then the program quits.
+	next, quit := m.Update(cmd().(tea.BatchMsg)[0]())
+	m = next.(Model)
+	if quit == nil {
+		t.Fatal("no quit after the outcome")
+	}
+	if msg := quit(); msg != (tea.QuitMsg{}) {
+		t.Fatalf("after the outcome: %T, want QuitMsg", msg)
+	}
+	if last := m.log[len(m.log)-1].text; !strings.Contains(last, "Resubmitted") {
+		t.Fatalf("last log line %q", last)
+	}
+}
+
+// TestExitReportAfterDeferredQuit: the deferred call's outcome outlives the
+// alt screen, and fails the exit when the message did not reach its end
+// state.
+func TestExitReportAfterDeferredQuit(t *testing.T) {
+	if text, _ := onOrders(t, fake.New()).ExitReport(); text != "" {
+		t.Fatalf("no deferred quit: report %q", text)
+	}
+	for _, tc := range []struct {
+		name   string
+		fault  fake.Fault
+		want   []string
+		failed bool
+	}{
+		{"Resubmitted", fake.Fault{}, []string{
+			"lazybus quit after the call finished: Resubmitted orders/$DLQ seq 2 → queue orders",
+			"\n  send orders/$DLQ seq 2 → queue orders",
+			"\n  resubmit orders/$DLQ seq 2 → orders  Resubmitted",
+		}, false},
+		{"SendFailed", fake.Fault{Err: &bus.Error{Kind: bus.ErrUnauthorized, Msg: "unauthorized: 'Send' claim(s) are required to perform this operation. TrackingId:7f3a"}, Definite: true}, []string{
+			"lazybus quit after the call finished: SendFailed (nothing changed): queue orders rejected the copy",
+			"TrackingId:7f3a", // the full error, not the short detail
+		}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			be := fake.New()
+			m := onOrders(t, be)
+			be.SetFault(fake.OpSend, tc.fault)
+			next, cmd := keysIn(t, m, "r").Update(press("y"))
+			m = next.(Model)
+			m = run(t, m, Filter(m, tea.QuitMsg{}))
+			next, _ = m.Update(cmd().(tea.BatchMsg)[0]())
+			text, failed := next.(Model).ExitReport()
+			for _, w := range tc.want {
+				if !strings.Contains(text, w) {
+					t.Errorf("report lacks %q:\n%s", w, text)
+				}
+			}
+			if failed != tc.failed {
+				t.Errorf("failed = %v, want %v", failed, tc.failed)
+			}
+		})
+	}
+}
+
+// TestRepairSIGTERMWaitsForOutcome runs the real program: SIGTERMs sent
+// during the call (the first reaches Bubble Tea's handler, the second only
+// holdSignals) end the program only after the outcome is in. It runs in a
+// child process, so a SIGTERM that is not held kills the child, not the
+// test binary.
+func TestRepairSIGTERMWaitsForOutcome(t *testing.T) {
+	if os.Getenv("LAZYBUS_SIGTERM_CHILD") != "1" {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestRepairSIGTERMWaitsForOutcome$", "-test.count=1", "-test.v")
+		cmd.Env = append(os.Environ(), "LAZYBUS_SIGTERM_CHILD=1")
+		out, err := cmd.CombinedOutput()
+		if err != nil || !strings.Contains(string(out), "--- PASS: TestRepairSIGTERMWaitsForOutcome") {
+			t.Fatalf("child: %v\n%s", err, out)
+		}
+		return
+	}
+
+	be := fake.New()
+	var sent atomic.Bool
+	be.SetFault(fake.OpSend, fake.Fault{Hook: func() {
+		for range 2 {
+			if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+				t.Error(err)
+			}
+			time.Sleep(100 * time.Millisecond) // the quit arrives mid-call
+		}
+		sent.Store(true)
+	}})
+	out := &syncBuffer{}
+	p := tea.NewProgram(New(be, testOptions()),
+		tea.WithInput(bytes.NewBuffer(nil)),
+		tea.WithOutput(out),
+		tea.WithWindowSize(120, 30),
+		tea.WithFilter(Filter),
+	)
+	done := make(chan tea.Model, 1)
+	go func() {
+		final, err := p.Run()
+		if err != nil {
+			t.Error(err)
+		}
+		done <- final
+	}()
+	shows := func(text string) {
+		t.Helper()
+		teatest.WaitFor(t, out, func(b []byte) bool {
+			return strings.Contains(strings.Join(strings.Fields(ansi.Strip(string(b))), ""), text)
+		}, teatest.WithDuration(5*time.Second), teatest.WithCheckInterval(10*time.Millisecond))
+	}
+	shows("peekinvoices/$DLQ→3")
+	p.Send(press("3"))
+	p.Send(press("r"))
+	shows("┌Resubmit─")
+	p.Send(press("y"))
+
+	select {
+	case final := <-done:
+		m := final.(Model)
+		if !sent.Load() || !strings.HasPrefix(m.status.text, "Resubmitted") {
+			t.Fatalf("quit before the outcome: sent %v status %q", sent.Load(), m.status.text)
+		}
+	case <-time.After(10 * time.Second):
+		p.Kill()
+		t.Fatal("the program did not quit after the outcome")
+	}
+}
+
+// syncBuffer is a bytes.Buffer safe for the program's writes and the
+// test's reads.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) Read(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Read(p)
 }
 
 func TestRepairRefusesUnsupportedBody(t *testing.T) {
@@ -404,6 +590,7 @@ func TestRepairCleanupPendingThenFinishCleanup(t *testing.T) {
 	m := onOrders(t, be)
 	seq := selectedSeq(t, m)
 	be.SetFault(fake.OpComplete, fake.Fault{Err: errors.New("link detached")})
+	active := activeCount(m, "orders")
 	m = keysIn(t, m, "r", "y")
 	if mark, ok := m.markOf(seq); !ok || mark.outcome != bus.CleanupPending || dlqCount(m, "orders") != 37 {
 		t.Fatalf("mark %v %v count %d", mark, ok, dlqCount(m, "orders"))
@@ -423,6 +610,9 @@ func TestRepairCleanupPendingThenFinishCleanup(t *testing.T) {
 	m = keysIn(t, m, "y")
 	if len(m.messages.items) != 36 || selectedSeq(t, m) == seq || len(m.marks) != 0 || dlqCount(m, "orders") != 36 {
 		t.Fatalf("after Cleaned: %d rows, marks %v, count %d", len(m.messages.items), m.marks, dlqCount(m, "orders"))
+	}
+	if got := activeCount(m, "orders"); got != active {
+		t.Fatalf("Finish Cleanup changed the active count: %d, want %d", got, active)
 	}
 	for _, e := range be.Events() {
 		if e.Op == fake.OpSend {
@@ -540,6 +730,12 @@ func TestRepairGoldens(t *testing.T) {
 		}},
 		{"confirm-dedup", func(t *testing.T) Model { return keysIn(t, startWith(t, fake.New()), "3", "r") }},
 		{"confirm-dedup-keep", func(t *testing.T) Model { return keysIn(t, startWith(t, fake.New()), "3", "r", "m") }},
+		{"confirm-no-manage", func(t *testing.T) Model {
+			// Listen+Send only: the target can't be read (HTTP 401).
+			be := fake.New()
+			be.SetFault(fake.OpTargetInfo, fake.Fault{Err: &bus.Error{Kind: bus.ErrUnauthorized, Op: "get topic order-events", Msg: "HTTP 401"}})
+			return keysIn(t, startWith(t, be), "2", "j", "enter", "r")
+		}},
 		{"executing", func(t *testing.T) Model {
 			m := keysIn(t, onOrders(t, fake.New()), "r")
 			next, _ := m.Update(press("y"))
@@ -568,6 +764,14 @@ func TestRepairGoldens(t *testing.T) {
 			be := fake.New()
 			m := onOrders(t, be)
 			sendFault(rejected, true)(be)
+			return keysIn(t, m, "r", "y")
+		}},
+		{"outcome-sendfailed-unauthorized", func(t *testing.T) Model {
+			// S4: a Listen-only rule; the SDK's whole text goes to the log.
+			be := fake.New()
+			m := onOrders(t, be)
+			sendFault(&bus.Error{Kind: bus.ErrUnauthorized, Op: "send to orders",
+				Msg: "(unauthorized): *Error{Condition: amqp:unauthorized-access, Description: Unauthorized access. 'Send' claim(s) are required to perform this operation. Resource: 'sb://sb-prod-weu.servicebus.windows.net/orders'"}, true)(be)
 			return keysIn(t, m, "r", "y")
 		}},
 		{"outcome-senduncertain", func(t *testing.T) Model {

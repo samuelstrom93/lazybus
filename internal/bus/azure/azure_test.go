@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -109,6 +110,42 @@ func TestUnknownNamespace(t *testing.T) {
 	_, err := New().ListEntities(context.Background(), bus.Namespace{Name: "x", FQDN: "x.servicebus.windows.net"})
 	if bus.KindOf(err) != bus.ErrNotFound {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestUseEntities(t *testing.T) {
+	b := New()
+	defer b.Close(context.Background())
+	ns, err := b.AddConnectionString(EmulatorConnectionString("localhost", 5682), 5310)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []bus.Entity{{Path: "orders", Kind: bus.KindQueue}, {Path: "order-events/billing", Kind: bus.KindSubscription}}
+	if err := b.UseEntities(ns, want); err != nil {
+		t.Fatal(err)
+	}
+	// Nothing is listed (no network): the named entities, sorted, with
+	// unknown counts on the emulator.
+	got, err := b.ListEntities(context.Background(), ns)
+	if err != nil || !reflect.DeepEqual(got, []bus.Entity{want[1], want[0]}) {
+		t.Fatalf("entities %+v, %v", got, err)
+	}
+	if err := b.UseEntities(bus.Namespace{Name: "x", FQDN: "x"}, want); bus.KindOf(err) != bus.ErrNotFound {
+		t.Fatalf("unknown namespace: %v", err)
+	}
+}
+
+func TestManageHint(t *testing.T) {
+	err := manageHint(mapErr("list entities sb-prod-weu", &azcore.ResponseError{StatusCode: 401}))
+	if bus.KindOf(err) != bus.ErrUnauthorized || err.Error() !=
+		"list entities sb-prod-weu: listing needs Manage rights (HTTP 401); open entities with --entity <queue|topic/subscription>" {
+		t.Fatalf("401: %v", err)
+	}
+	// Not the namespace refusing: no hint.
+	for _, e := range []error{errors.New("AzureCLICredential: please run az login"), &azcore.ResponseError{StatusCode: 404}} {
+		if err := manageHint(mapErr("list entities", e)); strings.Contains(err.Error(), "Manage") {
+			t.Errorf("%v: %v", e, err)
+		}
 	}
 }
 

@@ -1,30 +1,30 @@
-[90m┌[m 1 Namespaces [90m────────────────────┐[m[90m┌[m [1mBody[m[90m │ [m[90mProperties[m[90m │ [m[90mSystem[m [90m──────────────────────────────────────────────────────┐[m
-[90m│[m▸ sb-prod-weu                     [90m│[m[90m│[m ERR|order=2006|payload=QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo0QUJDREVGR0hJSktMTU5PU [90m│[m
-[90m│[m  sb-test-weu                     [90m│[m[90m│[m FFSU1RVVldYWVo0QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo0QUJDREVGR0hJSktMTU5PUFFSU1RVV [90m│[m
-[90m├[m 2 Entities [90m──────────────────────┤[m[90m│[m ldYWVo0QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo0QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo0Q [90m│[m
-[90m│[m  invoices                  [33mDLQ  3[m[90m│[m[90m│[m UJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo0QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo0QUJDREVGR [90m│[m
-[90m│[m▸ order-events/billing      [33mDLQ 12[m[90m│[m[90m│[m 0hJSktMTU5PUFFSU1RVVldYWVo0|end                                                  [90m│[m
-[90m│[m  order-events/shipping     [90mDLQ  0[m[90m│[m[90m│[m                                                                                  [90m│[m
-[90m│[m  orders                    [33mDLQ 37[m[90m│[m[90m│[m                                                                                  [90m│[m
-[1;32m├[m [1;32m3 Messages[m  [1;32mDLQ[m[90m│[m[90mActive[m [1;32m──────────┤[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m   2 [90m09:00 [mSchemaMismat…[90m bil-2002[m [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m   3 [90m10:00 [mMaxDeliveryC…[90m bil-2003[m [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m   4 [90m11:00 [mDownstreamTi…[90m bil-2004[m [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m   5 [90m12:00 [mSchemaMismat…[90m bil-2005[m [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m[1;44m▸ [m[1;44m 6 [m[1;44m13:00 [m[1;44mPoisonMessage[m[1;44m bil-2006[m[1;44m [m[1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m   7 [90m14:00 [mSchemaMismat…[90m bil-2007[m [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m   8 [90m15:00 [mMaxDeliveryC…[90m bil-2008[m [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m   9 [90m16:00 [mDownstreamTi…[90m bil-2009[m [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m  10 [90m17:00 [mSchemaMismat…[90m bil-2010[m [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m  11 [90m18:00 [mPoisonMessage[90m bil-2011[m [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m  12 [90m19:00 [mSchemaMismat…[90m bil-2012[m [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m  13 [90m20:00 [mMaxDeliveryC…[90m bil-2013[m [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m                                  [1;32m│[m[90m├[m Log [90m─────────────────────────────────────────────────────────────────────────────┤[m
-[1;32m│[m                                  [1;32m│[m[90m│[m[90m 16:00 [mlist namespaces → 2                                                        [90m│[m
-[1;32m│[m                                  [1;32m│[m[90m│[m[90m 16:00 [mlist entities sb-prod-weu → 4                                              [90m│[m
-[1;32m│[m                                  [1;32m│[m[90m│[m[90m 16:00 [mpeek invoices/$DLQ → 3                                                     [90m│[m
-[1;32m│[m                                  [1;32m│[m[90m│[m[90m 16:00 [mpeek order-events/billing/$DLQ → 12                                        [90m│[m
-[1;32m└──────────────────────────────────┘[m[90m└──────────────────────────────────────────────────────────────────────────────────┘[m
+[90m┌[m 1 Namespaces [90m────────────────────────┐[m[90m┌[m [1mBody[m[90m │ [m[90mProperties[m[90m │ [m[90mSystem[m [90m──────────────────────────────────────────────────┐[m
+[90m│[m▸ sb-prod-weu                         [90m│[m[90m│[m ERR|order=2006|payload=QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo0QUJDREVGR0hJSktMT [90m│[m
+[90m│[m  sb-test-weu                         [90m│[m[90m│[m U5PUFFSU1RVVldYWVo0QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo0QUJDREVGR0hJSktMTU5PU [90m│[m
+[90m├[m 2 Entities [90m──────────────────────────┤[m[90m│[m FFSU1RVVldYWVo0QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo0QUJDREVGR0hJSktMTU5PUFFSU [90m│[m
+[90m│[m  invoices              act  12 [33mDLQ  3[m[90m│[m[90m│[m 1RVVldYWVo0QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo0QUJDREVGR0hJSktMTU5PUFFSU1RVV [90m│[m
+[90m│[m▸ order-events/billing  [90mact   0 [m[33mDLQ 12[m[90m│[m[90m│[m ldYWVo0QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo0|end                              [90m│[m
+[90m│[m  order-events/shipping act   4 [90mDLQ  0[m[90m│[m[90m│[m                                                                              [90m│[m
+[90m│[m  orders                act 120 [33mDLQ 37[m[90m│[m[90m│[m                                                                              [90m│[m
+[1;32m├[m [1;32m3 Messages[m  [1;32mDLQ[m[90m│[m[90mActive[m [1;32m──────────────┤[m[90m│[m                                                                              [90m│[m
+[1;32m│[m   2 [90m09:00 [mSchemaMismatch  [90m bil-2002[m  [1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m│[m   3 [90m10:00 [mMaxDeliveryCoun…[90m bil-2003[m  [1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m│[m   4 [90m11:00 [mDownstreamTimeo…[90m bil-2004[m  [1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m│[m   5 [90m12:00 [mSchemaMismatch  [90m bil-2005[m  [1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m│[m[1;44m▸ [m[1;44m 6 [m[1;44m13:00 [m[1;44mPoisonMessage   [m[1;44m bil-2006[m[1;44m  [m[1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m│[m   7 [90m14:00 [mSchemaMismatch  [90m bil-2007[m  [1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m│[m   8 [90m15:00 [mMaxDeliveryCoun…[90m bil-2008[m  [1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m│[m   9 [90m16:00 [mDownstreamTimeo…[90m bil-2009[m  [1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m│[m  10 [90m17:00 [mSchemaMismatch  [90m bil-2010[m  [1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m│[m  11 [90m18:00 [mPoisonMessage   [90m bil-2011[m  [1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m│[m  12 [90m19:00 [mSchemaMismatch  [90m bil-2012[m  [1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m│[m  13 [90m20:00 [mMaxDeliveryCoun…[90m bil-2013[m  [1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m│[m                                      [1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m│[m                                      [1;32m│[m[90m│[m                                                                              [90m│[m
+[1;32m│[m                                      [1;32m│[m[90m├[m Log [90m─────────────────────────────────────────────────────────────────────────┤[m
+[1;32m│[m                                      [1;32m│[m[90m│[m[90m 16:00 [mlist namespaces → 2                                                    [90m│[m
+[1;32m│[m                                      [1;32m│[m[90m│[m[90m 16:00 [mlist entities sb-prod-weu → 4                                          [90m│[m
+[1;32m│[m                                      [1;32m│[m[90m│[m[90m 16:00 [mpeek invoices/$DLQ → 3                                                 [90m│[m
+[1;32m│[m                                      [1;32m│[m[90m│[m[90m 16:00 [mpeek order-events/billing/$DLQ → 12                                    [90m│[m
+[1;32m└──────────────────────────────────────┘[m[90m└──────────────────────────────────────────────────────────────────────────────┘[m
  [36mtab[m DLQ / Active  [36mr[m resubmit  [36me[m add prop  [36mE[m edit body  [36m[ ][m tab  [36m/[m filter  [36m:[m jump  [36m?[m keybindings  [36mq[m quit                

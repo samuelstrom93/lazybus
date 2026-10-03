@@ -6,6 +6,8 @@ package bus
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -74,6 +76,22 @@ type Entity struct {
 	CountsKnown     bool
 	ActiveCount     int64
 	DeadLetterCount int64
+}
+
+// ParseEntity parses an entity path as --entity takes it: "queue" or
+// "topic/subscription", the kind told by the '/'. Queue and topic names
+// with a '/' in them can't be given this way.
+func ParseEntity(path string) (Entity, error) {
+	topic, sub, isSub := strings.Cut(path, "/")
+	switch {
+	case path == "":
+		return Entity{}, errors.New("empty entity path")
+	case !isSub:
+		return Entity{Path: path, Kind: KindQueue}, nil
+	case topic == "" || sub == "" || strings.Contains(sub, "/"):
+		return Entity{}, fmt.Errorf("%q: want queue or topic/subscription", path)
+	}
+	return Entity{Path: path, Kind: KindSubscription}, nil
 }
 
 // SubQueue selects the active queue or the dead-letter queue of an entity.

@@ -174,7 +174,8 @@ func screen(m tea.Model) string { return ansi.Strip(m.View().Content) }
 func checkUI(t *testing.T, b *azure.Backend, ents []bus.Entity, queue bus.Entity) {
 	t.Helper()
 	var m tea.Model = ui.New(b, ui.Options{Location: time.UTC, CallTimeout: opTimeout})
-	m = drive(t, m, tea.WindowSizeMsg{Width: 120, Height: 30})
+	// 130 wide: the main pane shows the dead-letter description in full.
+	m = drive(t, m, tea.WindowSizeMsg{Width: 130, Height: 30})
 	m = runCmds(m, m.Init())
 	if s := screen(m); !strings.Contains(s, "DLQ ?") || !strings.Contains(s, "emulator") {
 		t.Fatalf("entity list without ? counts:\n%s", s)

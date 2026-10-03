@@ -240,7 +240,11 @@ type Model struct {
 	pending map[markKey]pending
 	editRev int
 	busy    busyState // the busy popup (CtxBusy)
-	spin    spinner.Model
+	// quitAfterCall is the quit (tea.Quit or tea.Interrupt) a signal asked
+	// for during a state-changing call; run once the outcome is in.
+	quitAfterCall tea.Cmd
+	exit          exitReport // the outcome of that call, for ExitReport
+	spin          spinner.Model
 
 	// lines caches the main pane content of the selected message, so a
 	// large body is not re-formatted on every keystroke. A pointer: the
@@ -496,7 +500,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m, cmd = m.planDone(msg)
 
 	case repairDoneMsg:
+		start := len(m.log)
 		m, cmd = m.repairDone(msg)
+		if m.quitAfterCall != nil {
+			m.exit = m.exitReport(msg, start)
+			cmd = m.quitAfterCall
+		}
+
+	case deferredQuitMsg:
+		m.quitAfterCall = msg.quit
+		m.setStatus(statusWarn, "quit after the call finishes")
 
 	case editorDoneMsg:
 		m = m.editorDone(msg)
@@ -521,7 +534,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // handleKey routes a key to the top context only.
 func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
-	if key.Matches(msg, keys.ForceQuit) && !(m.stack.Top() == CtxBusy && m.busy.changes) {
+	if key.Matches(msg, keys.ForceQuit) && !m.callRunning() {
 		return m, tea.Quit
 	}
 	switch m.stack.Top() {

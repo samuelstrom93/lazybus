@@ -145,10 +145,11 @@ func (m Model) overlayJump(screen string) string {
 	lines := []string{hBorder(w, "┌", "┐", title, stBorderFocus)}
 	lines = append(lines, boxRow(row([]seg{{" : ", stDim}, {m.jump.query, stPlain}, {"▏", stTitleFocus}}, inner, false), stBorderFocus))
 	lines = append(lines, stBorderFocus.Render("├"+strings.Repeat("─", inner)+"┤"))
-	countW := 1
+	countW, actW := 1, 1
 	for _, e := range matches {
 		if e.CountsKnown {
 			countW = max(countW, len(strconv.FormatInt(e.DeadLetterCount, 10)))
+			actW = max(actW, len(strconv.FormatInt(e.ActiveCount, 10)))
 		}
 	}
 	for i := range n {
@@ -157,11 +158,11 @@ func (m Model) overlayJump(screen string) string {
 		switch {
 		case j < len(matches):
 			e := matches[j]
-			count := "?"
+			act, count := "?", "?"
 			if e.CountsKnown {
-				count = strconv.FormatInt(e.DeadLetterCount, 10)
+				act, count = strconv.FormatInt(e.ActiveCount, 10), strconv.FormatInt(e.DeadLetterCount, 10)
 			}
-			countText := " DLQ " + padLeft(count, countW) + " "
+			countText := " act " + padLeft(act, actW) + " DLQ " + padLeft(count, countW) + " "
 			mark := "  "
 			if j == cursor {
 				mark = "▸ "
