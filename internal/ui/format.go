@@ -14,25 +14,54 @@ import (
 )
 
 // bodyText returns the body as display text: pretty JSON when it parses,
-// raw text otherwise. Tabs become spaces and control characters are dropped
-// so nothing in a message can move the terminal cursor.
+// raw text otherwise. Line structure is kept; each line is sanitized and tabs
+// become spaces, so nothing in a message can move the terminal cursor.
 func bodyText(body []byte) (text string, isJSON bool) {
+	s := string(body)
 	if json.Valid(body) {
 		var b bytes.Buffer
 		if err := json.Indent(&b, body, "", "  "); err == nil {
-			return b.String(), true
+			s, isJSON = b.String(), true
 		}
 	}
-	s := strings.ToValidUTF8(string(body), "�")
 	s = strings.ReplaceAll(s, "\r\n", "\n")
 	s = strings.ReplaceAll(s, "\t", "    ")
-	s = strings.Map(func(r rune) rune {
-		if r == '\n' || r >= 0x20 && r != 0x7f && (r < 0x80 || r > 0x9f) {
-			return r
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	for i, l := range lines {
+		lines[i] = sanitize(l)
+	}
+	return strings.Join(lines, "\n"), isJSON
+}
+
+// sanitize makes external text safe for one screen line: invalid UTF-8 is
+// replaced, line breaks become ⏎, tabs become a space, and other C0 controls,
+// DEL and C1 controls are dropped.
+func sanitize(s string) string {
+	clean := true
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; c < 0x20 || c >= 0x7f {
+			clean = false
+			break
 		}
-		return -1
-	}, s)
-	return strings.TrimRight(s, "\n"), false
+	}
+	if clean {
+		return s
+	}
+	s = strings.ToValidUTF8(s, "\uFFFD")
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r == '\n' || r == '\r':
+			b.WriteRune('⏎')
+		case r == '\t':
+			b.WriteByte(' ')
+		case r < 0x20 || r == 0x7f || r >= 0x80 && r <= 0x9f:
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // wrapLines splits text into lines and wraps each to width cells.

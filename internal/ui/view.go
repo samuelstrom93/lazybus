@@ -219,11 +219,10 @@ func (m Model) messageRows(width, n int) []string {
 		empty = "dead-letter queue is empty"
 	}
 	digits := 1
-	reasonMax, idMax := 0, 0
+	reasonMax := 0
 	for _, msg := range m.messages.items {
 		digits = max(digits, len(strconv.FormatInt(msg.SequenceNumber, 10)))
-		reasonMax = max(reasonMax, ansi.StringWidth(m.rowReason(msg)))
-		idMax = max(idMax, ansi.StringWidth(msg.MessageID))
+		reasonMax = max(reasonMax, ansi.StringWidth(sanitize(m.rowReason(msg))))
 	}
 	// cursor(2) seq " " time(5) " " reason " " id
 	rest := width - 2 - digits - 1 - 5 - 1
@@ -310,11 +309,12 @@ func (m Model) renderMain(l layout) []string {
 
 // fitStyled truncates or pads an already styled line to width cells.
 func fitStyled(s string, width int) string {
-	w := ansi.StringWidth(s)
-	if w > width {
-		return ansi.Truncate(s, width, "…")
+	if ansi.StringWidth(s) > width {
+		s = ansi.Truncate(s, width, "…")
 	}
-	return s + strings.Repeat(" ", width-w)
+	// Measure after truncating: a wide rune that does not fit is dropped
+	// whole, which can leave the line one cell short.
+	return s + strings.Repeat(" ", max(0, width-ansi.StringWidth(s)))
 }
 
 // mainLines is the full content of the main pane for the current tab, one
@@ -354,13 +354,13 @@ func (m Model) propertyLines(msg bus.Message, width int) []string {
 	}
 	var props []prop
 	for _, p := range msg.Properties {
-		props = append(props, prop{p.Key, p.Type.String(), propertyValue(p), false})
+		props = append(props, prop{sanitize(p.Key), p.Type.String(), sanitize(propertyValue(p)), false})
 	}
 	if msg.DeadLetterReason != "" {
-		props = append(props, prop{bus.MarkerDeadLetterReason, bus.TypeString.String(), msg.DeadLetterReason, true})
+		props = append(props, prop{bus.MarkerDeadLetterReason, bus.TypeString.String(), sanitize(msg.DeadLetterReason), true})
 	}
 	if msg.DeadLetterErrorDescription != "" {
-		props = append(props, prop{bus.MarkerDeadLetterErrorDescription, bus.TypeString.String(), msg.DeadLetterErrorDescription, true})
+		props = append(props, prop{bus.MarkerDeadLetterErrorDescription, bus.TypeString.String(), sanitize(msg.DeadLetterErrorDescription), true})
 	}
 	if len(props) == 0 {
 		return []string{" " + stDim.Render("(no application properties)")}
@@ -436,17 +436,8 @@ func (m Model) systemLines(msg bus.Message, width int) []string {
 
 func (m Model) renderOptions() string {
 	var right []seg
-	if m.status != "" {
-		right = append(right, seg{m.status, stWarn})
-	}
 	if m.opts.ReadOnly {
-		if len(right) > 0 {
-			right = append(right, seg{"  ", stPlain})
-		}
-		right = append(right, seg{"READ-ONLY", stReadOnly})
-	}
-	if len(right) > 0 {
-		right = append(right, seg{" ", stPlain})
+		right = []seg{{"READ-ONLY", stReadOnly}, {" ", stPlain}}
 	}
 	rw := segsWidth(right)
 

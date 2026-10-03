@@ -49,11 +49,17 @@ func segsWidth(segs []seg) int {
 
 // renderSegs renders segs into at most width cells; overflow is cut with
 // "…". It returns the rendered string and its width. If bg is set, every
-// segment gets that background.
+// segment gets that background. All segment text is sanitized here, so
+// message data can never reach the terminal as control sequences.
 func renderSegs(segs []seg, width int, bg *lipgloss.Style) (string, int) {
 	if width <= 0 {
 		return "", 0
 	}
+	clean := make([]seg, len(segs))
+	for i, s := range segs {
+		clean[i] = seg{sanitize(s.text), s.style}
+	}
+	segs = clean
 	var b strings.Builder
 	style := func(s seg, text string) string {
 		if bg != nil {
@@ -79,7 +85,11 @@ func renderSegs(segs []seg, width int, bg *lipgloss.Style) (string, int) {
 			remaining -= w
 			continue
 		}
-		b.WriteString(style(s, ansi.Truncate(s.text, remaining-1, "")+"…"))
+		// Measure after truncating: a wide rune that does not fit is
+		// dropped whole, so pad what is left.
+		t := ansi.Truncate(s.text, remaining-1, "") + "…"
+		t += strings.Repeat(" ", max(0, remaining-ansi.StringWidth(t)))
+		b.WriteString(style(s, t))
 		break
 	}
 	return b.String(), width
@@ -103,16 +113,17 @@ func row(segs []seg, width int, selected bool) string {
 	return s
 }
 
-// fitPlain truncates or pads plain text to exactly width cells.
+// fitPlain sanitizes plain text and truncates or pads it to exactly width
+// cells.
 func fitPlain(s string, width int) string {
 	if width <= 0 {
 		return ""
 	}
-	w := ansi.StringWidth(s)
-	if w > width {
-		return ansi.Truncate(s, width-1, "") + "…"
+	s = sanitize(s)
+	if ansi.StringWidth(s) > width {
+		s = ansi.Truncate(s, width-1, "") + "…"
 	}
-	return s + strings.Repeat(" ", width-w)
+	return s + strings.Repeat(" ", max(0, width-ansi.StringWidth(s)))
 }
 
 // padLeft right-aligns plain text in width cells.
