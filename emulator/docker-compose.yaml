@@ -1,0 +1,45 @@
+# Local Azure Service Bus emulator for lazybus (seed data, E2E tests).
+# Host ports differ from the emulator defaults so it can run next to another
+# emulator: AMQP 5682 -> 5672, admin/health HTTP 5310 -> 5300.
+#   cp .env.example .env   # set a strong MSSQL_SA_PASSWORD
+#   docker compose up -d
+name: lazybus-emulator
+
+services:
+  servicebus-emulator:
+    container_name: lazybus-sb-emulator
+    image: mcr.microsoft.com/azure-messaging/servicebus-emulator:latest
+    restart: unless-stopped
+    networks:
+      - lazybus-sb
+    ports:
+      - "5682:5672"  # AMQP (no TLS)
+      - "5310:5300"  # Admin API + /health (HTTP)
+    environment:
+      ACCEPT_EULA: ${ACCEPT_EULA}
+      CONFIG_PATH: /ServiceBus_Emulator/ConfigFiles/Config.json
+      SQL_SERVER: lazybus-sql
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD}
+    volumes:
+      - "./config.json:/ServiceBus_Emulator/ConfigFiles/Config.json"
+    depends_on:
+      - lazybus-sql
+
+  lazybus-sql:
+    container_name: lazybus-sql
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    restart: unless-stopped
+    networks:
+      - lazybus-sb
+    environment:
+      ACCEPT_EULA: ${ACCEPT_EULA}
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD}
+    volumes:
+      - lazybus-sql-data:/var/opt/mssql
+
+networks:
+  lazybus-sb:
+    driver: bridge
+
+volumes:
+  lazybus-sql-data:
