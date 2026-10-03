@@ -2,7 +2,7 @@
 
 A lazygit-style terminal UI for **Azure Service Bus**, built for the on-call moment: open the dead-letter queue, look at the first message, fix it, put it back.
 
-**Status:** pre-release, v0.1 in progress. This build browses and resubmits (slices S1a and S2): it lists the queues and topic subscriptions of a namespace, peeks their dead-letter queues, and moves a dead-lettered message back to its queue or topic unchanged (DLQ Repair). Editing a message before resubmitting comes in a later slice. See [`docs/spec.md`](docs/spec.md) for the plan and [`CONTEXT.md`](CONTEXT.md) for the vocabulary.
+**Status:** pre-release, v0.1 in progress. This build browses and resubmits (slices S1a, S1b and S2): it discovers your namespaces from `az login`, lists their queues and topic subscriptions, peeks dead-letter and active messages, and moves a dead-lettered message back to its queue or topic unchanged (DLQ Repair). Editing a message before resubmitting comes in a later slice. See [`docs/spec.md`](docs/spec.md) for the plan and [`CONTEXT.md`](CONTEXT.md) for the vocabulary.
 
 ## Try it
 
@@ -15,7 +15,8 @@ Press `?` for the keybindings, `q` to quit.
 ## Usage
 
 ```sh
-lazybus --namespace sb-prod-weu.servicebus.windows.net   # az login credential
+lazybus                                                  # discover namespaces from az login
+lazybus --namespace sb-prod-weu.servicebus.windows.net   # one namespace, az login credential, no discovery
 lazybus --connection-string 'Endpoint=sb://…;SharedAccessKeyName=…;SharedAccessKey=…'
 lazybus --emulator                                       # local emulator, ports 5672 / 5300
 lazybus --demo                                           # built-in demo data, no Azure
@@ -23,7 +24,7 @@ lazybus --demo                                           # built-in demo data, n
 
 | Flag | Meaning |
 |---|---|
-| `--namespace <fqdn>` | Open this namespace with the Azure CLI credential (`az login`). A bare name gets `.servicebus.windows.net` appended. |
+| `--namespace <fqdn>` | Open this namespace with the Azure CLI credential (`az login`) and skip discovery. A bare name gets `.servicebus.windows.net` appended. |
 | `--connection-string <cs>` | Open the namespace of a SAS connection string. Also read from `LAZYBUS_CONNECTION_STRING`; the flag wins. |
 | `--emulator` | Open the local Service Bus emulator on `localhost` with its development connection string. |
 | `--emulator-amqp-port <n>` | Emulator AMQP port (default 5672). |
@@ -31,18 +32,34 @@ lazybus --demo                                           # built-in demo data, n
 | `--read-only` | Disable every state-changing key. |
 | `--demo` | Run against built-in demo data. |
 
-The sources combine: each one adds a namespace to the Namespaces panel. Discovering namespaces across subscriptions from `az login` comes in a later slice.
+Without `--namespace` or `--demo`, lazybus discovers namespaces with the Azure CLI credential: it lists the enabled subscriptions you can read, then each subscription's Service Bus namespaces (four at a time). A subscription shows `loading <name>…` until its list arrives; one that fails shows `<name>: error`, with the error in the log, and the others still load. Discovered namespaces open with the same credential, so your account needs a Service Bus data-plane role on them (Azure Service Bus Data Owner covers browsing and resubmitting). `--connection-string` and `--emulator` add their namespace on top of the discovered ones and open first; a discovered namespace never opens until you press `enter` on it. With Namespaces focused, the main pane shows the selected namespace's subscription, resource group, SKU, location and auth. A Basic-tier namespace has no topics: its queues list, and the topics error goes to the log.
 
 On the emulator the DLQ counts show `?`: its admin API does not report runtime counts.
 
-The Messages panel shows 50 messages at a time; moving onto the last row loads the next 50. Every broker call times out after 30 s (a resubmit and its pre-check, which are several calls each, after 2 min); errors show in the panel and the log.
+The Messages panel shows 50 messages at a time, on two tabs: **DLQ** and **Active** (`tab` switches when Messages is focused). The Active tab shows the subject instead of the dead-letter reason and is read-only. On a sessionful entity it says so instead of listing: peeking active messages needs a session lock, which v0.1 does not take; the DLQ tab works.
+
+The panel shows 50 messages at a time; moving onto the last row loads the next 50. Every broker call times out after 30 s (a resubmit and its pre-check, which are several calls each, after 2 min); errors show in the panel and the log.
+
+## Navigation
+
+| Key | Where | Action |
+|---|---|---|
+| `1` `2` `3` / `0` | anywhere | Focus Namespaces, Entities, Messages / the main pane. |
+| `/` | a side panel | Filter the list as you type: a case-insensitive match on the visible columns. The filter shows in the panel title. `enter` keeps it and returns to the list; `esc` (while typing, or on the panel) clears it. It is dropped when the list changes source (another namespace, entity or tab). |
+| `:` | anywhere | Jump to an entity of the open namespace by fuzzy name; `enter` opens its DLQ. |
+| `s` | Entities | Sort by path, or by DLQ count (largest first; `?` counts last). |
+| `R` | the focused panel | Refresh: Namespaces discovers again, Entities lists again (with counts), Messages and the main pane peek again from the start. The cursor keeps its entity, or its message row index. |
+| `y` | main pane tabs, Namespaces | Copy the body (Body tab), the selected property's value (Properties) or field (System); on Namespaces, the FQDN. `j`/`k` move the row cursor on Properties and System when the main pane is focused. |
+| `Y` | anywhere | Copy the selected message's MessageId. |
+
+The status bar confirms each copy (`copied …`). Copy uses OSC 52, so it reaches your local clipboard over SSH when the terminal supports it. Inside tmux, lazybus runs `tmux load-buffer -w -`, which works with tmux's default settings (tmux 3.2 or newer) and sets the tmux buffer too; if that fails it falls back to an OSC 52 sequence wrapped for tmux passthrough, which needs `set -g allow-passthrough on`. The body is copied as stored (raw bytes, not the pretty-printed view).
 
 ## Resubmit (DLQ Repair)
 
 | Key | Where | Action |
 |---|---|---|
 | `r` | Messages, main pane (DLQ tab) | Resubmit the selected message: checks it is still there, then opens a confirm popup. |
-| `y` | confirm popup | Confirm. Only `y` confirms; `enter` does nothing here. |
+| `y` | confirm popup | Confirm. Only `y` confirms; `enter` does nothing here. (Outside a popup `y` copies.) |
 | `n` / `esc` | confirm popup | Cancel. Every other key is ignored: nothing happens until you confirm. |
 | `m` | resubmit popup | Toggle the copy's MessageId between the original and a new one. |
 | `c` | Messages, main pane | Finish Cleanup on a CleanupPending row (confirm popup; nothing is sent). |
