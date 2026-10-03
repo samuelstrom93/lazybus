@@ -76,6 +76,11 @@ type rowMark struct {
 	outcome bus.Outcome
 	source  string
 	target  bus.Target
+	// messageID is the MessageId the attempt sent, and newID whether it
+	// was a new one: a SendUncertain retry reuses it, so a
+	// duplicate-detecting target drops a second copy (spec §6 step 4).
+	messageID string
+	newID     bool
 }
 
 // Messages returned by repair commands.
@@ -236,12 +241,21 @@ func (m Model) planDone(msg planDoneMsg) (Model, tea.Cmd) {
 		newID:     msg.plan.NewIDByDefault,
 		uncertain: marked && mark.outcome == bus.SendUncertain,
 	}
+	if m.confirm.uncertain && msg.kind == confirmRepair {
+		// The retry sends what the uncertain attempt sent.
+		m.confirm.newID = mark.newID
+		if mark.newID {
+			m.confirm.plan.NewMessageID = mark.messageID
+		}
+	}
 	m.stack.Push(CtxConfirm)
 	return m, nil
 }
 
-// handleConfirmKey: y/enter confirm, n/esc cancel, m toggles the
-// MessageId; every other key is ignored, so the popup defaults to cancel.
+// handleConfirmKey: y confirms, n/esc cancel, m toggles the MessageId
+// (not on a SendUncertain retry, which reuses the previous attempt's);
+// every other key, enter included, is ignored, so the popup defaults to
+// cancel (spec §2).
 func (m Model) handleConfirmKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	c := m.confirm
 	switch {
@@ -253,7 +267,7 @@ func (m Model) handleConfirmKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		m.stack.Pop()
 		m.confirm = confirmState{}
 		m.setStatus(statusInfo, "%s canceled; nothing changed", c.kind.op(c.req))
-	case c.kind == confirmRepair && key.Matches(msg, keys.ToggleID):
+	case c.kind == confirmRepair && !c.uncertain && key.Matches(msg, keys.ToggleID):
 		m.confirm.newID = !m.confirm.newID
 	}
 	return m, nil
@@ -276,6 +290,9 @@ func (m Model) execute(c confirmState) (Model, tea.Cmd) {
 	m.stack.Push(CtxBusy)
 	be, timeout := m.be, m.repairTimeout()
 	run := func() tea.Msg {
+		// The outcome must reach the log and the row: a closed terminal
+		// (SIGHUP) waits for the call like ctrl-c does (spec §2).
+		defer holdHangup()()
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 		res, err := call(func() (bus.RepairResult, error) {
@@ -337,6 +354,9 @@ func (m *Model) applyResult(kind confirmKind, req bus.RepairRequest, res bus.Rep
 		level, text = statusOK, fmt.Sprintf("Cleaned: %s seq %d removed; nothing sent", src, req.SequenceNumber)
 	case bus.NotFound:
 		level, text = statusWarn, fmt.Sprintf("NotFound: %s seq %d %s", src, req.SequenceNumber, res.Detail)
+		if res.NotFound == bus.NotFoundScan {
+			text = fmt.Sprintf("NotFound: %s seq %d not reached within the scan limit — may still be in the DLQ; R to refresh", src, req.SequenceNumber)
+		}
 	case bus.LockLost:
 		level, text = statusWarn, fmt.Sprintf("LockLost: nothing changed; %s to retry", retry)
 	case bus.SendFailed:
@@ -359,9 +379,13 @@ func (m *Model) applyResult(kind confirmKind, req bus.RepairRequest, res bus.Rep
 		m.decDLQCount(req)
 		return m.removeRow(req)
 	case bus.NotFound:
+		if res.NotFound == bus.NotFoundScan {
+			return nil // the pre-check saw it: it may still be there
+		}
 		return m.removeRow(req)
 	case bus.SendUncertain, bus.CleanupPending:
-		m.setMark(k, rowMark{outcome: res.Outcome, source: src, target: t})
+		m.setMark(k, rowMark{outcome: res.Outcome, source: src, target: t,
+			messageID: res.NewMessageID, newID: res.NewMessageID != res.OldMessageID})
 	}
 	return nil
 }
@@ -541,14 +565,18 @@ func (m Model) confirmBlocks(inner int) (title string, blocks []confirmBlock, fo
 	field("Body", body, statusInfo, true)
 	field("Edits", "none (properties, Subject and ContentType unchanged)", statusInfo, true)
 	field("Markers", "removed: "+strings.Join(p.MarkersRemoved, ", "), statusInfo, true)
+	same := ""
+	if c.uncertain {
+		same = ", as the previous attempt"
+	}
 	if c.newID {
-		field("MessageId", fmt.Sprintf("new %s (was %s)", p.NewMessageID, p.Message.MessageID), statusInfo, false)
+		field("MessageId", fmt.Sprintf("new %s (was %s)%s", p.NewMessageID, p.Message.MessageID, same), statusInfo, false)
 	} else {
 		level := statusInfo
-		if p.DuplicateDetection {
+		if p.DuplicateDetection && !c.uncertain {
 			level = statusWarn
 		}
-		field("MessageId", "kept "+p.Message.MessageID, level, false)
+		field("MessageId", "kept "+p.Message.MessageID+same, level, false)
 	}
 	field("Scan", p.ScanCost, statusInfo, true)
 	if len(p.Warnings) > 0 || c.uncertain {
@@ -560,11 +588,14 @@ func (m Model) confirmBlocks(inner int) (title string, blocks []confirmBlock, fo
 	if c.uncertain {
 		note("the previous attempt may have delivered a copy — check the target first", statusErr)
 	}
-	keep := "new MessageId"
-	if c.newID {
-		keep = "keep MessageId"
+	footer = []seg{{"y", stKey}, {" resubmit  ", stDim}, {"n", stKey}, {" cancel", stDim}}
+	if !c.uncertain {
+		keep := "new MessageId"
+		if c.newID {
+			keep = "keep MessageId"
+		}
+		footer = append(footer, seg{"  ", stDim}, seg{"m", stKey}, seg{" " + keep, stDim})
 	}
-	footer = []seg{{"y", stKey}, {" resubmit  ", stDim}, {"n", stKey}, {" cancel  ", stDim}, {"m", stKey}, {" " + keep, stDim}}
 	return title, blocks, footer
 }
 

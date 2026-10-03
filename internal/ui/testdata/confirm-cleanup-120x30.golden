@@ -27,4 +27,4 @@
 [32;1m│[m  19 [90m23:00 [mDownstreamTi…[90m ord-4019[m [32;1m│[90;22m│ 16:00 [mabandon orders/$DLQ seq 2 → ok                                             [90m│[m
 [32;1m│[m  20 [90m09-20 [mSchemaMismat…[90m ord-4020[m [32;1m│[90;22m│ 16:00 [31mresubmit orders/$DLQ seq 2 → orders  CleanupPending: link detached[m         [90m│[m
 [32;1m└──────────────────────────────────┘[90;22m└──────────────────────────────────────────────────────────────────────────────────┘[m
- [36my enter[m confirm  [36mn esc[m cancel                                                                                          
+ [36my[m confirm (enter does nothing)  [36mn esc[m cancel                                                                           

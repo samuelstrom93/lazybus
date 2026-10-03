@@ -697,6 +697,9 @@ func (m Model) helpEntries() []helpLine {
 		name = "Main pane"
 	}
 	add(name, contextBindings(root))
+	if root == CtxMessages || root == CtxMain {
+		add("Confirm popup", confirmBindings())
+	}
 	add("Global", globalBindings())
 	return out
 }

@@ -27,4 +27,4 @@
 [32;1m│[m                                  [32;1m│[90;22m│ 16:00 [mpeek invoices/$DLQ → 3                                                     [90m│[m
 [32;1m│[m                                  [32;1m│[90;22m│ 16:00 [mpeek order-events/billing/$DLQ → 12                                        [90m│[m
 [32;1m└──────────────────────────────────┘[90;22m└──────────────────────────────────────────────────────────────────────────────────┘[m
- [36my enter[m confirm  [36mn esc[m cancel  [36mm[m MessageId keep/new                                                                    
+ [36my[m confirm (enter does nothing)  [36mn esc[m cancel  [36mm[m MessageId keep/new                                                     

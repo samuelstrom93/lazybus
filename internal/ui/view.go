@@ -550,7 +550,7 @@ func (m Model) renderOptions() string {
 	}
 	repair := !m.opts.ReadOnly && m.subQueue == bus.DeadLetter
 	bindings := optionsBindings(m.stack.Top(), repair, cleanup && repair)
-	if m.stack.Top() == CtxConfirm && m.confirm.kind == confirmRepair {
+	if m.stack.Top() == CtxConfirm && m.confirm.kind == confirmRepair && !m.confirm.uncertain {
 		bindings = append(bindings, keys.ToggleID)
 	}
 	for i, b := range bindings {

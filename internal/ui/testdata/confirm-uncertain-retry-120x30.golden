@@ -13,12 +13,12 @@
 [32;1m│[m   5 [90m09[32;1m│[90;22m Body       [munchanged, 15 lines, JSON                                                                 [32;1m│[m       [90m│[m
 [32;1m│[m   6 [90m10[32;1m│[90;22m Edits      [mnone (properties, Subject and ContentType unchanged)                                      [32;1m│[m       [90m│[m
 [32;1m│[m   7 [90m11[32;1m│[90;22m Markers    [mremoved: DeadLetterReason, DeadLetterErrorDescription                                     [32;1m│[m       [90m│[m
-[32;1m│[m   8 [90m12[32;1m│[90;22m MessageId  [mkept ord-4002                                                                             [32;1m│[m       [90m│[m
+[32;1m│[m   8 [90m12[32;1m│[90;22m MessageId  [mkept ord-4002, as the previous attempt                                                    [32;1m│[m       [90m│[m
 [32;1m│[m   9 [90m13[32;1m│[90;22m Scan       [mlocks up to 50 messages ahead of it briefly; their DeliveryCount may increase by 1        [32;1m│[m       [90m│[m
 [32;1m│[m  10 [90m14[32;1m│[m                                                                                                      [32;1m│[m       [90m│[m
 [32;1m│[m  11 [90m15[32;1m│[31;22m ! the previous attempt may have delivered a copy — check the target first[m                            [32;1m│[m       [90m│[m
 [32;1m│[m  12 [90m16[32;1m│[m                                                                                                      [32;1m│[m       [90m│[m
-[32;1m│[m  13 [90m17[32;1m└[m [36my[90m resubmit  [36mn[90m cancel  [36mm[90m new MessageId[m [32;1m───────────────────────────────────────────────────────────────┘[m       [90m│[m
+[32;1m│[m  13 [90m17[32;1m└[m [36my[90m resubmit  [36mn[90m cancel[m [32;1m────────────────────────────────────────────────────────────────────────────────┘[m       [90m│[m
 [32;1m│[m  14 [90m18:00 [mDownstreamTi…[90m ord-4014[m [32;1m│[90;22m│[m                                                                                  [90m│[m
 [32;1m│[m  15 [90m19:00 [mSchemaMismat…[90m ord-4015[m [32;1m│[90;22m│[m                                                                                  [90m│[m
 [32;1m│[m  16 [90m20:00 [mPoisonMessage[90m ord-4016[m [32;1m│[90;22m├[m Log [90m─────────────────────────────────────────────────────────────────────────────┤[m
@@ -27,4 +27,4 @@
 [32;1m│[m  19 [90m23:00 [mDownstreamTi…[90m ord-4019[m [32;1m│[90;22m│ 16:00 [mabandon orders/$DLQ seq 2 → ok                                             [90m│[m
 [32;1m│[m  20 [90m09-20 [mSchemaMismat…[90m ord-4020[m [32;1m│[90;22m│ 16:00 [31mresubmit orders/$DLQ seq 2 → orders  SendUncertain: context deadline excee…[90m│[m
 [32;1m└──────────────────────────────────┘[90;22m└──────────────────────────────────────────────────────────────────────────────────┘[m
- [36my enter[m confirm  [36mn esc[m cancel  [36mm[m MessageId keep/new                                                                    
+ [36my[m confirm (enter does nothing)  [36mn esc[m cancel                                                                           

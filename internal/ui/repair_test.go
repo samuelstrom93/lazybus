@@ -3,7 +3,11 @@ package ui
 import (
 	"context"
 	"errors"
+	"os"
+	"os/signal"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -303,6 +307,98 @@ func TestRepairSendUncertainMarksAndWarnsOnRetry(t *testing.T) {
 	}
 }
 
+func TestRepairUncertainRetryReusesMessageID(t *testing.T) {
+	be := fake.New()
+	m := keysIn(t, startWith(t, be), "3") // invoices: duplicate detection
+	seq := selectedSeq(t, m)
+	// The copy is delivered, but the send's answer is lost.
+	be.SetFault(fake.OpSend, fake.Fault{Err: context.DeadlineExceeded, After: true})
+	m = keysIn(t, m, "r", "y")
+	mark, ok := m.markOf(seq)
+	if !ok || mark.outcome != bus.SendUncertain || !mark.newID {
+		t.Fatalf("mark %+v %v", mark, ok)
+	}
+	be.SetFault(fake.OpSend, fake.Fault{})
+	m = keysIn(t, m, "r", "m") // m can't switch away from the previous id
+	if !m.confirm.newID || m.confirm.plan.NewMessageID != mark.messageID {
+		t.Fatalf("retry popup: newID %v id %s, want %s", m.confirm.newID, m.confirm.plan.NewMessageID, mark.messageID)
+	}
+	m = keysIn(t, m, "y")
+	active := be.Messages("sb-prod-weu", "invoices", bus.KindQueue, bus.Active)
+	copies := 0
+	for _, a := range active {
+		if a.MessageID == mark.messageID {
+			copies++
+		}
+	}
+	if copies != 1 {
+		t.Fatalf("%d copies with MessageId %s, want 1 (the target drops the duplicate)", copies, mark.messageID)
+	}
+	if _, ok := m.markOf(seq); ok {
+		t.Fatal("mark kept after a successful retry")
+	}
+}
+
+func TestRepairScanNotFoundKeepsRow(t *testing.T) {
+	be := fake.New()
+	m := keysIn(t, onOrders(t, be), "j", "j", "j", "j", "j", "j", "j", "j", "j", "j", "j", "j")
+	seq := selectedSeq(t, m)
+	// Every lock expires inside the safety margin: the scan stops after
+	// the first batch, before row 12.
+	be.SetLockDuration(5 * time.Second)
+	m = keysIn(t, m, "r", "y")
+	want := "NotFound: orders/$DLQ seq " + strconv.FormatInt(seq, 10) + " not reached within the scan limit — may still be in the DLQ; R to refresh"
+	if m.status.text != want {
+		t.Fatalf("status %q", m.status.text)
+	}
+	if len(m.messages.items) != 37 || selectedSeq(t, m) != seq || dlqCount(m, "orders") != 37 {
+		t.Fatalf("row removed: %d rows, on %d", len(m.messages.items), selectedSeq(t, m))
+	}
+}
+
+func TestRepairHoldsHangupWhileRunning(t *testing.T) {
+	// The test's own sink keeps a SIGHUP from killing the test binary; it
+	// sees the signal sent mid-call and the one sent again after the call.
+	sink := make(chan os.Signal, 4)
+	signal.Notify(sink, syscall.SIGHUP)
+	defer signal.Stop(sink)
+
+	be := fake.New()
+	m := onOrders(t, be)
+	var sent bool
+	be.SetFault(fake.OpSend, fake.Fault{Hook: func() {
+		if err := syscall.Kill(os.Getpid(), syscall.SIGHUP); err != nil {
+			t.Error(err)
+		}
+		<-sink                            // delivered
+		time.Sleep(20 * time.Millisecond) // to every channel, holdHangup's too
+		sent = true
+	}})
+	m = keysIn(t, m, "r", "y")
+	if !sent || len(m.messages.items) != 36 || !strings.HasPrefix(m.status.text, "Resubmitted") {
+		t.Fatalf("repair did not finish: sent %v status %q", sent, m.status.text)
+	}
+	select {
+	case <-sink:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the held SIGHUP was not sent again after the call")
+	}
+}
+
+func TestRepairRefusesUnsupportedBody(t *testing.T) {
+	be := fake.New()
+	m := onOrders(t, be)
+	be.SetUnsupported("sb-prod-weu", "orders", bus.KindQueue, selectedSeq(t, m), "AMQP value body")
+	be.ResetEvents()
+	m = keysIn(t, m, "r")
+	if !m.stack.AtRoot() || !strings.Contains(m.status.text, "unsupported AMQP body/message-id; not repaired (AMQP value body)") {
+		t.Fatalf("top %v status %q", m.stack.Top(), m.status.text)
+	}
+	if len(be.Events()) != 0 || len(m.messages.items) != 37 {
+		t.Fatalf("events %v, %d rows", be.Events(), len(m.messages.items))
+	}
+}
+
 func TestRepairCleanupPendingThenFinishCleanup(t *testing.T) {
 	be := fake.New()
 	m := onOrders(t, be)
@@ -375,8 +471,8 @@ func TestConfirmDefaultsToCancel(t *testing.T) {
 	be := fake.New()
 	m := keysIn(t, onOrders(t, be), "r")
 	be.ResetEvents()
-	m = keysIn(t, m, "j", "x", "q", "2", "c")
-	if m.stack.Top() != CtxConfirm || m.messages.cursor != 0 {
+	m = keysIn(t, m, "j", "x", "q", "2", "c", "enter")
+	if m.stack.Top() != CtxConfirm || m.messages.cursor != 0 || len(be.Events()) != 0 {
 		t.Fatalf("keys leaked past the confirm popup: top %v cursor %d", m.stack.Top(), m.messages.cursor)
 	}
 	for _, k := range []string{"n", "esc"} {
@@ -455,6 +551,12 @@ func TestRepairGoldens(t *testing.T) {
 			m := onOrders(t, be)
 			removeOutOfBand(t, be, m, selectedSeq(t, m))
 			return keysIn(t, m, "r")
+		}},
+		{"outcome-notfound-scan", func(t *testing.T) Model {
+			be := fake.New()
+			m := keysIn(t, onOrders(t, be), "j", "j", "j", "j", "j", "j", "j", "j", "j", "j", "j", "j")
+			be.SetLockDuration(5 * time.Second)
+			return keysIn(t, m, "r", "y")
 		}},
 		{"outcome-locklost", func(t *testing.T) Model {
 			be := fake.New()

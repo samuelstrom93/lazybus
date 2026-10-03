@@ -31,7 +31,7 @@ type keyMap struct {
 	Resubmit      key.Binding // Messages, Main: r
 	FinishCleanup key.Binding // Messages, Main: c
 
-	Confirm  key.Binding // popups
+	Confirm  key.Binding // destructive popups: y only (spec §2)
 	Cancel   key.Binding
 	ToggleID key.Binding // resubmit popup: m
 
@@ -68,7 +68,7 @@ var keys = keyMap{
 	Resubmit:      key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "resubmit")),
 	FinishCleanup: key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "finish cleanup")),
 
-	Confirm:  key.NewBinding(key.WithKeys("y", "enter"), key.WithHelp("y enter", "confirm")),
+	Confirm:  key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "confirm (enter does nothing)")),
 	Cancel:   key.NewBinding(key.WithKeys("n", "esc"), key.WithHelp("n esc", "cancel")),
 	ToggleID: key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "MessageId keep/new")),
 
@@ -91,6 +91,12 @@ func contextBindings(c ContextID) []key.Binding {
 		return []key.Binding{keys.HelpUp, keys.HelpDown, keys.HelpErase, keys.HelpClose}
 	}
 	return nil
+}
+
+// confirmBindings are the keys of the Resubmit and Finish Cleanup confirm
+// popups, listed in the help menu where r and c work.
+func confirmBindings() []key.Binding {
+	return []key.Binding{keys.Confirm, keys.Cancel, keys.ToggleID}
 }
 
 // globalBindings are the keys every panel context accepts.
