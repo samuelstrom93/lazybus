@@ -18,11 +18,6 @@ const (
 	MarkerDeadLetterErrorDescription = "DeadLetterErrorDescription"
 )
 
-// IsMarker reports whether key is a Dead-letter Marker.
-func IsMarker(key string) bool {
-	return key == MarkerDeadLetterReason || key == MarkerDeadLetterErrorDescription
-}
-
 // Namespace is one Service Bus namespace the user can open.
 type Namespace struct {
 	Name         string // short name, e.g. "sb-prod-weu"
@@ -174,53 +169,4 @@ type Browser interface {
 	Discovery
 	Entities
 	Peeker
-}
-
-// Outcome is the result of one DLQ Repair (spec §6).
-type Outcome int
-
-const (
-	Resubmitted Outcome = iota
-	NotFound
-	LockLost
-	SendFailed
-	SendUncertain
-	CleanupPending
-)
-
-func (o Outcome) String() string {
-	switch o {
-	case Resubmitted:
-		return "Resubmitted"
-	case NotFound:
-		return "NotFound"
-	case LockLost:
-		return "LockLost"
-	case SendFailed:
-		return "SendFailed"
-	case SendUncertain:
-		return "SendUncertain"
-	case CleanupPending:
-		return "CleanupPending"
-	}
-	return "Unknown"
-}
-
-// RepairRequest identifies one dead-letter message to repair. Pending Edits
-// and the Resubmit Target are added in S2/S3.
-type RepairRequest struct {
-	Namespace      Namespace
-	Entity         Entity
-	SequenceNumber int64
-}
-
-// RepairResult reports what a DLQ Repair did.
-type RepairResult struct {
-	Outcome Outcome
-	Detail  string
-}
-
-// Repairer performs a DLQ Repair (implemented in S2).
-type Repairer interface {
-	Repair(ctx context.Context, req RepairRequest) (RepairResult, error)
 }
