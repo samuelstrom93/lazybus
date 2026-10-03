@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -181,6 +182,78 @@ func TestToMessage(t *testing.T) {
 		p := m.Properties[i]
 		if p.Key != w.key || p.Type != w.typ || p.Value != w.val {
 			t.Errorf("property %d = %+v, want %+v", i, p, w)
+		}
+	}
+}
+
+func TestOutgoingCopy(t *testing.T) {
+	seq, at, ttl := int64(7), time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC), 30*time.Minute
+	str := func(s string) *string { return &s }
+	uuid := amqp.UUID{0x6f, 0x1c, 0x2b, 0x9e, 0x4d, 0x2a, 0x4c, 0x1e, 0x9b, 0x7a, 0, 0, 0, 0, 0, 1}
+	in := &azservicebus.ReceivedMessage{
+		MessageID: "orig", SequenceNumber: &seq, EnqueuedTime: &at, LockedUntil: &at, DeliveryCount: 3,
+		Body: []byte(`{"a":1}`), ContentType: str("application/json"), CorrelationID: str("corr"),
+		Subject: str("OrderPlaced"), SessionID: str("s1"), PartitionKey: str("s1"), To: str("to"),
+		ReplyTo: str("rt"), ReplyToSessionID: str("rts"), TimeToLive: &ttl,
+		DeadLetterReason: str("r"), DeadLetterErrorDescription: str("d"), DeadLetterSource: str("src"),
+		ApplicationProperties: map[string]any{
+			"s": "x", "i": int32(1), "l": int64(2), "d": 0.5, "b": true, "g": uuid, "t": at,
+			bus.MarkerDeadLetterReason: "r", bus.MarkerDeadLetterErrorDescription: "d",
+		},
+	}
+	out := outgoing(in, "new-id")
+	want := map[string]any{"s": "x", "i": int32(1), "l": int64(2), "d": 0.5, "b": true, "g": uuid, "t": at}
+	if !reflect.DeepEqual(out.ApplicationProperties, want) {
+		t.Fatalf("properties = %#v (markers stripped, types kept)", out.ApplicationProperties)
+	}
+	if *out.MessageID != "new-id" || string(out.Body) != `{"a":1}` || *out.ContentType != "application/json" ||
+		*out.CorrelationID != "corr" || *out.Subject != "OrderPlaced" || *out.SessionID != "s1" ||
+		*out.PartitionKey != "s1" || *out.To != "to" || *out.ReplyTo != "rt" || *out.ReplyToSessionID != "rts" ||
+		*out.TimeToLive != ttl || out.ScheduledEnqueueTime != nil {
+		t.Fatalf("outgoing = %+v", out)
+	}
+	if out.TimeToLive == in.TimeToLive {
+		t.Fatal("TimeToLive pointer shared with the received message")
+	}
+	if out := outgoing(&azservicebus.ReceivedMessage{ApplicationProperties: map[string]any{bus.MarkerDeadLetterReason: "r"}}, "x"); out.ApplicationProperties != nil {
+		t.Fatalf("only markers → %v, want no properties", out.ApplicationProperties)
+	}
+}
+
+func TestSendDefinite(t *testing.T) {
+	cases := []struct {
+		err      error
+		definite bool
+	}{
+		{&amqp.Error{Condition: amqp.ErrCondNotFound}, true},
+		{&amqp.Error{Condition: amqp.ErrCondNotAllowed}, true},
+		{&amqp.Error{Condition: amqp.ErrCondUnauthorizedAccess}, true},
+		{&amqp.Error{Condition: amqp.ErrCondMessageSizeExceeded}, true},
+		{&amqp.Error{Condition: amqp.ErrCondResourceLimitExceeded}, true},
+		{&amqp.Error{Condition: "com.microsoft:entity-disabled"}, true},
+		{&amqp.Error{Condition: "com.microsoft:server-busy"}, true},
+		{fmt.Errorf("send: %w", &amqp.Error{Condition: amqp.ErrCondNotFound}), true},
+		{&azservicebus.Error{Code: azservicebus.CodeUnauthorizedAccess}, true},
+		{&azservicebus.Error{Code: azservicebus.CodeNotFound}, true},
+		{azservicebus.ErrMessageTooLarge, true},
+		{&amqp.Error{Condition: "com.microsoft:timeout"}, false},
+		{&amqp.Error{Condition: amqp.ErrCondInternalError}, false},
+		{&azservicebus.Error{Code: azservicebus.CodeTimeout}, false},
+		{&azservicebus.Error{Code: azservicebus.CodeConnectionLost}, false},
+		{&azservicebus.Error{Code: azservicebus.CodeClosed}, false},
+		{context.DeadlineExceeded, false},
+		{context.Canceled, false},
+		{&amqp.LinkError{}, false},
+		{errors.New("unknown"), false},
+	}
+	for _, tc := range cases {
+		if got := sendDefinite(tc.err); got != tc.definite {
+			t.Errorf("%v: definite %v, want %v", tc.err, got, tc.definite)
+		}
+		// The classification survives mapping to a *bus.Error.
+		var de *definiteErr
+		if got := errors.As(mapErr("send", sendDefiniteErr(tc.err)), &de); got != tc.definite {
+			t.Errorf("%v: after mapErr definite %v", tc.err, got)
 		}
 	}
 }

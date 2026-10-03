@@ -40,20 +40,27 @@ func EmulatorConnectionString(host string, port int) string {
 		host, port, emulatorKey)
 }
 
-// Backend serves one or more namespaces. It implements bus.Browser.
+// Backend serves one or more namespaces. It implements bus.Backend; DLQ
+// Repair runs bus.Service on the SDK (repair.go).
 type Backend struct {
 	mu    sync.Mutex
 	conns []*conn
+	svc   *bus.Service
 }
 
-var _ bus.Browser = (*Backend)(nil)
+var _ bus.Backend = (*Backend)(nil)
 
 // New returns a Backend with no namespaces; add them with
 // AddConnectionString or AddNamespace.
-func New() *Backend { return &Backend{} }
+func New() *Backend {
+	b := &Backend{}
+	b.svc = bus.NewService(driver{b}, nil, nil)
+	return b
+}
 
-// conn is one namespace: a data-plane client, an admin client, and the
-// receivers opened for peeking.
+// conn is one namespace: a data-plane client, an admin client, the
+// receivers opened for peeking, and the DLQ receivers and senders of DLQ
+// Repair.
 type conn struct {
 	ns       bus.Namespace
 	client   *azservicebus.Client
@@ -62,6 +69,17 @@ type conn struct {
 
 	mu        sync.Mutex
 	receivers map[receiverKey]*azservicebus.Receiver
+	scanners  map[receiverKey]*scanner
+	senders   map[string]*azservicebus.Sender
+}
+
+func newConn(ns bus.Namespace, emulator bool) *conn {
+	return &conn{
+		ns: ns, emulator: emulator,
+		receivers: map[receiverKey]*azservicebus.Receiver{},
+		scanners:  map[receiverKey]*scanner{},
+		senders:   map[string]*azservicebus.Sender{},
+	}
 }
 
 type receiverKey struct {
@@ -80,7 +98,7 @@ func (b *Backend) AddConnectionString(cs string, emulatorAdminPort int) (bus.Nam
 	if err != nil {
 		return bus.Namespace{}, err
 	}
-	c := &conn{emulator: cfg.emulator, receivers: map[receiverKey]*azservicebus.Receiver{}}
+	c := newConn(bus.Namespace{}, cfg.emulator)
 	if c.client, err = azservicebus.NewClientFromConnectionString(cs, nil); err != nil {
 		return bus.Namespace{}, fmt.Errorf("connection string: %w", err)
 	}
@@ -140,7 +158,7 @@ func (b *Backend) AddNamespace(fqdn string, cred azcore.TokenCredential) (bus.Na
 	if !strings.Contains(fqdn, ".") {
 		fqdn += ".servicebus.windows.net"
 	}
-	c := &conn{ns: bus.Namespace{Name: shortName(fqdn), FQDN: fqdn}, receivers: map[receiverKey]*azservicebus.Receiver{}}
+	c := newConn(bus.Namespace{Name: shortName(fqdn), FQDN: fqdn}, false)
 	var err error
 	if c.client, err = azservicebus.NewClient(fqdn, cred, nil); err != nil {
 		return bus.Namespace{}, fmt.Errorf("namespace %s: %w", fqdn, err)
@@ -177,6 +195,19 @@ func (b *Backend) Close(ctx context.Context) error {
 		for k, r := range c.receivers {
 			errs = append(errs, r.Close(ctx))
 			delete(c.receivers, k)
+		}
+		for k, s := range c.scanners {
+			if s.use.TryLock() { // a repair in flight keeps its link
+				if s.r != nil {
+					errs = append(errs, s.r.Close(ctx))
+				}
+				s.use.Unlock()
+			}
+			delete(c.scanners, k)
+		}
+		for k, s := range c.senders {
+			errs = append(errs, s.Close(ctx))
+			delete(c.senders, k)
 		}
 		c.mu.Unlock()
 		errs = append(errs, c.client.Close(ctx))
@@ -400,6 +431,16 @@ func (c *conn) receiver(key receiverKey) (*azservicebus.Receiver, error) {
 	if r, ok := c.receivers[key]; ok {
 		return r, nil
 	}
+	r, err := c.openReceiver(key)
+	if err != nil {
+		return nil, err
+	}
+	c.receivers[key] = r
+	return r, nil
+}
+
+// openReceiver opens a peek-lock receiver on key's entity and sub-queue.
+func (c *conn) openReceiver(key receiverKey) (*azservicebus.Receiver, error) {
 	opts := &azservicebus.ReceiverOptions{}
 	if key.sub == bus.DeadLetter {
 		opts.SubQueue = azservicebus.SubQueueDeadLetter
@@ -416,11 +457,7 @@ func (c *conn) receiver(key receiverKey) (*azservicebus.Receiver, error) {
 	} else {
 		r, err = c.client.NewReceiverForQueue(key.path, opts)
 	}
-	if err != nil {
-		return nil, err
-	}
-	c.receivers[key] = r
-	return r, nil
+	return r, err
 }
 
 // dropReceiver closes and forgets receiver r after a failed call, so the
