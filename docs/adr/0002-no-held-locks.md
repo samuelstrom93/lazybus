@@ -11,4 +11,4 @@ lazybus is meant to be safe to point at production during on-call. A TUI that ho
 
 ## Consequences
 - Active-queue messages are read-only.
-- Finding a dead-letter message by sequence number means receiving in peek-lock and abandoning every non-matching message at once; their DeliveryCount goes up by one, which the confirm popup and README state.
+- Finding a dead-letter message by sequence number means receiving in peek-lock and abandoning every non-matching message at once; those messages stay locked for the length of the call, which the confirm popup and README state. A DLQ abandon leaves DeliveryCount unchanged (verified on the emulator and Azure Standard, S4).
