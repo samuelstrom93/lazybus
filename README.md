@@ -2,7 +2,7 @@
 
 A lazygit-style terminal UI for **Azure Service Bus**, built for the on-call moment: open the dead-letter queue, look at the first message, fix it, put it back.
 
-**Status:** pre-release, v0.1 in progress. This build browses and resubmits (slices S1a, S1b and S2): it discovers your namespaces from `az login`, lists their queues and topic subscriptions, peeks dead-letter and active messages, and moves a dead-lettered message back to its queue or topic unchanged (DLQ Repair). Editing a message before resubmitting comes in a later slice. See [`docs/spec.md`](docs/spec.md) for the plan and [`CONTEXT.md`](CONTEXT.md) for the vocabulary.
+**Status:** pre-release, v0.1 in progress. This build browses, edits and resubmits (slices S1a, S1b, S2 and S3): it discovers your namespaces from `az login`, lists their queues and topic subscriptions, peeks dead-letter and active messages, lets you edit a dead-lettered message's properties, Subject, ContentType and body, and moves it back to its queue or topic (DLQ Repair). See [`docs/spec.md`](docs/spec.md) for the plan and [`CONTEXT.md`](CONTEXT.md) for the vocabulary.
 
 ## Try it
 
@@ -29,7 +29,7 @@ lazybus --demo                                           # built-in demo data, n
 | `--emulator` | Open the local Service Bus emulator on `localhost` with its development connection string. |
 | `--emulator-amqp-port <n>` | Emulator AMQP port (default 5672). |
 | `--emulator-admin-port <n>` | Emulator admin HTTP port (default 5300). Also used for a `--connection-string` with `UseDevelopmentEmulator=true`. |
-| `--read-only` | Disable every state-changing key. |
+| `--read-only` | Disable every state-changing key (`r`, `c`). Edits still work: they only change lazybus's memory. |
 | `--demo` | Run against built-in demo data. |
 
 Without `--namespace` or `--demo`, lazybus discovers namespaces with the Azure CLI credential: it lists the enabled subscriptions you can read, then each subscription's Service Bus namespaces (four at a time). A subscription shows `loading <name>…` until its list arrives; one that fails shows `<name>: error`, with the error in the log, and the others still load. Discovered namespaces open with the same credential, so your account needs a Service Bus data-plane role on them (Azure Service Bus Data Owner covers browsing and resubmitting). `--connection-string` and `--emulator` add their namespace on top of the discovered ones and open first; a discovered namespace never opens until you press `enter` on it. With Namespaces focused, the main pane shows the selected namespace's subscription, resource group, SKU, location and auth. A Basic-tier namespace has no topics: its queues list, and the topics error goes to the log.
@@ -71,9 +71,9 @@ After a successful resubmit the cursor stays on the same row, which now holds th
 Peek never locks a message. A resubmit is a move: send a copy, then delete the original. It holds locks only inside that one call:
 
 1. **Pre-check.** Peek the message by its sequence number, without a lock. If it is gone, the row is removed and nothing is touched. A message whose AMQP body is not a single data section (an AMQP value or sequence body) or whose message-id is not a string is refused, because the copy would lose data.
-2. **Confirm.** The popup lists the source and target (a queue's DLQ goes back to that queue; a subscription's DLQ goes to its parent topic), the body, the dead-letter markers that are removed, the MessageId, the scan cost and target warnings: a topic delivers only to subscriptions whose rules match (no match means the copy is dropped), and a topic with no subscriptions is refused.
+2. **Confirm.** The popup lists the source and target (a queue's DLQ goes back to that queue; a subscription's DLQ goes to its parent topic), the body, every Pending Edit as a diff, the dead-letter markers that are removed, the MessageId, the scan cost and target warnings: a topic delivers only to subscriptions whose rules match (no match means the copy is dropped), and a topic with no subscriptions is refused.
 3. **By-sequence scan.** Service Bus cannot receive one message by sequence number, so lazybus opens a peek-lock receiver for this one call (closed before the call returns) and receives the DLQ until it finds the message. Messages ahead of it stay locked until the scan ends, then all are abandoned; **their DeliveryCount may increase by 1.** The scan locks at most the row's position plus 50 messages and stops well before the first lock expires.
-4. **Send, then complete.** The copy keeps the body, application properties (with their types) and the copied system fields; `DeadLetterReason` and `DeadLetterErrorDescription` are removed. On a target with duplicate detection the copy gets a new MessageId by default, because a copy with the original id can be dropped as a duplicate and the original would still be deleted.
+4. **Send, then complete.** The copy keeps the body, application properties (with their types) and the copied system fields, with the message's Pending Edits applied (see below); `DeadLetterReason` and `DeadLetterErrorDescription` are removed. On a target with duplicate detection the copy gets a new MessageId by default, because a copy with the original id can be dropped as a duplicate and the original would still be deleted.
 
 Every outcome is shown in the status bar and every broker call that changes state goes to the log:
 
@@ -85,6 +85,29 @@ Every outcome is shown in the status bar and every broker call that changes stat
 | SendFailed | The target rejected the copy; nothing changed. | Kept; `r` retries. |
 | SendUncertain | The send ended without a clear answer: the copy may or may not be in the target. Never retried automatically. | Amber. `r` is allowed after you check the target; the retry reuses the same MessageId, so a target with duplicate detection drops a second copy. |
 | CleanupPending | The copy is in the target but deleting the original failed. Never reported as success. | Red. `r` is blocked; `c` removes the original. |
+
+## Edit before resubmit
+
+Edits are made on the DLQ tab and kept as **Pending Edits** of that message until you resubmit it. The copy carries them; the dead-lettered message itself is never changed. On the Active tab the edit keys are refused.
+
+| Key | Where | Action |
+|---|---|---|
+| `e` | Properties tab | Edit the selected property (the popup is prefilled). |
+| `a` | Properties tab | Add a property. |
+| `e` | Messages | Add a property to the selected message. |
+| `d` | Properties tab | Remove the selected property from the copy; `d` again keeps it. |
+| `e` | System tab | Edit Subject or ContentType (the rows marked ✎). An empty value leaves the field unset on the copy. |
+| `E` | Messages, Body tab | Edit the body in `$VISUAL`, then `$EDITOR`, then `vi`. |
+| `x` | Messages, main pane | Discard all Pending Edits of the selected message (confirm with `y`). |
+| `enter` / `tab` / `esc` | property popup | Save / next field (`shift+tab` previous) / cancel. On the Type field `←` `→` pick the type. |
+
+The property popup has Key, Type and Value. Types are String, Int (32-bit), Long (64-bit), Double, Bool (`true`/`false`), Guid and DateTime (RFC 3339, e.g. `2026-09-18T22:15:00Z`); the copy sends each with its AMQP type. A new key starts as String; an existing key keeps its type unless you pick another. An invalid value keeps the popup open with the error. `DeadLetterReason` and `DeadLetterErrorDescription` are never edited: they are removed on resubmit anyway.
+
+Pending Edits show inline: `*` changed (with the old value), `+` added, `−` removed; the Body tab says `(edited)`, and the options bar shows `✎ N pending` (messages with Pending Edits).
+
+The body goes to a temp file (mode 0600, in the system temp directory, removed afterwards). A JSON body (by ContentType, or because it parses as JSON) opens pretty-printed, and the copy is sent with the bytes as you saved them, not re-compacted. If you save JSON that does not parse, it is kept as the Pending Edit and flagged in the Body tab and the confirm popup. `E` again opens the pending body. Saving the file unchanged adds no edit; one trailing newline added by the editor is dropped.
+
+Pending Edits live in memory only: **they are lost when lazybus quits.** A resubmit that does not go through (LockLost, SendFailed, SendUncertain) keeps them for the retry, and so does CleanupPending; they are dropped when the message is Resubmitted, cleaned up, or found gone by the pre-check. On a SendUncertain or CleanupPending row they can no longer be changed or discarded: a SendUncertain retry reuses the MessageId, so it must send exactly what the first attempt sent.
 
 ## Development
 
