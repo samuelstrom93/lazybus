@@ -208,8 +208,8 @@ func checkUI(t *testing.T, b *azure.Backend, ents []bus.Entity, queue bus.Entity
 	for _, want := range []string{
 		"traceId", "Guid", "6f1c2b9e-4d2a-4c1e-9b7a-0000000003e9",
 		// The SDK returns DateTime values in time.Local (S−1); the UI
-		// prints a value in its own zone, with offset.
-		"createdAt", "DateTime", seed.CreatedAt.In(time.Local).Format(time.RFC3339Nano),
+		// prints them in Options.Location (UTC here), with offset.
+		"createdAt", "DateTime", "2026-09-18T22:15:00Z",
 		"orderId", "Long", "1001", "attempt", "Int", "amount", "Double", "isRetry", "Bool", "tenant", "String",
 		"Dead-letter markers  ✕ removed on resubmit", "DeadLetterReason", "Required property 'customer.id' is missing.",
 	} {

@@ -423,7 +423,7 @@ func (m Model) propertyLines(msg bus.Message, width int) []string {
 	}
 	var props []prop
 	for _, p := range msg.Properties {
-		props = append(props, prop{sanitize(p.Key), p.Type.String(), sanitize(propertyValue(p)), false})
+		props = append(props, prop{sanitize(p.Key), p.Type.String(), sanitize(propertyValue(p, m.opts.Location)), false})
 	}
 	if msg.DeadLetterReason != "" {
 		props = append(props, prop{bus.MarkerDeadLetterReason, bus.TypeString.String(), sanitize(msg.DeadLetterReason), true})

@@ -92,8 +92,9 @@ func wrapLines(text string, width int) []string {
 	return out
 }
 
-// propertyValue formats an application property value.
-func propertyValue(p bus.Property) string {
+// propertyValue formats an application property value. Times are shown
+// in loc, as RFC 3339 with the offset.
+func propertyValue(p bus.Property, loc *time.Location) string {
 	switch v := p.Value.(type) {
 	case nil:
 		return "null"
@@ -102,7 +103,7 @@ func propertyValue(p bus.Property) string {
 	case float64:
 		return strconv.FormatFloat(v, 'g', -1, 64)
 	case time.Time:
-		return v.Format(time.RFC3339Nano)
+		return v.In(loc).Format(time.RFC3339Nano)
 	default:
 		return fmt.Sprint(v)
 	}

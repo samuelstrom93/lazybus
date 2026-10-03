@@ -242,3 +242,11 @@ func TestLinesCacheClearedOnReload(t *testing.T) {
 		t.Fatal("cache kept after the message list was replaced")
 	}
 }
+
+func TestPropertyTimeInLocation(t *testing.T) {
+	at := time.Date(2026, 9, 18, 22, 15, 0, 0, time.UTC)
+	p := bus.Property{Key: "createdAt", Type: bus.TypeDateTime, Value: at}
+	if got, want := propertyValue(p, time.FixedZone("CEST", 2*3600)), "2026-09-19T00:15:00+02:00"; got != want {
+		t.Fatalf("propertyValue = %q, want %q", got, want)
+	}
+}
