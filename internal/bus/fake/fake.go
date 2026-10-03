@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/samuelstrom93/lazybus/internal/bus"
@@ -15,11 +16,85 @@ import (
 // Epoch is the fixed day all demo messages are enqueued on (UTC).
 var Epoch = time.Date(2026, 9, 19, 0, 0, 0, 0, time.UTC)
 
-// Backend is an in-memory Service Bus. Safe for use from one goroutine at a
-// time per call; the demo data is never mutated in S0.
+// Backend is an in-memory Service Bus. The demo data is never mutated after
+// New; faults may be changed at any time and are safe for concurrent use.
 type Backend struct {
-	namespaces []bus.Namespace
-	entities   map[string][]*entity // by namespace name
+	namespaces    []bus.Namespace
+	entities      map[string][]*entity // by namespace name
+	unknownCounts bool
+
+	mu     sync.Mutex
+	faults map[Op]Fault
+}
+
+// Op names a backend call for fault injection.
+type Op int
+
+const (
+	OpNamespaces Op = iota
+	OpEntities
+	OpPeek
+)
+
+// Fault changes how calls of one Op behave: wait Delay (or, with Block,
+// until the context ends), then fail with Err when it is set.
+type Fault struct {
+	Delay time.Duration
+	Block bool
+	Err   error
+}
+
+// SetFault installs f for op; the zero Fault removes it.
+func (b *Backend) SetFault(op Op, f Fault) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.faults[op] = f
+}
+
+// before applies the fault for op and returns the error the call fails with.
+func (b *Backend) before(ctx context.Context, op Op) error {
+	b.mu.Lock()
+	f := b.faults[op]
+	b.mu.Unlock()
+	if f.Block {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	if f.Delay > 0 {
+		t := time.NewTimer(f.Delay)
+		defer t.Stop()
+		select {
+		case <-t.C:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	if f.Err != nil {
+		return f.Err
+	}
+	return ctx.Err()
+}
+
+// Option configures New.
+type Option func(*Backend)
+
+// WithUnknownCounts makes ListEntities report no runtime counts, like the
+// emulator.
+func WithUnknownCounts() Option {
+	return func(b *Backend) { b.unknownCounts = true }
+}
+
+// WithDeadLetters replaces the dead-letter queue of entity path in namespace
+// ns with n demo messages (to exercise paging).
+func WithDeadLetters(ns, path string, n int) Option {
+	return func(b *Backend) {
+		for _, e := range b.entities[ns] {
+			if e.path == path {
+				fresh := seedEntity(e.path, e.kind, e.idPrefix, e.orderBase, n, 0, e.start)
+				e.deadLetter = fresh.deadLetter
+			}
+		}
+	}
 }
 
 type entity struct {
@@ -27,6 +102,10 @@ type entity struct {
 	kind       bus.EntityKind
 	active     []bus.Message
 	deadLetter []bus.Message
+
+	idPrefix  string
+	orderBase int
+	start     time.Duration
 }
 
 var _ bus.Browser = (*Backend)(nil)
@@ -36,8 +115,8 @@ var _ bus.Browser = (*Backend)(nil)
 //	sb-prod-weu: invoices (DLQ 3), order-events/billing (DLQ 12),
 //	             order-events/shipping (DLQ 0), orders (DLQ 37)
 //	sb-test-weu: orders (DLQ 1), payments (DLQ 0)
-func New() *Backend {
-	b := &Backend{entities: map[string][]*entity{}}
+func New(opts ...Option) *Backend {
+	b := &Backend{entities: map[string][]*entity{}, faults: map[Op]Fault{}}
 	b.addNamespace("sb-prod-weu", "contoso-prod",
 		seedEntity("invoices", bus.KindQueue, "inv", 1000, 3, 12, 13*time.Hour),
 		seedEntity("order-events/billing", bus.KindSubscription, "bil", 2000, 12, 0, 9*time.Hour),
@@ -48,6 +127,9 @@ func New() *Backend {
 		seedEntity("orders", bus.KindQueue, "tord", 5000, 1, 0, 10*time.Hour),
 		seedEntity("payments", bus.KindQueue, "pay", 6000, 0, 2, 11*time.Hour),
 	)
+	for _, o := range opts {
+		o(b)
+	}
 	return b
 }
 
@@ -63,7 +145,7 @@ func (b *Backend) addNamespace(name, subscription string, ents ...*entity) {
 
 // Namespaces implements bus.Discovery.
 func (b *Backend) Namespaces(ctx context.Context) ([]bus.Namespace, error) {
-	if err := ctx.Err(); err != nil {
+	if err := b.before(ctx, OpNamespaces); err != nil {
 		return nil, err
 	}
 	return append([]bus.Namespace(nil), b.namespaces...), nil
@@ -71,7 +153,7 @@ func (b *Backend) Namespaces(ctx context.Context) ([]bus.Namespace, error) {
 
 // ListEntities implements bus.Entities.
 func (b *Backend) ListEntities(ctx context.Context, ns bus.Namespace) ([]bus.Entity, error) {
-	if err := ctx.Err(); err != nil {
+	if err := b.before(ctx, OpEntities); err != nil {
 		return nil, err
 	}
 	ents, ok := b.entities[ns.Name]
@@ -80,19 +162,20 @@ func (b *Backend) ListEntities(ctx context.Context, ns bus.Namespace) ([]bus.Ent
 	}
 	out := make([]bus.Entity, 0, len(ents))
 	for _, e := range ents {
-		out = append(out, bus.Entity{
-			Path:            e.path,
-			Kind:            e.kind,
-			ActiveCount:     int64(len(e.active)),
-			DeadLetterCount: int64(len(e.deadLetter)),
-		})
+		ent := bus.Entity{Path: e.path, Kind: e.kind}
+		if !b.unknownCounts {
+			ent.CountsKnown = true
+			ent.ActiveCount = int64(len(e.active))
+			ent.DeadLetterCount = int64(len(e.deadLetter))
+		}
+		out = append(out, ent)
 	}
 	return out, nil
 }
 
 // Peek implements bus.Peeker.
 func (b *Backend) Peek(ctx context.Context, req bus.PeekRequest) ([]bus.Message, error) {
-	if err := ctx.Err(); err != nil {
+	if err := b.before(ctx, OpPeek); err != nil {
 		return nil, err
 	}
 	var found *entity
@@ -130,7 +213,7 @@ func (b *Backend) Peek(ctx context.Context, req bus.PeekRequest) ([]bus.Message,
 // Dead-letter messages get sequence numbers from 2, one hour apart starting
 // at Epoch+start; active messages follow them.
 func seedEntity(path string, kind bus.EntityKind, idPrefix string, orderBase, dlq, active int, start time.Duration) *entity {
-	e := &entity{path: path, kind: kind}
+	e := &entity{path: path, kind: kind, idPrefix: idPrefix, orderBase: orderBase, start: start}
 	seq := int64(2)
 	for i := range dlq {
 		e.deadLetter = append(e.deadLetter, deadLetterMessage(i, seq, idPrefix, orderBase+int(seq), Epoch.Add(start+time.Duration(i)*time.Hour)))
@@ -157,8 +240,9 @@ func baseProps(order int, retry bool) []bus.Property {
 	}
 }
 
-// deadLetterMessage cycles through four shapes: JSON with a schema problem,
-// JSON with a long line, plain text, and invalid JSON.
+// deadLetterMessage cycles through five shapes: JSON with a schema problem,
+// JSON with a long line, plain text, invalid JSON, and one long unbroken
+// non-JSON line.
 func deadLetterMessage(i int, seq int64, idPrefix string, order int, enqueued time.Time) bus.Message {
 	m := bus.Message{
 		SequenceNumber: seq,
@@ -170,7 +254,7 @@ func deadLetterMessage(i int, seq int64, idPrefix string, order int, enqueued ti
 		TimeToLive:     ttl,
 		DeliveryCount:  1,
 	}
-	switch i % 4 {
+	switch i % 5 {
 	case 0:
 		m.Body = fmt.Appendf(nil, `{"orderId":%d,"status":"pending","customer":null,"items":[{"sku":"A-100","qty":2},{"sku":"B-220","qty":1}]}`, order)
 		m.Properties = baseProps(order, false)
@@ -198,6 +282,13 @@ func deadLetterMessage(i int, seq int64, idPrefix string, order int, enqueued ti
 		m.DeadLetterReason = "SchemaMismatch"
 		m.DeadLetterErrorDescription = "Unexpected end of JSON input."
 		m.PartitionKey = "eu-north"
+	case 4:
+		m.Body = fmt.Appendf(nil, "ERR|order=%d|payload=%s|end", order, strings.Repeat("QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo0", 9))
+		m.ContentType = "application/octet-stream"
+		m.Subject = "OrderBlob"
+		m.Properties = baseProps(order, true)[:1]
+		m.DeadLetterReason = "PoisonMessage"
+		m.DeadLetterErrorDescription = "Payload could not be decoded."
 	}
 	return m
 }

@@ -5,6 +5,7 @@ package bus
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
@@ -48,8 +49,12 @@ func (k EntityKind) String() string {
 type Entity struct {
 	// Path is the queue name, or "topic/subscription" for a subscription.
 	// Kind disambiguates: queue names may contain '/' too.
-	Path            string
-	Kind            EntityKind
+	Path string
+	Kind EntityKind
+	// CountsKnown reports whether ActiveCount and DeadLetterCount hold
+	// runtime counts. False when the broker can't report them (the
+	// emulator); the UI then shows "?", never 0.
+	CountsKnown     bool
 	ActiveCount     int64
 	DeadLetterCount int64
 }
@@ -145,6 +150,68 @@ type PeekRequest struct {
 	SubQueue     SubQueue
 	FromSequence int64
 	Max          int
+}
+
+// ErrorKind classifies a broker failure independent of the SDK that
+// produced it.
+type ErrorKind int
+
+const (
+	ErrUnknown      ErrorKind = iota
+	ErrNotFound               // entity or namespace does not exist
+	ErrNotAllowed             // the broker refused the operation (e.g. sessionful entity)
+	ErrUnauthorized           // credentials missing, expired or without rights
+	ErrTimeout                // the per-call deadline passed
+	ErrCanceled               // the caller canceled (superseded load)
+	ErrConnection             // could not reach the namespace
+	ErrThrottled              // the namespace is busy
+)
+
+func (k ErrorKind) String() string {
+	switch k {
+	case ErrNotFound:
+		return "not found"
+	case ErrNotAllowed:
+		return "not allowed"
+	case ErrUnauthorized:
+		return "unauthorized"
+	case ErrTimeout:
+		return "timeout"
+	case ErrCanceled:
+		return "canceled"
+	case ErrConnection:
+		return "connection"
+	case ErrThrottled:
+		return "throttled"
+	}
+	return "error"
+}
+
+// Error is a failed broker call as the service layer reports it. Msg is a
+// short, single-line description for the UI; Err is the original error.
+type Error struct {
+	Kind ErrorKind
+	Op   string // e.g. "list entities", "peek orders/$DLQ"
+	Msg  string
+	Err  error
+}
+
+func (e *Error) Error() string {
+	if e.Op == "" {
+		return e.Msg
+	}
+	return e.Op + ": " + e.Msg
+}
+
+func (e *Error) Unwrap() error { return e.Err }
+
+// KindOf returns the ErrorKind of err, ErrUnknown when err is not an *Error.
+func KindOf(err error) ErrorKind {
+	var be *Error
+	if errors.As(err, &be) {
+		return be.Kind
+	}
+	return ErrUnknown
 }
 
 // Discovery lists the namespaces the user can open.

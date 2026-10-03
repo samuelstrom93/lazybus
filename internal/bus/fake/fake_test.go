@@ -2,7 +2,9 @@ package fake
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/samuelstrom93/lazybus/internal/bus"
 )
@@ -56,5 +58,36 @@ func TestPeekFromSequenceAndPageSize(t *testing.T) {
 	}
 	if dlq[0].DeadLetterReason == "" {
 		t.Error("dead-letter message without reason")
+	}
+}
+
+func TestOptionsAndFaults(t *testing.T) {
+	b := New(WithUnknownCounts(), WithDeadLetters("sb-prod-weu", "orders", 120))
+	ctx := context.Background()
+	nss, _ := b.Namespaces(ctx)
+	ents, err := b.ListEntities(ctx, nss[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range ents {
+		if e.CountsKnown || e.DeadLetterCount != 0 {
+			t.Fatalf("%s: counts known %v, DLQ %d", e.Path, e.CountsKnown, e.DeadLetterCount)
+		}
+	}
+	page, _ := b.Peek(ctx, bus.PeekRequest{Namespace: nss[0], Entity: ents[3], FromSequence: 100})
+	if len(page) != 22 || page[21].SequenceNumber != 121 {
+		t.Fatalf("orders DLQ from 100 = %d messages", len(page))
+	}
+
+	boom := errors.New("boom")
+	b.SetFault(OpPeek, Fault{Err: boom})
+	if _, err := b.Peek(ctx, bus.PeekRequest{Namespace: nss[0], Entity: ents[0]}); !errors.Is(err, boom) {
+		t.Fatalf("peek with fault = %v", err)
+	}
+	b.SetFault(OpEntities, Fault{Block: true})
+	short, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
+	defer cancel()
+	if _, err := b.ListEntities(short, nss[0]); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("blocked list = %v", err)
 	}
 }
