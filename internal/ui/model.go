@@ -234,7 +234,12 @@ type Model struct {
 	// CleanupPending). Copied on write.
 	marks   map[markKey]rowMark
 	confirm confirmState // the open confirm popup (CtxConfirm)
-	busy    busyState    // the busy popup (CtxBusy)
+	edit    editState    // the open edit popup (CtxEdit)
+	// pending holds the Pending Edits per DLQ message, in memory only.
+	// Copied on write. editRev numbers the edits (pending.rev).
+	pending map[markKey]pending
+	editRev int
+	busy    busyState // the busy popup (CtxBusy)
 	spin    spinner.Model
 
 	// lines caches the main pane content of the selected message, so a
@@ -493,6 +498,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case repairDoneMsg:
 		m, cmd = m.repairDone(msg)
 
+	case editorDoneMsg:
+		m = m.editorDone(msg)
+
+	case tea.PasteMsg:
+		if m.stack.Top() == CtxEdit {
+			m = m.paste(msg.Content)
+		}
+
 	case spinner.TickMsg:
 		// A tick after the busy popup closed ends the tick chain.
 		if m.stack.Top() == CtxBusy {
@@ -528,6 +541,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.handleFilterKey(msg)
 	case CtxJump:
 		return m.handleJumpKey(msg)
+	case CtxEdit:
+		return m.handleEditKey(msg)
 	}
 	return m.handlePanelKey(msg)
 }
@@ -644,6 +659,23 @@ func (m Model) handlePanelKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.startRepair(confirmRepair)
 	case (cur == CtxMessages || cur == CtxMain) && key.Matches(msg, keys.FinishCleanup):
 		return m.startRepair(confirmCleanup)
+	case (cur == CtxMessages || cur == CtxMain) && key.Matches(msg, keys.Discard):
+		return m.startDiscard()
+	case cur == CtxMessages && key.Matches(msg, keys.EditBody),
+		cur == CtxMain && m.tab == tabBody && key.Matches(msg, keys.EditBody):
+		return m.startBodyEdit()
+	case cur == CtxMessages && key.Matches(msg, keys.AddPropMsg):
+		return m.startAddProperty()
+	case cur == CtxMain && m.tab == tabProperties && key.Matches(msg, keys.EditProp):
+		return m.startEditProperty()
+	case cur == CtxMain && m.tab == tabProperties && key.Matches(msg, keys.AddProp):
+		return m.startAddProperty()
+	case cur == CtxMain && m.tab == tabProperties && key.Matches(msg, keys.RemoveProp):
+		return m.toggleRemove()
+	case cur == CtxMain && m.tab == tabSystem && key.Matches(msg, keys.EditField):
+		return m.startEditField()
+	case cur == CtxMain && key.Matches(msg, keys.EditBody, keys.EditProp, keys.AddProp, keys.RemoveProp):
+		m.setStatus(statusInfo, "E edits the body (Body tab); e edits a property (Properties) or Subject / ContentType (System); a adds, d removes a property")
 	case key.Matches(msg, keys.Open):
 		return m.open(cur)
 	}
@@ -853,6 +885,11 @@ func (m Model) helpEntries() []helpLine {
 	add("Jump popup (:)", contextBindings(CtxJump))
 	if root == CtxMessages || root == CtxMain {
 		add("Confirm popup", confirmBindings())
+		add("Edit popup", contextBindings(CtxEdit))
+		if note := "kept in memory only: lost on quit"; m.help.filter == "" ||
+			strings.Contains("pending edits "+note, strings.ToLower(m.help.filter)) {
+			out = append(out, helpLine{section: "Pending Edits"}, helpLine{desc: note})
+		}
 	}
 	add("Global", globalBindings())
 	return out

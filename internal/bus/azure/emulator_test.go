@@ -184,8 +184,13 @@ func runCmds(m tea.Model, cmd tea.Cmd) tea.Model {
 }
 
 func key(s string) tea.KeyPressMsg {
-	if s == "enter" {
+	switch s {
+	case "enter":
 		return tea.KeyPressMsg{Code: tea.KeyEnter}
+	case "tab":
+		return tea.KeyPressMsg{Code: tea.KeyTab}
+	case "right":
+		return tea.KeyPressMsg{Code: tea.KeyRight}
 	}
 	return tea.KeyPressMsg{Code: []rune(s)[0], Text: s}
 }
@@ -235,7 +240,7 @@ func checkUI(t *testing.T, b *azure.Backend, ents []bus.Entity, queue bus.Entity
 	}
 
 	m = drive(t, m, key("]"))
-	if sys := screen(m); !strings.Contains(sys, "MessageId          seed-orders-1001") {
+	if sys := screen(m); !strings.Contains(sys, "MessageId         seed-orders-1001") {
 		t.Fatalf("System tab lacks the first message's MessageId:\n%s", sys)
 	}
 	m = drive(t, m, key("["))

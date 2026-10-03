@@ -10,10 +10,10 @@
 [32;1m│[39;44m▸  2 06:00 CleanupPending · Schem…[32;49m│[90;22m│[m     {                                                                            [90m│[m
 [32;1m│[m   3 [90m07[32;1m┌[m [32;1mFinish Cleanup[m [32;1m──────────────────────────────────────────────────────────────────────────────────────┐[m       [90m│[m
 [32;1m│[m   4 [90m08[32;1m│[m                                                                                                      [32;1m│[m       [90m│[m
-[32;1m│[m   5 [90m09[32;1m│[90;22m Remove     [morders/$DLQ seq 2 (MessageId ord-4002)                                                    [32;1m│[m       [90m│[m
-[32;1m│[m   6 [90m10[32;1m│[90;22m Copy       [malready in queue orders                                                                   [32;1m│[m       [90m│[m
-[32;1m│[m   7 [90m11[32;1m│[90;22m Send       [mnothing is sent                                                                           [32;1m│[m       [90m│[m
-[32;1m│[m   8 [90m12[32;1m│[90;22m Scan       [mlocks up to 50 messages ahead of it briefly; their DeliveryCount may increase by 1        [32;1m│[m       [90m│[m
+[32;1m│[m   5 [90m09[32;1m│[90;22m Remove      [morders/$DLQ seq 2 (MessageId ord-4002)                                                   [32;1m│[m       [90m│[m
+[32;1m│[m   6 [90m10[32;1m│[90;22m Copy        [malready in queue orders                                                                  [32;1m│[m       [90m│[m
+[32;1m│[m   7 [90m11[32;1m│[90;22m Send        [mnothing is sent                                                                          [32;1m│[m       [90m│[m
+[32;1m│[m   8 [90m12[32;1m│[90;22m Scan        [mlocks up to 50 messages ahead of it briefly; their DeliveryCount may increase by 1       [32;1m│[m       [90m│[m
 [32;1m│[m   9 [90m13[32;1m│[m                                                                                                      [32;1m│[m       [90m│[m
 [32;1m│[m  10 [90m14[32;1m└[m [36my[90m remove  [36mn[90m cancel[m [32;1m──────────────────────────────────────────────────────────────────────────────────┘[m       [90m│[m
 [32;1m│[m  11 [90m15:00 [mPoisonMessage[90m ord-4011[m [32;1m│[90;22m│[m }                                                                                [90m│[m

@@ -3,9 +3,11 @@ package ui
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
@@ -74,6 +76,8 @@ func (m Model) render() string {
 		screen = m.overlayHelp(screen)
 	case CtxJump:
 		screen = m.overlayJump(screen)
+	case CtxEdit:
+		screen = m.overlayEdit(screen)
 	case CtxConfirm:
 		screen = m.overlayConfirm(screen)
 	case CtxBusy:
@@ -409,6 +413,7 @@ type linesKey struct {
 	sub      bus.SubQueue
 	seq      int64
 	width    int
+	rev      int // Pending Edits revision: an edit redraws the body
 }
 
 // mainLines is the full content of the main pane for the current tab, one
@@ -449,7 +454,7 @@ func (m Model) mainContent(width int) (lines []string, rows []int) {
 func (m Model) cachedLines(msg bus.Message, width int) []string {
 	var key linesKey
 	if m.openNS != nil && m.openEntity != nil {
-		key = linesKey{m.openNS.FQDN, m.openEntity.Path, m.openEntity.Kind, m.subQueue, msg.SequenceNumber, width}
+		key = linesKey{m.openNS.FQDN, m.openEntity.Path, m.openEntity.Kind, m.subQueue, msg.SequenceNumber, width, m.editsOf(msg.SequenceNumber).rev}
 		if m.lines != nil && m.lines.lines != nil && m.lines.key == key {
 			return m.lines.lines
 		}
@@ -488,13 +493,31 @@ func (m Model) statusLines(width int) []string {
 	return []string{row(append([]seg{{" ", stPlain}}, status...), width, false)}
 }
 
-// bodyLines is the Body tab: wrapped, not cut.
+// bodyLines is the Body tab: wrapped, not cut. A pending body edit is
+// shown instead of the original, under an (edited) marker, with a flag
+// when JSON is expected and it is not valid JSON.
 func (m Model) bodyLines(msg bus.Message, width int) []string {
-	text, _ := bodyText(msg.Body)
-	if text == "" {
-		return []string{" " + stDim.Render("(empty body)")}
-	}
+	body := msg.Body
 	var out []string
+	if ed := m.editsOf(msg.SequenceNumber); ed.BodyEdited {
+		body = ed.Body
+		head := []seg{{" (edited)", stWarn}, {" pending body, sent on resubmit · E edits it again · x discards all edits", stDim}}
+		out = append(out, row(head, width, false))
+		if why := bodyJSONError(msg, ed.Edits); why != "" {
+			for i, l := range wrapLines("invalid JSON: "+sanitize(why)+" (kept as the pending edit)", width-4) {
+				prefix := "   "
+				if i == 0 {
+					prefix = " ! "
+				}
+				out = append(out, row([]seg{{prefix + l, stErr}}, width, false))
+			}
+		}
+		out = append(out, "")
+	}
+	text, _ := bodyText(body)
+	if text == "" {
+		return append(out, " "+stDim.Render("(empty body)"))
+	}
 	for _, l := range wrapLines(text, width-2) {
 		out = append(out, " "+l)
 	}
@@ -503,25 +526,76 @@ func (m Model) bodyLines(msg bus.Message, width int) []string {
 
 const removedOnResubmit = "✕ removed on resubmit"
 
-// propItem is one row of the Properties tab. raw is the value y copies.
-type propItem struct {
-	key, typ, val, raw string
-	marker             bool
+// pendMark is a row's Pending Edit marker (spec §4).
+type pendMark int
+
+const (
+	pendNone    pendMark = iota
+	pendChanged          // *
+	pendAdded            // +
+	pendRemoved          // −
+)
+
+func (p pendMark) seg() seg {
+	switch p {
+	case pendChanged:
+		return seg{"*", stWarn}
+	case pendAdded:
+		return seg{"+", stTitleFocus}
+	case pendRemoved:
+		return seg{"−", stErr}
+	}
+	return seg{" ", stPlain}
 }
 
-// propertyItems are the application properties, then the Dead-letter
+// propItem is one row of the Properties tab. raw is the value y copies;
+// rawKey the unsanitized key.
+type propItem struct {
+	key, typ, val, raw string
+	rawKey             string
+	marker             bool
+	pend               pendMark
+	was                string // a changed row: the original value, with its type when that changed
+}
+
+// propertyItems are the application properties with their Pending Edits
+// (changed and removed in place, added after them), then the Dead-letter
 // Markers, in display order.
 func (m Model) propertyItems(msg bus.Message) []propItem {
+	ed := m.editsOf(msg.SequenceNumber)
 	var props []propItem
-	for _, p := range msg.Properties {
+	item := func(p bus.Property) propItem {
 		raw := propertyValue(p, m.opts.Location)
-		props = append(props, propItem{sanitize(p.Key), p.Type.String(), sanitize(raw), raw, false})
+		return propItem{key: sanitize(p.Key), typ: p.Type.String(), val: sanitize(raw), raw: raw, rawKey: p.Key}
+	}
+	for _, p := range msg.Properties {
+		it := item(p)
+		if pe, ok := ed.Property(p.Key); ok {
+			if pe.Remove {
+				it.pend = pendRemoved
+			} else {
+				was := it.val
+				if pe.Type != p.Type {
+					was = it.typ + " " + was
+				}
+				it = item(bus.Property{Key: pe.Key, Type: pe.Type, Value: pe.Value})
+				it.pend, it.was = pendChanged, was
+			}
+		}
+		props = append(props, it)
+	}
+	for _, pe := range ed.Properties {
+		if _, ok := findProp(msg.Properties, pe.Key); !ok && !pe.Remove {
+			it := item(bus.Property{Key: pe.Key, Type: pe.Type, Value: pe.Value})
+			it.pend = pendAdded
+			props = append(props, it)
+		}
 	}
 	if msg.DeadLetterReason != "" {
-		props = append(props, propItem{bus.MarkerDeadLetterReason, bus.TypeString.String(), sanitize(msg.DeadLetterReason), msg.DeadLetterReason, true})
+		props = append(props, propItem{bus.MarkerDeadLetterReason, bus.TypeString.String(), sanitize(msg.DeadLetterReason), msg.DeadLetterReason, bus.MarkerDeadLetterReason, true, pendNone, ""})
 	}
 	if msg.DeadLetterErrorDescription != "" {
-		props = append(props, propItem{bus.MarkerDeadLetterErrorDescription, bus.TypeString.String(), sanitize(msg.DeadLetterErrorDescription), msg.DeadLetterErrorDescription, true})
+		props = append(props, propItem{bus.MarkerDeadLetterErrorDescription, bus.TypeString.String(), sanitize(msg.DeadLetterErrorDescription), msg.DeadLetterErrorDescription, bus.MarkerDeadLetterErrorDescription, true, pendNone, ""})
 	}
 	return props
 }
@@ -551,56 +625,92 @@ func (m Model) propertyLines(msg bus.Message, width int) ([]string, []int) {
 	keyW = min(keyW, max(8, width/3))
 	typeW := len("DateTime")
 
-	// Markers go in their own dimmed section under one "✕ removed on
-	// resubmit" label, so their values (often the only error text there is)
-	// keep the full column instead of sharing it with a per-row suffix.
-	out := []string{row([]seg{{" " + fitPlain("Key", keyW) + "  " + fitPlain("Type", typeW) + "  Value", stDim}}, width, false)}
+	// Each row: cursor, Pending Edit marker, key, type, value. The marker
+	// column is there only while the message has Pending Edits, so the
+	// values keep their full width otherwise. Markers go in their own
+	// dimmed section under one "✕ removed on resubmit" label, so their
+	// values (often the only error text there is) keep the full column
+	// instead of sharing it with a per-row suffix.
+	pad := " "
+	for _, p := range props {
+		if p.pend != pendNone {
+			pad = "  "
+			break
+		}
+	}
+	out := []string{row([]seg{{pad + fitPlain("Key", keyW) + "  " + fitPlain("Type", typeW) + "  Value", stDim}}, width, false)}
 	rows := make([]int, 0, len(props))
 	markerHeader := false
 	for i, p := range props {
 		mark, sel := m.cursorMark(i)
 		if !p.marker {
 			rows = append(rows, len(out))
-			out = append(out, row([]seg{
-				{mark + fitPlain(p.key, keyW) + "  ", stPlain},
-				{fitPlain(p.typ, typeW) + "  ", stDim},
-				{p.val, stPlain},
-			}, width, sel))
+			keySt, valSt := stPlain, stPlain
+			if p.pend == pendRemoved {
+				keySt, valSt = stDim, stDim
+			}
+			segs := []seg{{mark, stPlain}}
+			if pad != " " {
+				segs = append(segs, p.pend.seg())
+			}
+			segs = append(segs,
+				seg{fitPlain(p.key, keyW) + "  ", keySt},
+				seg{fitPlain(p.typ, typeW) + "  ", stDim},
+				seg{p.val, valSt},
+			)
+			switch p.pend {
+			case pendChanged:
+				segs = append(segs, seg{"  (was " + p.was + ")", stDim})
+			case pendRemoved:
+				segs = append(segs, seg{"  " + removedOnResubmit, stDim})
+			}
+			out = append(out, row(segs, width, sel))
 			continue
 		}
 		if !markerHeader {
 			markerHeader = true
-			out = append(out, "", row([]seg{{" Dead-letter markers  " + removedOnResubmit, stDim}}, width, false))
+			out = append(out, "", row([]seg{{pad + "Dead-letter markers  " + removedOnResubmit, stDim}}, width, false))
 		}
 		rows = append(rows, len(out))
 		out = append(out, row([]seg{
-			{mark + fitPlain(p.key, keyW) + "  " + fitPlain(p.typ, typeW) + "  " + p.val, stDim},
+			{mark + pad[1:] + fitPlain(p.key, keyW) + "  " + fitPlain(p.typ, typeW) + "  " + p.val, stDim},
 		}, width, sel))
 	}
 	return out, rows
 }
 
-// sysField is one row of the System tab.
+// sysField is one row of the System tab. value is what the copy gets
+// (the pending value when edited); was the original of an edited field.
 type sysField struct {
 	label, value string
 	editable     bool
+	edited       bool
+	was          string
 }
 
 func (m Model) systemFields(msg bus.Message) []sysField {
+	ed := m.editsOf(msg.SequenceNumber)
+	editable := func(label, orig string, cur *string) sysField {
+		f := sysField{label: label, value: orig, editable: true}
+		if cur != nil {
+			f.value, f.edited, f.was = *cur, true, orig
+		}
+		return f
+	}
 	return []sysField{
-		{"MessageId", msg.MessageID, false},
-		{"CorrelationId", msg.CorrelationID, false},
-		{"Subject", msg.Subject, true},
-		{"ContentType", msg.ContentType, true},
-		{"SessionId", msg.SessionID, false},
-		{"PartitionKey", msg.PartitionKey, false},
-		{"To", msg.To, false},
-		{"ReplyTo", msg.ReplyTo, false},
-		{"TTL", ttlText(msg.TimeToLive), false},
-		{"DeliveryCount", strconv.FormatUint(uint64(msg.DeliveryCount), 10), false},
-		{"EnqueuedTime", fullTime(msg.EnqueuedTime, m.opts.Location), false},
-		{"SequenceNumber", strconv.FormatInt(msg.SequenceNumber, 10), false},
-		{"DeadLetterSource", msg.DeadLetterSource, false},
+		{label: "MessageId", value: msg.MessageID},
+		{label: "CorrelationId", value: msg.CorrelationID},
+		editable("Subject", msg.Subject, ed.Subject),
+		editable("ContentType", msg.ContentType, ed.ContentType),
+		{label: "SessionId", value: msg.SessionID},
+		{label: "PartitionKey", value: msg.PartitionKey},
+		{label: "To", value: msg.To},
+		{label: "ReplyTo", value: msg.ReplyTo},
+		{label: "TTL", value: ttlText(msg.TimeToLive)},
+		{label: "DeliveryCount", value: strconv.FormatUint(uint64(msg.DeliveryCount), 10)},
+		{label: "EnqueuedTime", value: fullTime(msg.EnqueuedTime, m.opts.Location)},
+		{label: "SequenceNumber", value: strconv.FormatInt(msg.SequenceNumber, 10)},
+		{label: "DeadLetterSource", value: msg.DeadLetterSource},
 	}
 }
 
@@ -617,9 +727,19 @@ func (m Model) systemLines(msg bus.Message, width int) ([]string, []int) {
 		if f.value == "" {
 			val = seg{"—", stDim}
 		}
+		pend := pendNone
+		if f.edited {
+			pend = pendChanged
+		}
 		mark, sel := m.cursorMark(i)
+		// The marker takes the label's first cell: the labels are shorter
+		// than labelW, so the values do not move.
+		segs := []seg{{mark, stPlain}, pend.seg(), {fitPlain(label, labelW-1), stDim}, {" ", stPlain}, val}
+		if f.edited {
+			segs = append(segs, seg{"  (was " + orDash(f.was) + ")", stDim})
+		}
 		rows = append(rows, len(out))
-		out = append(out, row([]seg{{mark + fitPlain(label, labelW), stDim}, {" ", stPlain}, val}, width, sel))
+		out = append(out, row(segs, width, sel))
 	}
 	return out, rows
 }
@@ -628,8 +748,13 @@ func (m Model) systemLines(msg bus.Message, width int) ([]string, []int) {
 
 func (m Model) renderOptions() string {
 	var right []seg
+	if n := m.pendingCount(); n > 0 {
+		// Pending Edits live in memory only: the flag says how many
+		// messages would lose theirs on quit.
+		right = append(right, seg{fmt.Sprintf("✎ %d pending", n), stWarn}, seg{" ", stPlain})
+	}
 	if m.opts.ReadOnly {
-		right = []seg{{"READ-ONLY", stReadOnly}, {" ", stPlain}}
+		right = append(right, seg{"READ-ONLY", stReadOnly}, seg{" ", stPlain})
 	}
 	rw := segsWidth(right)
 
@@ -641,19 +766,23 @@ func (m Model) renderOptions() string {
 		r, _ := renderSegs(right, rw, nil)
 		return l + " " + r
 	}
-	cleanup := false
-	if msg, ok := m.selectedMessage(); ok {
+	f := optionFlags{tab: m.tab}
+	if msg, ok := m.selectedMessage(); ok && m.subQueue == bus.DeadLetter {
 		mark, marked := m.markOf(msg.SequenceNumber)
-		cleanup = marked && mark.outcome == bus.CleanupPending
+		f.cleanup = marked && mark.outcome == bus.CleanupPending
+		f.edit = true
+		f.discard = !m.editsOf(msg.SequenceNumber).IsZero()
 	}
-	repair := !m.opts.ReadOnly && m.subQueue == bus.DeadLetter
-	bindings := optionsBindings(m.stack.Top(), repair, cleanup && repair)
+	f.repair = !m.opts.ReadOnly && m.subQueue == bus.DeadLetter
+	f.cleanup = f.cleanup && f.repair
+	bindings := optionsBindings(m.stack.Top(), f)
 	if m.stack.Top() == CtxFilter || m.stack.Top() == CtxJump {
 		bindings = contextBindings(m.stack.Top())
 	}
 	if m.stack.Top() == CtxConfirm && m.confirm.kind == confirmRepair && !m.confirm.uncertain {
 		bindings = append(bindings, keys.ToggleID)
 	}
+	bindings = fitBindings(bindings, max(0, m.width-rw-2))
 	for i, b := range bindings {
 		if i > 0 {
 			left = append(left, seg{"  ", stPlain})
@@ -664,6 +793,35 @@ func (m Model) renderOptions() string {
 	l := row(left, max(0, m.width-rw-1), false)
 	r, _ := renderSegs(right, rw, nil)
 	return l + " " + r
+}
+
+// optionsDropOrder are the options bar keys left out first when the bar
+// is too narrow, so the context's own keys and ? / q stay visible.
+var optionsDropOrder = []key.Help{
+	keys.FocusMainOp.Help(), keys.Jump.Help(), keys.Filter.Help(), {Key: "[ ]", Desc: "tab"}, keys.SubQueue.Help(),
+}
+
+// fitBindings drops bindings in optionsDropOrder until they fit in width
+// cells; what still does not fit is cut by the row.
+func fitBindings(bs []key.Binding, width int) []key.Binding {
+	size := func(bs []key.Binding) int {
+		w := 0
+		for i, b := range bs {
+			h := b.Help()
+			if i > 0 {
+				w += 2
+			}
+			w += ansi.StringWidth(h.Key) + 1 + ansi.StringWidth(h.Desc)
+		}
+		return w
+	}
+	for _, drop := range optionsDropOrder {
+		if size(bs) <= width {
+			break
+		}
+		bs = slices.DeleteFunc(slices.Clone(bs), func(b key.Binding) bool { return b.Help() == drop })
+	}
+	return bs
 }
 
 // --- `?` menu -----------------------------------------------------------------
@@ -696,6 +854,8 @@ func (m Model) overlayHelp(screen string) string {
 			}
 		case entries[j].section != "":
 			r = row([]seg{{" " + entries[j].section, stBold}}, inner, false)
+		case entries[j].key == "":
+			r = row([]seg{{"   " + entries[j].desc, stDim}}, inner, false)
 		default:
 			e := entries[j]
 			r = row([]seg{{"   " + fitPlain(e.key, 8) + " ", stKey}, {e.desc, stPlain}}, inner, false)

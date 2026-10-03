@@ -27,4 +27,4 @@
 [1;32m│[m   51 [90m09-21 [mPoisonMessage[90m ord-4051[m[1;32m│[m[90m│[m[90m 16:00 [mpeek orders/$DLQ → 50                                                      [90m│[m
 [1;32m│[m[1;44m▸ [m[1;44m 52 [m[1;44m09-21 [m[1;44mSchemaMismat…[m[1;44m ord-4052[m[1;32m│[m[90m│[m[90m 16:00 [mpeek orders/$DLQ from 52 → 50                                              [90m│[m
 [1;32m└──────────────────────────────────┘[m[90m└──────────────────────────────────────────────────────────────────────────────────┘[m
- [36menter[m focus main pane  [36mtab[m DLQ / Active  [36mr[m resubmit  [36m[ ][m tab  [36m/[m filter  [36m:[m jump  [36m?[m keybindings  [36mq[m quit                  
+ [36mtab[m DLQ / Active  [36mr[m resubmit  [36me[m add prop  [36mE[m edit body  [36m[ ][m tab  [36m/[m filter  [36m:[m jump  [36m?[m keybindings  [36mq[m quit                

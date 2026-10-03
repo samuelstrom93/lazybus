@@ -187,6 +187,103 @@ func TestEmulatorRepair(t *testing.T) {
 		}
 	})
 
+	t.Run("edits", func(t *testing.T) {
+		dlq := peekAll(t, b, ns, orders, bus.DeadLetter)
+		first := dlq[0] // the text/plain seed message
+		subject, contentType := "OrderFixed", "application/json"
+		guid := "0f8fad5b-d9cb-469f-a165-70867728950e"
+		at := time.Date(2026, 10, 3, 12, 0, 0, 500e6, time.UTC)
+		r := repairReq(ns, orders, first.SequenceNumber)
+		r.Edits = bus.Edits{
+			Properties: []bus.PropertyEdit{
+				{Key: "orderId", Type: bus.TypeLong, Value: int64(9_000_000_000)},
+				{Key: "attempt", Type: bus.TypeInt, Value: int32(-42)},
+				{Key: "amount", Type: bus.TypeDouble, Value: 1e-3},
+				{Key: "isRetry", Remove: true},
+				{Key: "addString", Type: bus.TypeString, Value: "eu-north"},
+				{Key: "addInt", Type: bus.TypeInt, Value: int32(7)},
+				{Key: "addLong", Type: bus.TypeLong, Value: int64(1) << 40},
+				{Key: "addDouble", Type: bus.TypeDouble, Value: 3.25},
+				{Key: "addBool", Type: bus.TypeBool, Value: true},
+				{Key: "addGuid", Type: bus.TypeGUID, Value: guid},
+				{Key: "addTime", Type: bus.TypeDateTime, Value: at},
+			},
+			Subject:     &subject,
+			ContentType: &contentType,
+			Body:        []byte("{\n  \"fixed\": true\n}"),
+			BodyEdited:  true,
+		}
+		res := doRepair(t, b, r)
+		if res.NewMessageID != first.MessageID {
+			t.Fatalf("MessageId %s → %s, want kept", first.MessageID, res.NewMessageID)
+		}
+		cp, ok := findByID(peekAll(t, b, ns, orders, bus.Active), first.MessageID)
+		if !ok {
+			t.Fatalf("no copy with MessageId %s in orders", first.MessageID)
+		}
+		if cp.Subject != subject || cp.ContentType != contentType || string(cp.Body) != string(r.Edits.Body) ||
+			cp.DeadLetterReason != "" || cp.DeadLetterErrorDescription != "" {
+			t.Fatalf("copy = %q %q %q, markers %q %q", cp.Subject, cp.ContentType, cp.Body, cp.DeadLetterReason, cp.DeadLetterErrorDescription)
+		}
+		seeded := seed.QueueMessages()[2].Properties
+		want := map[string]bus.Property{}
+		for k, v := range seeded {
+			ty, val := expect(v)
+			want[k] = bus.Property{Key: k, Type: ty, Value: val}
+		}
+		delete(want, "isRetry")
+		for _, pe := range r.Edits.Properties {
+			if !pe.Remove {
+				want[pe.Key] = bus.Property{Key: pe.Key, Type: pe.Type, Value: pe.Value}
+			}
+		}
+		checkProps(t, cp.Properties, want)
+	})
+
+	t.Run("ui edit popup", func(t *testing.T) {
+		before := peekAll(t, b, ns, orders, bus.DeadLetter)
+		ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
+		ents, err := b.ListEntities(ctx, ns)
+		cancel()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m tea.Model = ui.New(b, ui.Options{Location: time.UTC, CallTimeout: opTimeout})
+		m = drive(t, m, tea.WindowSizeMsg{Width: 120, Height: 30})
+		m = runCmds(m, m.Init())
+		m = drive(t, m, key("2"))
+		for _, e := range ents {
+			if e.Path == orders.Path && e.Kind == orders.Kind {
+				break
+			}
+			m = drive(t, m, key("j"))
+		}
+		m = drive(t, m, key("enter"))
+		// e: add fixedBy as Int 42 (→ from String to Int).
+		for _, k := range []string{"e", "f", "i", "x", "e", "d", "B", "y", "tab", "right", "tab", "4", "2", "enter"} {
+			m = drive(t, m, key(k))
+		}
+		if s := screen(m); !strings.Contains(s, "+fixedBy") || !strings.Contains(s, "✎ 1 pending") {
+			t.Fatalf("no pending add:\n%s", s)
+		}
+		m = drive(t, m, key("r"))
+		if s := screen(m); !strings.Contains(s, "+ fixedBy: Int 42") {
+			t.Fatalf("confirm lacks the diff:\n%s", s)
+		}
+		m = drive(t, m, key("y"))
+		if s := screen(m); !strings.Contains(s, "(1 edits applied)") && !strings.Contains(s, "(1 edit applied)") {
+			t.Fatalf("status:\n%s", s)
+		}
+		cp, ok := findByID(peekAll(t, b, ns, orders, bus.Active), before[0].MessageID)
+		if !ok {
+			t.Fatalf("no copy with MessageId %s", before[0].MessageID)
+		}
+		p, ok := findProp(cp.Properties, "fixedBy")
+		if !ok || p.Type != bus.TypeInt || p.Value != int32(42) {
+			t.Fatalf("fixedBy = %+v", p)
+		}
+	})
+
 	t.Run("subscription to topic", func(t *testing.T) {
 		dlq := peekAll(t, b, ns, billing, bus.DeadLetter)
 		shipBefore := len(peekAll(t, b, ns, shipping, bus.Active))
@@ -245,4 +342,45 @@ func TestEmulatorRepair(t *testing.T) {
 			t.Fatalf("err = %v", err)
 		}
 	})
+}
+
+func findByID(msgs []bus.Message, id string) (bus.Message, bool) {
+	for _, m := range msgs {
+		if m.MessageID == id {
+			return m, true
+		}
+	}
+	return bus.Message{}, false
+}
+
+func findProp(props []bus.Property, key string) (bus.Property, bool) {
+	for _, p := range props {
+		if p.Key == key {
+			return p, true
+		}
+	}
+	return bus.Property{}, false
+}
+
+// checkProps compares the received properties, with their AMQP types,
+// against want.
+func checkProps(t *testing.T, got []bus.Property, want map[string]bus.Property) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Errorf("copy has %d properties, want %d: %+v", len(got), len(want), got)
+	}
+	for _, p := range got {
+		w, ok := want[p.Key]
+		if !ok {
+			t.Errorf("copy: unexpected property %s", p.Key)
+			continue
+		}
+		equal := p.Value == w.Value
+		if tv, ok := p.Value.(time.Time); ok {
+			equal = tv.Equal(w.Value.(time.Time))
+		}
+		if p.Type != w.Type || !equal {
+			t.Errorf("copy: %s = %v %v (%T), want %v %v", p.Key, p.Type, p.Value, p.Value, w.Type, w.Value)
+		}
+	}
 }

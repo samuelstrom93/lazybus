@@ -37,6 +37,20 @@ type keyMap struct {
 	FinishCleanup key.Binding // Messages, Main: c
 	Sort          key.Binding // Entities: s
 
+	EditBody   key.Binding // Messages, Main (Body tab): E
+	AddPropMsg key.Binding // Messages: e (add with an empty key)
+	EditProp   key.Binding // Main (Properties tab): e
+	EditField  key.Binding // Main (System tab): e
+	AddProp    key.Binding // Main (Properties tab): a
+	RemoveProp key.Binding // Main (Properties tab): d
+	Discard    key.Binding // Messages, Main: x
+
+	EditSave   key.Binding // Property Edit popup: enter
+	EditNext   key.Binding
+	EditPrev   key.Binding
+	EditType   key.Binding // ← → on the Type field (help only)
+	EditCancel key.Binding
+
 	Confirm  key.Binding // destructive popups: y only (spec §2)
 	Cancel   key.Binding
 	ToggleID key.Binding // resubmit popup: m
@@ -88,6 +102,20 @@ var keys = keyMap{
 	FinishCleanup: key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "finish cleanup")),
 	Sort:          key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sort path / DLQ")),
 
+	EditBody:   key.NewBinding(key.WithKeys("E"), key.WithHelp("E", "edit body")),
+	AddPropMsg: key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "add prop")),
+	EditProp:   key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit prop")),
+	EditField:  key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit ✎ field")),
+	AddProp:    key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add prop")),
+	RemoveProp: key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "remove prop")),
+	Discard:    key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "discard edits")),
+
+	EditSave:   key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "save")),
+	EditNext:   key.NewBinding(key.WithKeys("tab", "down"), key.WithHelp("tab ↓", "next field")),
+	EditPrev:   key.NewBinding(key.WithKeys("shift+tab", "up"), key.WithHelp("⇧tab ↑", "previous field")),
+	EditType:   key.NewBinding(key.WithKeys("left", "right"), key.WithHelp("← →", "change type")),
+	EditCancel: key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
+
 	Confirm:  key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "confirm (enter does nothing)")),
 	Cancel:   key.NewBinding(key.WithKeys("n", "esc"), key.WithHelp("n esc", "cancel")),
 	ToggleID: key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "MessageId keep/new")),
@@ -114,15 +142,19 @@ func contextBindings(c ContextID) []key.Binding {
 	case CtxEntities:
 		return []key.Binding{keys.Open, keys.Sort}
 	case CtxMessages:
-		return []key.Binding{keys.FocusMainOp, keys.SubQueue, keys.Resubmit, keys.FinishCleanup}
+		return []key.Binding{keys.FocusMainOp, keys.SubQueue, keys.Resubmit, keys.FinishCleanup,
+			keys.AddPropMsg, keys.EditBody, keys.Discard}
 	case CtxMain:
-		return []key.Binding{keys.Back, keys.Resubmit, keys.FinishCleanup}
+		return []key.Binding{keys.Back, keys.Resubmit, keys.FinishCleanup,
+			keys.EditBody, keys.EditProp, keys.AddProp, keys.RemoveProp, keys.EditField, keys.Discard}
 	case CtxHelp:
 		return []key.Binding{keys.HelpUp, keys.HelpDown, keys.HelpErase, keys.HelpClose}
 	case CtxFilter:
 		return []key.Binding{keys.FilterKeep, keys.FilterClear, keys.FilterMove}
 	case CtxJump:
 		return []key.Binding{keys.JumpOpen, keys.JumpCancel, keys.JumpUp, keys.JumpDown}
+	case CtxEdit:
+		return []key.Binding{keys.EditSave, keys.EditNext, keys.EditPrev, keys.EditType, keys.EditCancel}
 	}
 	return nil
 }
@@ -143,27 +175,56 @@ func globalBindings() []key.Binding {
 	}
 }
 
+// optionFlags say which context keys apply to the selected message.
+type optionFlags struct {
+	repair  bool    // r: DLQ tab, not --read-only
+	cleanup bool    // c: a CleanupPending row, r allowed
+	edit    bool    // edit keys: DLQ tab with a message selected
+	discard bool    // x: the message has Pending Edits
+	tab     mainTab // main pane tab: which edit keys it takes
+}
+
 // optionsBindings are the keys shown in the options bar for context c.
-// repair shows `r` (DLQ tab, not --read-only); cleanup shows `c`, which
-// only acts on a CleanupPending row.
-func optionsBindings(c ContextID, repair, cleanup bool) []key.Binding {
+func optionsBindings(c ContextID, f optionFlags) []key.Binding {
 	switch c {
 	case CtxHelp:
 		return []key.Binding{keys.HelpClose, keys.HelpUp, keys.HelpDown}
 	case CtxConfirm:
 		return []key.Binding{keys.Confirm, keys.Cancel}
+	case CtxEdit:
+		return []key.Binding{keys.EditSave, keys.EditNext, keys.EditCancel}
 	case CtxBusy:
 		return nil
 	}
 	var out []key.Binding
 	for _, b := range contextBindings(c) {
-		switch b.Help().Key {
-		case keys.Resubmit.Help().Key:
-			if !repair {
+		switch b.Help() {
+		case keys.Resubmit.Help():
+			if !f.repair {
 				continue
 			}
-		case keys.FinishCleanup.Help().Key:
-			if !cleanup {
+		case keys.FinishCleanup.Help():
+			if !f.cleanup {
+				continue
+			}
+		case keys.Discard.Help():
+			if !f.edit || !f.discard {
+				continue
+			}
+		case keys.AddPropMsg.Help():
+			if !f.edit {
+				continue
+			}
+		case keys.EditBody.Help():
+			if !f.edit || c == CtxMain && f.tab != tabBody {
+				continue
+			}
+		case keys.EditProp.Help(), keys.AddProp.Help(), keys.RemoveProp.Help():
+			if !f.edit || f.tab != tabProperties {
+				continue
+			}
+		case keys.EditField.Help():
+			if !f.edit || f.tab != tabSystem {
 				continue
 			}
 		}

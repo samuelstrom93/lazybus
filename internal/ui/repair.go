@@ -24,6 +24,7 @@ type confirmKind int
 const (
 	confirmRepair confirmKind = iota
 	confirmCleanup
+	confirmDiscard // x: discard the Pending Edits of a message (local)
 )
 
 // confirmState is the open confirm popup.
@@ -100,15 +101,21 @@ type (
 )
 
 func (k confirmKind) key() string {
-	if k == confirmCleanup {
+	switch k {
+	case confirmCleanup:
 		return "c"
+	case confirmDiscard:
+		return "x"
 	}
 	return "r"
 }
 
 func (k confirmKind) op(req bus.RepairRequest) string {
-	if k == confirmCleanup {
+	switch k {
+	case confirmCleanup:
 		return fmt.Sprintf("finish cleanup %s seq %d", entityLabel(req.Entity, bus.DeadLetter), req.SequenceNumber)
+	case confirmDiscard:
+		return fmt.Sprintf("discard Pending Edits of %s seq %d", entityLabel(req.Entity, bus.DeadLetter), req.SequenceNumber)
 	}
 	return fmt.Sprintf("resubmit %s seq %d", entityLabel(req.Entity, bus.DeadLetter), req.SequenceNumber)
 }
@@ -172,7 +179,7 @@ func (m Model) startRepair(kind confirmKind) (Model, tea.Cmd) {
 		return m, nil
 	}
 	if m.subQueue == bus.Active {
-		m.setStatus(statusWarn, "read-only: Active messages can't be repaired")
+		m.setStatus(statusWarn, activeRefusal)
 		return m, nil
 	}
 	msg, ok := m.selectedMessage()
@@ -191,6 +198,10 @@ func (m Model) startRepair(kind confirmKind) (Model, tea.Cmd) {
 	req := bus.RepairRequest{
 		Namespace: *m.openNS, Entity: *m.openEntity, SubQueue: bus.DeadLetter,
 		SequenceNumber: msg.SequenceNumber, Index: m.messages.allIndex(m.messages.cursor),
+	}
+	if kind == confirmRepair {
+		// The repair consumes the message's Pending Edits.
+		req.Edits = m.editsOf(msg.SequenceNumber).Edits
 	}
 	m.busy = busyState{text: fmt.Sprintf("checking %s seq %d", entityLabel(req.Entity, bus.DeadLetter), req.SequenceNumber)}
 	m.stack.Push(CtxBusy)
@@ -259,6 +270,12 @@ func (m Model) planDone(msg planDoneMsg) (Model, tea.Cmd) {
 func (m Model) handleConfirmKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	c := m.confirm
 	switch {
+	case key.Matches(msg, keys.Confirm) && c.kind == confirmDiscard:
+		m.stack.Pop()
+		m.confirm = confirmState{}
+		m.setEdits(reqMarkKey(c.req), bus.Edits{})
+		m.setStatus(statusOK, "discarded %d Pending Edit%s of %s seq %d", c.req.Edits.Count(), plural(c.req.Edits.Count()),
+			entityLabel(c.req.Entity, bus.DeadLetter), c.req.SequenceNumber)
 	case key.Matches(msg, keys.Confirm):
 		m.stack.Pop()
 		m.confirm = confirmState{}
@@ -266,6 +283,10 @@ func (m Model) handleConfirmKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case key.Matches(msg, keys.Cancel):
 		m.stack.Pop()
 		m.confirm = confirmState{}
+		if c.kind == confirmDiscard {
+			m.setStatus(statusInfo, "discard canceled; Pending Edits kept")
+			break
+		}
 		m.setStatus(statusInfo, "%s canceled; nothing changed", c.kind.op(c.req))
 	case c.kind == confirmRepair && !c.uncertain && key.Matches(msg, keys.ToggleID):
 		m.confirm.newID = !m.confirm.newID
@@ -350,6 +371,9 @@ func (m *Model) applyResult(kind confirmKind, req bus.RepairRequest, res bus.Rep
 		if res.NewMessageID != res.OldMessageID {
 			text += " with new MessageId " + res.NewMessageID
 		}
+		if n := req.Edits.Count(); n > 0 {
+			text += fmt.Sprintf(" (%d edit%s applied)", n, plural(n))
+		}
 	case bus.Cleaned:
 		level, text = statusOK, fmt.Sprintf("Cleaned: %s seq %d removed; nothing sent", src, req.SequenceNumber)
 	case bus.NotFound:
@@ -403,11 +427,15 @@ func (m Model) isOpenList(req bus.RepairRequest) bool {
 		m.openNS.FQDN == req.Namespace.FQDN && m.openEntity.Path == req.Entity.Path && m.openEntity.Kind == req.Entity.Kind
 }
 
-// removeRow drops req's row. The cursor keeps its index, which puts it on
+// removeRow drops req's row and its Pending Edits. The cursor keeps its index, which puts it on
 // the next message (or the new last row), so `r y r y` works down a list.
 // With a filter, "next" is the next visible row.
 func (m *Model) removeRow(req bus.RepairRequest) tea.Cmd {
 	m.clearMark(reqMarkKey(req))
+	// The message is gone: its Pending Edits go with it (spec §6 step 4).
+	if _, ok := m.pending[reqMarkKey(req)]; ok {
+		m.setEdits(reqMarkKey(req), bus.Edits{})
+	}
 	if !m.isOpenList(req) {
 		return nil
 	}
@@ -519,7 +547,7 @@ type confirmBlock struct {
 func (m Model) confirmBlocks(inner int) (title string, blocks []confirmBlock, footer []seg) {
 	c := m.confirm
 	p := c.plan
-	const labelW = 11
+	const labelW = 12
 	valW := max(10, inner-2-labelW)
 	field := func(label, value string, level statusLevel, optional bool) {
 		var lines []string
@@ -546,6 +574,16 @@ func (m Model) confirmBlocks(inner int) (title string, blocks []confirmBlock, fo
 	src := fmt.Sprintf("%s seq %d", p.Source, p.SequenceNumber)
 	target := fmt.Sprintf("%s %s", p.Target.Kind, p.Target.Name)
 
+	if c.kind == confirmDiscard {
+		title = "Discard Pending Edits"
+		field("Message", src+" (MessageId "+p.Message.MessageID+")", statusInfo, false)
+		for _, d := range m.editDiff(p.Message, c.req.Edits) {
+			field(d.label, d.text, d.level, d.optional)
+		}
+		note("the edits live only in memory: discarded edits can't be restored", statusWarn)
+		footer = []seg{{"y", stKey}, {" discard  ", stDim}, {"n", stKey}, {" cancel", stDim}}
+		return title, blocks, footer
+	}
 	if c.kind == confirmCleanup {
 		title = "Finish Cleanup"
 		field("Remove", src+" (MessageId "+p.Message.MessageID+")", statusInfo, false)
@@ -561,15 +599,18 @@ func (m Model) confirmBlocks(inner int) (title string, blocks []confirmBlock, fo
 	title = "Resubmit"
 	field("Source", src, statusInfo, false)
 	field("Target", target, statusInfo, false)
-	text, isJSON := bodyText(p.Message.Body)
-	body := fmt.Sprintf("unchanged, %d line%s", strings.Count(text, "\n")+1, plural(strings.Count(text, "\n")+1))
-	if len(p.Message.Body) == 0 {
-		body = "unchanged, empty"
-	} else if isJSON {
-		body += ", JSON"
+	edits := c.req.Edits
+	if !edits.BodyEdited {
+		field("Body", bodySummary("unchanged", p.Message.Body), statusInfo, true)
 	}
-	field("Body", body, statusInfo, true)
-	field("Edits", "none (properties, Subject and ContentType unchanged)", statusInfo, true)
+	if edits.IsZero() {
+		field("Edits", "none (properties, Subject and ContentType unchanged)", statusInfo, true)
+	}
+	// Every Pending Edit is listed (what y sends); per-property lines give
+	// way on a short terminal, the count stays.
+	for _, d := range m.editDiff(p.Message, edits) {
+		field(d.label, d.text, d.level, d.optional)
+	}
 	field("Markers", "removed: "+strings.Join(p.MarkersRemoved, ", "), statusInfo, true)
 	same := ""
 	if c.uncertain {

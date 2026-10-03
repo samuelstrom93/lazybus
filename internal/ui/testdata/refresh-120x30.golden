@@ -27,4 +27,4 @@
 [1;32m│[m                                  [1;32m│[m[90m│[m[90m 16:00 [mpeek invoices/$DLQ → 3                                                     [90m│[m
 [1;32m│[m                                  [1;32m│[m[90m│[m[90m 16:00 [mpeek invoices/$DLQ → 2                                                     [90m│[m
 [1;32m└──────────────────────────────────┘[m[90m└──────────────────────────────────────────────────────────────────────────────────┘[m
- [36menter[m focus main pane  [36mtab[m DLQ / Active  [36mr[m resubmit  [36m[ ][m tab  [36m/[m filter  [36m:[m jump  [36m?[m keybindings  [36mq[m quit                  
+ [36mtab[m DLQ / Active  [36mr[m resubmit  [36me[m add prop  [36mE[m edit body  [36m[ ][m tab  [36m/[m filter  [36m:[m jump  [36m?[m keybindings  [36mq[m quit                

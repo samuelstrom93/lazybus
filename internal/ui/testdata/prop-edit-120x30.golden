@@ -1,0 +1,30 @@
+[90m┌[m 1 Namespaces [90m────────────────────┐[32;1m┌[m [90mBody │ [32;1mProperties[90;22m │ System[m [32;1m──────────────────────────────────────────────────────┐[m
+[90m│[m▸ sb-prod-weu                     [90m│[32;1m│[90;22m Key                         Type      Value[m                                      [32;1m│[m
+[90m│[m  sb-test-weu                     [90m│[32;1m│[m tenant                      [90mString    [mcontoso                                    [32;1m│[m
+[90m├[m 2 Entities [90m──────────────────────┤[32;1m│[39;44m orderId                     Long      4002                                       [32;49m│[m
+[90m│[m  invoices                  [33mDLQ  3[90m│[32;1m│[m attempt                     [90mInt       [m3                                          [32;1m│[m
+[90m│[m  order-events/billing      [33mDLQ 12[90m│[32;1m│[m amount                      [90mDouble    [m2.5                                        [32;1m│[m
+[90m│[m  order-events/shipping     [90mDLQ  0│[32;1m│[m isRetry                     [90mBool      [mfalse                                      [32;1m│[m
+[90m│[m▸ orders                    [33mDLQ 37[90m│[32;1m│[m traceId                     [90mGuid      [m6f1c2b9e-4d2a-4c1e-9b7a-000000004002       [32;1m│[m
+[90m├[m 3 Messages  [1mDLQ[90;22m│Active[m [90m──────────┤[32;1m│[m createdAt                   [90mDateTime  [m2026-09-18T22:15:00Z                       [32;1m│[m
+[90m│[m▸  2 [90m06:00 [mSchemaMismat…[90m ord-4002[m [90m│[32;1m│[m                                                                                  [32;1m│[m
+[90m│[m   3 [90m07:00 [mMaxDeliver[32;1m┌[m [32;1mEdit property[90;22m  orders/$DLQ seq 2[m [32;1m────────────────────────────────────────┐[m                     [32;1m│[m
+[90m│[m   4 [90m08:00 [mDownstream[32;1m│[m                                                                          [32;1m│[m                     [32;1m│[m
+[90m│[m   5 [90m09:00 [mSchemaMism[32;1m│[90;22m  Key     orderId[m                                                         [32;1m│[90;22mtomer.id' is missing.[32;1m│[m
+[90m│[m   6 [90m10:00 [mPoisonMess[32;1m│[90;22m  Type     String [m [90m Int [m [1m Long [m [90m Double [m [90m Bool [m [90m Guid [m [90m DateTime [m         [32;1m│[m                     [32;1m│[m
+[90m│[m   7 [90m11:00 [mSchemaMism[32;1m│  Value   [m4002[32;1m▏[m                                                           [32;1m│[m                     [32;1m│[m
+[90m│[m   8 [90m12:00 [mMaxDeliver[32;1m│[90;22m          whole number, 64-bit[m                                            [32;1m│[m                     [32;1m│[m
+[90m│[m   9 [90m13:00 [mDownstream[32;1m│[90;22m  was     Long 4002[m                                                       [32;1m│[m                     [32;1m│[m
+[90m│[m  10 [90m14:00 [mSchemaMism[32;1m│[m                                                                          [32;1m│[m                     [32;1m│[m
+[90m│[m  11 [90m15:00 [mPoisonMess[32;1m└[m [36menter[90m save  [36mtab[90m next field  [36mesc[90m cancel[m [32;1m──────────────────────────────────┘[m                     [32;1m│[m
+[90m│[m  12 [90m16:00 [mSchemaMismat…[90m ord-4012[m [90m│[32;1m│[m                                                                                  [32;1m│[m
+[90m│[m  13 [90m17:00 [mMaxDeliveryC…[90m ord-4013[m [90m│[32;1m│[m                                                                                  [32;1m│[m
+[90m│[m  14 [90m18:00 [mDownstreamTi…[90m ord-4014[m [90m│[32;1m│[m                                                                                  [32;1m│[m
+[90m│[m  15 [90m19:00 [mSchemaMismat…[90m ord-4015[m [90m│[32;1m│[m                                                                                  [32;1m│[m
+[90m│[m  16 [90m20:00 [mPoisonMessage[90m ord-4016[m [90m│[32;1m├[m Log [32;1m─────────────────────────────────────────────────────────────────────────────┤[m
+[90m│[m  17 [90m21:00 [mSchemaMismat…[90m ord-4017[m [90m││ 16:00 [mlist namespaces → 2                                                        [90m│[m
+[90m│[m  18 [90m22:00 [mMaxDeliveryC…[90m ord-4018[m [90m││ 16:00 [mlist entities sb-prod-weu → 4                                              [90m│[m
+[90m│[m  19 [90m23:00 [mDownstreamTi…[90m ord-4019[m [90m││ 16:00 [mpeek invoices/$DLQ → 3                                                     [90m│[m
+[90m│[m  20 [90m09-20 [mSchemaMismat…[90m ord-4020[m [90m││ 16:00 [mpeek orders/$DLQ → 37                                                      [90m│[m
+[90m└──────────────────────────────────┘└──────────────────────────────────────────────────────────────────────────────────┘[m
+ [36menter[m save  [36mtab ↓[m next field  [36mesc[m cancel                                                                               
