@@ -1,0 +1,9 @@
+# dev server / run logs
+dev.log
+
+# build output
+dist/
+/lazybus
+
+# local emulator secrets
+emulator/.env

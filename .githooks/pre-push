@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Full gate: tests (unit + goldens), staticcheck if installed, build.
+# Emulator E2E tests are excluded; run `go test -tags emulator ./...` by hand.
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+go test ./...
+
+if command -v staticcheck >/dev/null 2>&1; then
+  staticcheck ./...
+else
+  echo "pre-push: staticcheck not installed, skipping" >&2
+fi
+
+go build ./...
