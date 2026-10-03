@@ -153,12 +153,12 @@ func TestRepairQueueResubmitted(t *testing.T) {
 	if tail[0] != (Event{OpSend, "orders", 3}) || tail[1] != (Event{OpComplete, "orders/$DLQ", 3}) {
 		t.Fatalf("last events %v, want send then complete", tail)
 	}
-	// Peek-lock costs the siblings one delivery.
+	// A DLQ abandon leaves DeliveryCount alone (as on Azure, S4).
 	for _, s := range abandoned {
 		m, _ := find(after, s)
 		was, _ := find(before, s)
-		if m.DeliveryCount != was.DeliveryCount+1 {
-			t.Errorf("seq %d DeliveryCount %d → %d, want +1", s, was.DeliveryCount, m.DeliveryCount)
+		if m.DeliveryCount != was.DeliveryCount {
+			t.Errorf("seq %d DeliveryCount %d → %d, want unchanged", s, was.DeliveryCount, m.DeliveryCount)
 		}
 	}
 	for _, want := range []string{
@@ -466,7 +466,7 @@ func TestRepairSubscriptionToTopic(t *testing.T) {
 		!strings.Contains(plan.Warnings[0], "2 subscriptions") {
 		t.Fatalf("warnings %q", plan.Warnings)
 	}
-	if plan.ScanCost != "locks up to 50 messages ahead of it briefly; their DeliveryCount may increase by 1" ||
+	if plan.ScanCost != "locks up to 50 messages ahead of it briefly; their DeliveryCount does not change" ||
 		!reflect.DeepEqual(plan.MarkersRemoved, []string{"DeadLetterReason", "DeadLetterErrorDescription"}) {
 		t.Fatalf("scan cost %q markers %v", plan.ScanCost, plan.MarkersRemoved)
 	}

@@ -2,7 +2,7 @@
 // deterministic demo data. It powers `lazybus --demo` and the UI tests.
 //
 // DLQ Repair runs the real algorithm (bus.Service) on an in-memory broker:
-// peek-lock with lock expiry and DeliveryCount, abandon, complete, send to
+// peek-lock with lock expiry, abandon, complete, send to
 // queues and topics (fan-out by subscription filter), duplicate detection,
 // and fault injection for every step.
 package fake

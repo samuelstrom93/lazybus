@@ -166,11 +166,11 @@ func (h *dlqReceiver) Complete(ctx context.Context, m bus.Locked) error {
 // releaseGrace is how long Close waits before closing the link. An
 // abandoned message comes straight back over the link's leftover credits;
 // the SDK's releaser releases it, but Close stops the releaser, and a
-// message caught in between stays locked until its lock expires (seen on
-// the emulator: closing right after the abandons stranded one of two
-// abandoned messages; 100 ms later, none). Best effort: the wait is a
-// guess from the emulator, not yet measured on Azure, and only paid by a
-// call that abandoned something.
+// message caught in between stays locked until its lock expires. Measured
+// on Azure (docs/spike-s-1.md, S4; 6 messages, repair of the third):
+// closing at once stranded 3 of 15 abandoned siblings over 3 runs, 100 ms
+// stranded 4 of 15, 500 ms none of 65 over 13 runs (the emulator needed
+// 100 ms). Only paid by a call that abandoned something.
 const releaseGrace = 500 * time.Millisecond
 
 // Close closes the link, so no leftover credit can receive (and lock) a

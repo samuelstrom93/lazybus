@@ -14,7 +14,7 @@
 [32;1m│[m       [32;1m│[90;22m Edits       [mnone (properties, Subject and ContentType unchanged)                                     [32;1m│[m       [90m│[m
 [32;1m│[m       [32;1m│[90;22m Markers     [mremoved: DeadLetterReason, DeadLetterErrorDescription                                    [32;1m│[m       [90m│[m
 [32;1m│[m       [32;1m│[90;22m MessageId   [33mkept inv-1002[m                                                                            [32;1m│[m       [90m│[m
-[32;1m│[m       [32;1m│[90;22m Scan        [mlocks up to 50 messages ahead of it briefly; their DeliveryCount may increase by 1       [32;1m│[m       [90m│[m
+[32;1m│[m       [32;1m│[90;22m Scan        [mlocks up to 50 messages ahead of it briefly; their DeliveryCount does not change         [32;1m│[m       [90m│[m
 [32;1m│[m       [32;1m│[m                                                                                                      [32;1m│[m       [90m│[m
 [32;1m│[m       [32;1m│[33;22m ! invoices has duplicate detection: a copy with the original MessageId may be dropped as a duplicate[m [32;1m│[m       [90m│[m
 [32;1m│[m       [32;1m│[m                                                                                                      [32;1m│[m       [90m│[m

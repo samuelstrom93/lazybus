@@ -15,7 +15,7 @@
 [32;1m│[m   7 [90m11[32;1m│[90;22m Edits       [mnone (properties, Subject and ContentType unchanged)                                     [32;1m│[m       [90m│[m
 [32;1m│[m   8 [90m12[32;1m│[90;22m Markers     [mremoved: DeadLetterReason, DeadLetterErrorDescription                                    [32;1m│[m       [90m│[m
 [32;1m│[m   9 [90m13[32;1m│[90;22m MessageId   [mkept ord-4002                                                                            [32;1m│[m       [90m│[m
-[32;1m│[m  10 [90m14[32;1m│[90;22m Scan        [mlocks up to 50 messages ahead of it briefly; their DeliveryCount may increase by 1       [32;1m│[m       [90m│[m
+[32;1m│[m  10 [90m14[32;1m│[90;22m Scan        [mlocks up to 50 messages ahead of it briefly; their DeliveryCount does not change         [32;1m│[m       [90m│[m
 [32;1m│[m  11 [90m15[32;1m│[m                                                                                                      [32;1m│[m       [90m│[m
 [32;1m│[m  12 [90m16[32;1m└[m [36my[90m resubmit  [36mn[90m cancel  [36mm[90m new MessageId[m [32;1m───────────────────────────────────────────────────────────────┘[m       [90m│[m
 [32;1m│[m  13 [90m17:00 [mMaxDeliveryC…[90m ord-4013[m [32;1m│[90;22m│[m                                                                                  [90m│[m

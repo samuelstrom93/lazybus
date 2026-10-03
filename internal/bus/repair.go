@@ -388,7 +388,7 @@ func (s *Service) precheck(ctx context.Context, req RepairRequest) (Message, boo
 }
 
 func scanCost(k int) string {
-	return fmt.Sprintf("locks up to %d messages ahead of it briefly; their DeliveryCount may increase by 1", k)
+	return fmt.Sprintf("locks up to %d messages ahead of it briefly; their DeliveryCount does not change", k)
 }
 
 // PlanRepair implements Repairer.

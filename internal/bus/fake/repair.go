@@ -180,8 +180,9 @@ func (r *receiver) Close(context.Context) error {
 // on it fail.
 var errDetached = &bus.Error{Kind: bus.ErrUnknown, Msg: "link detached: the receiver's link is closed"}
 
-// Receive locks up to max available DLQ messages in sequence order. Each
-// lock adds one to DeliveryCount. Unlike the SDK it returns at once with
+// Receive locks up to max available DLQ messages in sequence order. Like
+// Azure and the emulator, a DLQ receive and abandon leave DeliveryCount
+// alone (docs/spike-s-1.md, S4). Unlike the SDK it returns at once with
 // nothing when nothing is available, so tests don't wait.
 func (r *receiver) Receive(ctx context.Context, max int) ([]bus.Locked, error) {
 	b := r.b
@@ -209,7 +210,6 @@ func (r *receiver) Receive(ctx context.Context, max int) ([]bus.Locked, error) {
 		}
 		b.token++
 		s.token, s.lockedUntil = b.token, now.Add(b.lockDuration)
-		s.msg.DeliveryCount++
 		out = append(out, &locked{seq: s.msg.SequenceNumber, id: s.msg.MessageID, token: s.token, until: s.lockedUntil})
 		b.events = append(b.events, Event{OpReceive, r.label, s.msg.SequenceNumber})
 	}
