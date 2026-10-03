@@ -196,7 +196,7 @@ func checkUI(t *testing.T, b *azure.Backend, ents []bus.Entity, queue bus.Entity
 	t.Helper()
 	var m tea.Model = ui.New(b, ui.Options{Location: time.UTC, CallTimeout: opTimeout})
 	m = drive(t, m, tea.WindowSizeMsg{Width: 120, Height: 30})
-	m = drive(t, m, m.Init()())
+	m = runCmds(m, m.Init())
 	if s := screen(m); !strings.Contains(s, "DLQ ?") || !strings.Contains(s, "emulator") {
 		t.Fatalf("entity list without ? counts:\n%s", s)
 	}

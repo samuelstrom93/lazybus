@@ -21,9 +21,26 @@ const (
 
 // Namespace is one Service Bus namespace the user can open.
 type Namespace struct {
-	Name         string // short name, e.g. "sb-prod-weu"
-	FQDN         string // e.g. "sb-prod-weu.servicebus.windows.net"
-	Subscription string // Azure subscription it was discovered in; empty for connection-string entries
+	Name string // short name, e.g. "sb-prod-weu"
+	FQDN string // e.g. "sb-prod-weu.servicebus.windows.net"
+	// Auth says how lazybus authenticates to it, e.g. "SAS connection
+	// string" or "Entra ID (az login)".
+	Auth string
+
+	// Set for namespaces found by ARM discovery; empty for configured
+	// entries (connection string, emulator, --namespace).
+	Subscription   string // display name of the Azure subscription
+	SubscriptionID string
+	ResourceGroup  string
+	SKU            string // Basic, Standard or Premium
+	Location       string
+}
+
+// Subscription is an Azure subscription that ARM discovery looks for
+// namespaces in.
+type Subscription struct {
+	ID   string
+	Name string // display name
 }
 
 // EntityKind tells queues and topic subscriptions apart. Topics themselves
@@ -213,6 +230,22 @@ func (e *Error) Error() string {
 
 func (e *Error) Unwrap() error { return e.Err }
 
+// PartialError is returned together with a usable result when part of a
+// listing failed: a Basic-tier namespace has no topics, so listing them
+// fails while its queues list fine. The caller shows the result and logs
+// Err.
+type PartialError struct {
+	Err error
+}
+
+func (e *PartialError) Error() string { return e.Err.Error() }
+func (e *PartialError) Unwrap() error { return e.Err }
+
+// SessionfulActive is the error text for a peek of the active side of a
+// sessionful entity: a plain receiver can't peek it (amqp:not-allowed, S−1)
+// and a session receiver would lock the session, which v0.1 never does.
+const SessionfulActive = "sessionful: active messages need a session lock (not in v0.1)"
+
 // KindOf returns the ErrorKind of err, ErrUnknown when err is not an *Error.
 func KindOf(err error) ErrorKind {
 	var be *Error
@@ -222,13 +255,22 @@ func KindOf(err error) ErrorKind {
 	return ErrUnknown
 }
 
-// Discovery lists the namespaces the user can open.
+// Discovery lists the namespaces the user can open: the configured ones at
+// once, and those ARM discovery finds, one subscription at a time.
 type Discovery interface {
+	// Namespaces returns the configured namespaces (connection string,
+	// emulator, --namespace).
 	Namespaces(ctx context.Context) ([]Namespace, error)
+	// Subscriptions lists the Azure subscriptions to discover namespaces
+	// in, sorted by name; none when discovery is off.
+	Subscriptions(ctx context.Context) ([]Subscription, error)
+	// SubscriptionNamespaces lists the Service Bus namespaces of one
+	// subscription, sorted by name, and makes them openable.
+	SubscriptionNamespaces(ctx context.Context, sub Subscription) ([]Namespace, error)
 }
 
 // Entities lists the queues and topic subscriptions of a namespace, sorted
-// by path.
+// by path. A *PartialError comes with a usable list (e.g. queues only).
 type Entities interface {
 	ListEntities(ctx context.Context, ns Namespace) ([]Entity, error)
 }

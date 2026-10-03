@@ -27,4 +27,4 @@
 [90m│[m  3 [90m14:00 [mMaxDeliveryCo…[90m inv-1003[m [90m│[m[90m│[m[90m 16:00 [mpeek invoices/$DLQ → 3                                                     [90m│[m
 [90m│[m  4 [90m15:00 [mDownstreamTim…[90m inv-1004[m [90m│[m[90m│[m                                                                                  [90m│[m
 [90m└──────────────────────────────────┘[m[90m└──────────────────────────────────────────────────────────────────────────────────┘[m
- [36mesc[m back  [36mr[m resubmit  [36m[ ][m tab  [36m?[m keybindings  [36mq[m quit                                                                   
+ [36mesc[m back  [36mr[m resubmit  [36m[ ][m tab  [36m:[m jump  [36m?[m keybindings  [36mq[m quit                                                           

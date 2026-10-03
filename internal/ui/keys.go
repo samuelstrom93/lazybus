@@ -24,12 +24,18 @@ type keyMap struct {
 	Back            key.Binding
 	Quit            key.Binding
 	ForceQuit       key.Binding
+	Filter          key.Binding
+	Jump            key.Binding
+	Refresh         key.Binding
+	Copy            key.Binding
+	CopyID          key.Binding
 
 	Open          key.Binding // Namespaces, Entities
 	FocusMainOp   key.Binding // Messages: enter
 	SubQueue      key.Binding // Messages: tab
 	Resubmit      key.Binding // Messages, Main: r
 	FinishCleanup key.Binding // Messages, Main: c
+	Sort          key.Binding // Entities: s
 
 	Confirm  key.Binding // destructive popups: y only (spec §2)
 	Cancel   key.Binding
@@ -39,6 +45,14 @@ type keyMap struct {
 	HelpDown  key.Binding
 	HelpClose key.Binding
 	HelpErase key.Binding
+
+	FilterKeep  key.Binding // / input: enter
+	FilterClear key.Binding // / input: esc
+	FilterMove  key.Binding // / input: ↑ ↓ (help only)
+	JumpOpen    key.Binding
+	JumpCancel  key.Binding
+	JumpUp      key.Binding
+	JumpDown    key.Binding
 }
 
 var keys = keyMap{
@@ -60,6 +74,11 @@ var keys = keyMap{
 	Back:            key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 	Quit:            key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit")),
 	ForceQuit:       key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl-c", "quit")),
+	Filter:          key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
+	Jump:            key.NewBinding(key.WithKeys(":"), key.WithHelp(":", "jump")),
+	Refresh:         key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "refresh panel")),
+	Copy:            key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy body / value / field")),
+	CopyID:          key.NewBinding(key.WithKeys("Y"), key.WithHelp("Y", "copy MessageId")),
 
 	Open:        key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open")),
 	FocusMainOp: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "focus main pane")),
@@ -67,6 +86,7 @@ var keys = keyMap{
 
 	Resubmit:      key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "resubmit")),
 	FinishCleanup: key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "finish cleanup")),
+	Sort:          key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sort path / DLQ")),
 
 	Confirm:  key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "confirm (enter does nothing)")),
 	Cancel:   key.NewBinding(key.WithKeys("n", "esc"), key.WithHelp("n esc", "cancel")),
@@ -76,19 +96,33 @@ var keys = keyMap{
 	HelpDown:  key.NewBinding(key.WithKeys("down", "ctrl+n"), key.WithHelp("↓", "scroll down")),
 	HelpClose: key.NewBinding(key.WithKeys("esc", "enter"), key.WithHelp("esc", "close")),
 	HelpErase: key.NewBinding(key.WithKeys("backspace"), key.WithHelp("backspace", "erase")),
+
+	FilterKeep:  key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "keep filter")),
+	FilterClear: key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "clear filter")),
+	FilterMove:  key.NewBinding(key.WithKeys("up", "down"), key.WithHelp("↑ ↓", "move")),
+	JumpOpen:    key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open")),
+	JumpCancel:  key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
+	JumpUp:      key.NewBinding(key.WithKeys("up", "ctrl+p"), key.WithHelp("↑", "previous")),
+	JumpDown:    key.NewBinding(key.WithKeys("down", "ctrl+n"), key.WithHelp("↓", "next")),
 }
 
 // contextBindings are the keys specific to one context.
 func contextBindings(c ContextID) []key.Binding {
 	switch c {
-	case CtxNamespaces, CtxEntities:
+	case CtxNamespaces:
 		return []key.Binding{keys.Open}
+	case CtxEntities:
+		return []key.Binding{keys.Open, keys.Sort}
 	case CtxMessages:
 		return []key.Binding{keys.FocusMainOp, keys.SubQueue, keys.Resubmit, keys.FinishCleanup}
 	case CtxMain:
 		return []key.Binding{keys.Back, keys.Resubmit, keys.FinishCleanup}
 	case CtxHelp:
 		return []key.Binding{keys.HelpUp, keys.HelpDown, keys.HelpErase, keys.HelpClose}
+	case CtxFilter:
+		return []key.Binding{keys.FilterKeep, keys.FilterClear, keys.FilterMove}
+	case CtxJump:
+		return []key.Binding{keys.JumpOpen, keys.JumpCancel, keys.JumpUp, keys.JumpDown}
 	}
 	return nil
 }
@@ -104,7 +138,8 @@ func globalBindings() []key.Binding {
 	return []key.Binding{
 		keys.FocusNamespaces, keys.FocusEntities, keys.FocusMessages, keys.FocusMain,
 		keys.PrevPanel, keys.NextPanel, keys.Down, keys.Up, keys.Top, keys.Bottom,
-		keys.HalfDown, keys.HalfUp, keys.PrevTab, keys.NextTab, keys.Help, keys.Quit,
+		keys.HalfDown, keys.HalfUp, keys.PrevTab, keys.NextTab,
+		keys.Filter, keys.Jump, keys.Refresh, keys.Copy, keys.CopyID, keys.Help, keys.Quit,
 	}
 }
 
@@ -135,5 +170,9 @@ func optionsBindings(c ContextID, repair, cleanup bool) []key.Binding {
 		out = append(out, b)
 	}
 	tab := key.NewBinding(key.WithKeys("[", "]"), key.WithHelp("[ ]", "tab"))
-	return append(out, tab, keys.Help, keys.Quit)
+	out = append(out, tab)
+	if c.isSide() {
+		out = append(out, keys.Filter)
+	}
+	return append(out, keys.Jump, keys.Help, keys.Quit)
 }

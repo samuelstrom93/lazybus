@@ -24,7 +24,9 @@ var Epoch = time.Date(2026, 9, 19, 0, 0, 0, 0, time.UTC)
 // Backend is an in-memory Service Bus. It implements bus.Backend. All
 // methods are safe for concurrent use; faults may be changed at any time.
 type Backend struct {
-	namespaces    []bus.Namespace
+	namespaces    []bus.Namespace // configured
+	subs          []fakeSub       // ARM discovery
+	sessionful    map[string]bool // namespace + "/" + path: Active peek fails
 	unknownCounts bool
 	now           func() time.Time
 	svc           *bus.Service
@@ -51,10 +53,11 @@ const (
 	OpAbandon
 	OpComplete
 	OpSend
+	OpDiscover // Subscriptions and SubscriptionNamespaces
 )
 
 func (o Op) String() string {
-	return [...]string{"namespaces", "entities", "peek", "target", "receive", "abandon", "complete", "send"}[o]
+	return [...]string{"namespaces", "entities", "peek", "target", "receive", "abandon", "complete", "send", "discover"}[o]
 }
 
 // Fault changes how calls of one Op behave: wait Delay (or, with Block,
@@ -149,6 +152,57 @@ func WithDeadLetters(ns, path string, n int) Option {
 			}
 		}
 	}
+}
+
+// fakeSub is one Azure subscription for discovery.
+type fakeSub struct {
+	sub bus.Subscription
+	nss []bus.Namespace
+	err error
+}
+
+// WithDiscovery turns on ARM discovery with two subscriptions:
+//
+//	contoso-dev:     sb-dev-neu (Standard, northeurope): audit-events/archive
+//	                 (DLQ 2), notifications (DLQ 0), orders-dev (DLQ 5)
+//	contoso-sandbox: no namespaces
+func WithDiscovery() Option {
+	return func(b *Backend) {
+		dev := b.addNamespace("sb-dev-neu",
+			seedEntity("audit-events/archive", bus.KindSubscription, "aud", 7000, 2, 1, 7*time.Hour),
+			seedEntity("notifications", bus.KindQueue, "ntf", 8000, 0, 3, 8*time.Hour),
+			seedEntity("orders-dev", bus.KindQueue, "dord", 9000, 5, 2, 9*time.Hour),
+		)
+		devSub := bus.Subscription{ID: "2f7c4d1e-8a3b-4c6d-9e0f-1a2b3c4d5e6f", Name: "contoso-dev"}
+		dev.Subscription, dev.SubscriptionID = devSub.Name, devSub.ID
+		dev.ResourceGroup, dev.SKU, dev.Location = "rg-messaging-dev", "Standard", "northeurope"
+		dev.Auth = "Entra ID (az login)"
+		b.subs = append(b.subs,
+			fakeSub{sub: devSub, nss: []bus.Namespace{dev}},
+			fakeSub{sub: bus.Subscription{ID: "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d", Name: "contoso-sandbox"}},
+		)
+	}
+}
+
+// WithDiscoveryError makes listing the namespaces of subscription name fail
+// with err; the subscription is added when it is not there yet.
+func WithDiscoveryError(name string, err error) Option {
+	return func(b *Backend) {
+		for i := range b.subs {
+			if b.subs[i].sub.Name == name {
+				b.subs[i].err, b.subs[i].nss = err, nil
+				return
+			}
+		}
+		b.subs = append(b.subs, fakeSub{sub: bus.Subscription{ID: "00000000-0000-4000-8000-" + fmt.Sprintf("%012d", len(b.subs)+1), Name: name}, err: err})
+		sort.Slice(b.subs, func(i, j int) bool { return strings.ToLower(b.subs[i].sub.Name) < strings.ToLower(b.subs[j].sub.Name) })
+	}
+}
+
+// WithSessions makes entity path in namespace ns sessionful: peeking its
+// active side fails like it does on Service Bus with a plain receiver.
+func WithSessions(ns, path string) Option {
+	return func(b *Backend) { b.sessionful[ns+"/"+path] = true }
 }
 
 // WithClock sets the broker clock (lock expiry, enqueued times, duplicate
@@ -247,18 +301,21 @@ func New(opts ...Option) *Backend {
 	b := &Backend{
 		entities: map[string][]*entity{}, topics: map[string]map[string]*topic{},
 		faults: map[Op]Fault{}, lockDuration: 60 * time.Second, now: time.Now,
+		sessionful: map[string]bool{},
 	}
 	shipping := seedEntity("order-events/shipping", bus.KindSubscription, "shp", 3000, 0, 4, 8*time.Hour)
 	shipping.filter = func(m bus.Message) bool { return m.Subject == "OrderShipped" }
-	b.addNamespace("sb-prod-weu", "contoso-prod",
-		seedEntity("invoices", bus.KindQueue, "inv", 1000, 3, 12, 13*time.Hour),
-		seedEntity("order-events/billing", bus.KindSubscription, "bil", 2000, 12, 0, 9*time.Hour),
-		shipping,
-		seedEntity("orders", bus.KindQueue, "ord", 4000, 37, 120, 6*time.Hour),
-	)
-	b.addNamespace("sb-test-weu", "contoso-test",
-		seedEntity("orders", bus.KindQueue, "tord", 5000, 1, 0, 10*time.Hour),
-		seedEntity("payments", bus.KindQueue, "pay", 6000, 0, 2, 11*time.Hour),
+	b.namespaces = append(b.namespaces,
+		b.addNamespace("sb-prod-weu",
+			seedEntity("invoices", bus.KindQueue, "inv", 1000, 3, 12, 13*time.Hour),
+			seedEntity("order-events/billing", bus.KindSubscription, "bil", 2000, 12, 0, 9*time.Hour),
+			shipping,
+			seedEntity("orders", bus.KindQueue, "ord", 4000, 37, 120, 6*time.Hour),
+		),
+		b.addNamespace("sb-test-weu",
+			seedEntity("orders", bus.KindQueue, "tord", 5000, 1, 0, 10*time.Hour),
+			seedEntity("payments", bus.KindQueue, "pay", 6000, 0, 2, 11*time.Hour),
+		),
 	)
 	WithDuplicateDetection("sb-prod-weu", "invoices")(b)
 	for _, o := range opts {
@@ -268,12 +325,8 @@ func New(opts ...Option) *Backend {
 	return b
 }
 
-func (b *Backend) addNamespace(name, subscription string, ents ...*entity) {
-	b.namespaces = append(b.namespaces, bus.Namespace{
-		Name:         name,
-		FQDN:         name + ".servicebus.windows.net",
-		Subscription: subscription,
-	})
+// addNamespace stores the entities of namespace name and returns it.
+func (b *Backend) addNamespace(name string, ents ...*entity) bus.Namespace {
 	sort.Slice(ents, func(i, j int) bool { return ents[i].path < ents[j].path })
 	b.entities[name] = ents
 	b.topics[name] = map[string]*topic{}
@@ -284,6 +337,7 @@ func (b *Backend) addNamespace(name, subscription string, ents ...*entity) {
 			}
 		}
 	}
+	return bus.Namespace{Name: name, FQDN: name + ".servicebus.windows.net", Auth: "demo data"}
 }
 
 func (b *Backend) clock() time.Time { return b.now() }
@@ -302,6 +356,31 @@ func (b *Backend) Namespaces(ctx context.Context) ([]bus.Namespace, error) {
 		return nil, err
 	}
 	return append([]bus.Namespace(nil), b.namespaces...), nil
+}
+
+// Subscriptions implements bus.Discovery; none unless WithDiscovery.
+func (b *Backend) Subscriptions(ctx context.Context) ([]bus.Subscription, error) {
+	if err := b.before(ctx, OpDiscover); err != nil {
+		return nil, err
+	}
+	var out []bus.Subscription
+	for _, s := range b.subs {
+		out = append(out, s.sub)
+	}
+	return out, nil
+}
+
+// SubscriptionNamespaces implements bus.Discovery.
+func (b *Backend) SubscriptionNamespaces(ctx context.Context, sub bus.Subscription) ([]bus.Namespace, error) {
+	if err := b.before(ctx, OpDiscover); err != nil {
+		return nil, err
+	}
+	for _, s := range b.subs {
+		if s.sub.ID == sub.ID {
+			return append([]bus.Namespace(nil), s.nss...), s.err
+		}
+	}
+	return nil, fmt.Errorf("subscription %q not found", sub.ID)
 }
 
 // ListEntities implements bus.Entities.
@@ -352,6 +431,9 @@ func (b *Backend) Peek(ctx context.Context, req bus.PeekRequest) ([]bus.Message,
 	}
 	src := found.deadLetter
 	if req.SubQueue == bus.Active {
+		if b.sessionful[req.Namespace.Name+"/"+req.Entity.Path] {
+			return nil, &bus.Error{Kind: bus.ErrNotAllowed, Op: "peek " + req.Entity.Path, Msg: bus.SessionfulActive}
+		}
 		src = found.active
 	}
 	limit := req.Max

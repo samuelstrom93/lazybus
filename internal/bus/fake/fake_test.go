@@ -91,3 +91,44 @@ func TestOptionsAndFaults(t *testing.T) {
 		t.Fatalf("blocked list = %v", err)
 	}
 }
+
+func TestDiscoveryOptions(t *testing.T) {
+	ctx := context.Background()
+	if subs, err := New().Subscriptions(ctx); len(subs) != 0 || err != nil {
+		t.Fatalf("discovery without WithDiscovery: %v, %v", subs, err)
+	}
+
+	boom := errors.New("AuthorizationFailed")
+	b := New(WithDiscovery(), WithDiscoveryError("contoso-broken", boom), WithSessions("sb-dev-neu", "orders-dev"))
+	subs, err := b.Subscriptions(ctx)
+	if err != nil || len(subs) != 3 || subs[0].Name != "contoso-broken" || subs[1].Name != "contoso-dev" {
+		t.Fatalf("subscriptions = %+v, %v", subs, err)
+	}
+	if _, err := b.SubscriptionNamespaces(ctx, subs[0]); !errors.Is(err, boom) {
+		t.Fatalf("broken subscription: %v", err)
+	}
+	nss, err := b.SubscriptionNamespaces(ctx, subs[1])
+	if err != nil || len(nss) != 1 || nss[0].Name != "sb-dev-neu" || nss[0].SubscriptionID != subs[1].ID || nss[0].SKU != "Standard" {
+		t.Fatalf("contoso-dev namespaces = %+v, %v", nss, err)
+	}
+	if configured, _ := b.Namespaces(ctx); len(configured) != 2 {
+		t.Fatalf("a discovered namespace is listed as configured: %+v", configured)
+	}
+
+	ents, err := b.ListEntities(ctx, nss[0])
+	if err != nil || len(ents) != 3 {
+		t.Fatalf("sb-dev-neu entities = %+v, %v", ents, err)
+	}
+	orders := ents[2]
+	if _, err := b.Peek(ctx, bus.PeekRequest{Namespace: nss[0], Entity: orders, SubQueue: bus.Active}); bus.KindOf(err) != bus.ErrNotAllowed {
+		t.Fatalf("sessionful Active peek = %v", err)
+	}
+	if page, err := b.Peek(ctx, bus.PeekRequest{Namespace: nss[0], Entity: orders}); err != nil || len(page) != 5 {
+		t.Fatalf("sessionful DLQ peek = %d, %v", len(page), err)
+	}
+
+	b.SetFault(OpDiscover, Fault{Err: boom})
+	if _, err := b.Subscriptions(ctx); !errors.Is(err, boom) {
+		t.Fatalf("discover fault = %v", err)
+	}
+}

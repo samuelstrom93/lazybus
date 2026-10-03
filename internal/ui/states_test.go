@@ -46,9 +46,8 @@ func TestStateGoldens(t *testing.T) {
 			// Hold the DLQ peek of the startup cascade.
 			m := New(fake.New(), testOptions())
 			m = run(t, m, tea.WindowSizeMsg{Width: 120, Height: 30})
-			next, peek := m.Update(m.Init()())
-			m = next.(Model)
-			next, peek = m.Update(peek())
+			m, list := initHeld(t, m)
+			next, peek := m.Update(list())
 			if peek == nil {
 				t.Fatal("no peek after entities loaded")
 			}
@@ -86,6 +85,43 @@ func TestStateGoldens(t *testing.T) {
 			// order-events/billing message 5: one unbroken non-JSON line.
 			return keysIn(t, loaded(t), "2", "j", "enter", "j", "j", "j", "j")
 		}},
+		// S1b navigation.
+		{"discovery-loading", func(t *testing.T) Model {
+			// Subscriptions are in; their namespace listings are held.
+			m := New(fake.New(fake.WithDiscovery()), testOptions())
+			m = run(t, m, tea.WindowSizeMsg{Width: 120, Height: 30})
+			m, _ = initHeld(t, m)
+			return keysIn(t, m, "1", "j", "j")
+		}},
+		{"discovery-error", func(t *testing.T) Model {
+			be := fake.New(fake.WithDiscovery(), fake.WithDiscoveryError("contoso-broken",
+				errors.New("GET https://management.azure.com/subscriptions/00000000-0000-4000-8000-000000000003/providers/Microsoft.ServiceBus/namespaces: 403 AuthorizationFailed")))
+			return keysIn(t, startWith(t, be), "1", "j", "j")
+		}},
+		{"namespace-details", func(t *testing.T) Model {
+			return keysIn(t, startWith(t, fake.New(fake.WithDiscovery())), "1", "G")
+		}},
+		{"tab-active", func(t *testing.T) Model { return keysIn(t, loaded(t), "3", "tab", "j") }},
+		{"active-sessionful", func(t *testing.T) Model {
+			return keysIn(t, startWith(t, fake.New(fake.WithSessions("sb-prod-weu", "invoices"))), "3", "tab")
+		}},
+		{"filter-namespaces", func(t *testing.T) Model {
+			// Still typing: the title shows the input cursor.
+			return keysIn(t, startWith(t, fake.New(fake.WithDiscovery())), "1", "/", "d", "e", "v")
+		}},
+		{"filter-entities", func(t *testing.T) Model { return keysIn(t, loaded(t), "2", "/", "o", "r", "d", "enter") }},
+		{"filter-messages", func(t *testing.T) Model { return keysIn(t, loaded(t), "3", "/", "d", "o", "w", "n", "enter") }},
+		{"jump", func(t *testing.T) Model { return keysIn(t, loaded(t), "3", ":", "o", "r", "d") }},
+		{"sort-dlq", func(t *testing.T) Model { return keysIn(t, loaded(t), "2", "s") }},
+		{"copy-status", func(t *testing.T) Model { return keysIn(t, loaded(t), "3", "j", "Y") }},
+		{"refresh", func(t *testing.T) Model {
+			// Another client resubmits the first message; R shows it gone,
+			// the cursor keeps its row index.
+			be := fake.New()
+			m := keysIn(t, startWith(t, be), "3", "j")
+			removeOutOfBand(t, be, m, 2)
+			return keysIn(t, m, "R")
+		}},
 	}
 	for _, tc := range cases {
 		name := tc.name + "-120x30"
@@ -95,6 +131,25 @@ func TestStateGoldens(t *testing.T) {
 			requireGolden(t, name, screen)
 		})
 	}
+}
+
+// initHeld applies the results of Init's calls (configured namespaces,
+// subscriptions) and returns the commands they start, unrun, as one batch.
+func initHeld(t *testing.T, m Model) (Model, tea.Cmd) {
+	t.Helper()
+	batch, ok := m.Init()().(tea.BatchMsg)
+	if !ok {
+		t.Fatal("Init is not a batch")
+	}
+	var cmds []tea.Cmd
+	for _, c := range batch {
+		next, cmd := m.Update(c())
+		m = next.(Model)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+	return m, tea.Sequence(cmds...)
 }
 
 func TestPagingAppendsAndStops(t *testing.T) {

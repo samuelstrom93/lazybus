@@ -1,15 +1,15 @@
 [90m┌[m 1 Namespaces [90m────────────────────┐[m[90m┌[m [1mBody[m[90m │ [m[90mProperties[m[90m │ [m[90mSystem[m [90m──────────────────────────────────────────────────────┐[m
-[90m│[m▸ sb-prod-weu                     [90m│[m[90m│[m {                                                                                [90m│[m
-[90m│[m  sb-test-weu                     [90m│[m[90m│[m   "orderId": 1003,                                                               [90m│[m
-[90m├[m 2 Entities [90m──────────────────────┤[m[90m│[m   "status": "failed",                                                            [90m│[m
-[90m│[m▸ invoices                  [33mDLQ  3[m[90m│[m[90m│[m   "note": "Downstream warehouse API returned 409 Conflict for reservation;       [90m│[m
-[90m│[m  order-events/billing      [33mDLQ 12[m[90m│[m[90m│[m   Downstream warehouse API returned 409 Conflict for reservation; Downstream     [90m│[m
-[90m│[m  order-events/shipping     [90mDLQ  0[m[90m│[m[90m│[m   warehouse API returned 409 Conflict for reservation; Downstream warehouse API  [90m│[m
-[90m│[m  orders                    [33mDLQ 37[m[90m│[m[90m│[m   returned 409 Conflict for reservation; "                                       [90m│[m
-[1;32m├[m [1;32m3 Messages[m  [1;32mDLQ[m[90m│[m[90mActive[m [1;32m──────────┤[m[90m│[m }                                                                                [90m│[m
-[1;32m│[m  2 [90m13:00 [mSchemaMismatch[90m inv-1002[m [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m[1;44m▸ [m[1;44m3 [m[1;44m14:00 [m[1;44mMaxDeliveryCo…[m[1;44m inv-1003[m[1;44m [m[1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m  4 [90m15:00 [mDownstreamTim…[90m inv-1004[m [1;32m│[m[90m│[m                                                                                  [90m│[m
+[90m│[m▸ sb-prod-weu                     [90m│[m[90m│[m[33m sessionful: active messages need a session lock (not in v0.1). The DLQ tab[m       [90m│[m
+[90m│[m  sb-test-weu                     [90m│[m[90m│[m[33m works: press tab.[m                                                                [90m│[m
+[90m├[m 2 Entities [90m──────────────────────┤[m[90m│[m                                                                                  [90m│[m
+[90m│[m▸ invoices                  [33mDLQ  3[m[90m│[m[90m│[m                                                                                  [90m│[m
+[90m│[m  order-events/billing      [33mDLQ 12[m[90m│[m[90m│[m                                                                                  [90m│[m
+[90m│[m  order-events/shipping     [90mDLQ  0[m[90m│[m[90m│[m                                                                                  [90m│[m
+[90m│[m  orders                    [33mDLQ 37[m[90m│[m[90m│[m                                                                                  [90m│[m
+[1;32m├[m [1;32m3 Messages[m  [90mDLQ[m[90m│[m[1;32mActive[m [1;32m──────────┤[m[90m│[m                                                                                  [90m│[m
+[1;32m│[m  [33msessionful: active messages nee…[m[1;32m│[m[90m│[m                                                                                  [90m│[m
+[1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
+[1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
 [1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
 [1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
 [1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
@@ -25,6 +25,6 @@
 [1;32m│[m                                  [1;32m│[m[90m│[m[90m 16:00 [mlist namespaces → 2                                                        [90m│[m
 [1;32m│[m                                  [1;32m│[m[90m│[m[90m 16:00 [mlist entities sb-prod-weu → 4                                              [90m│[m
 [1;32m│[m                                  [1;32m│[m[90m│[m[90m 16:00 [mpeek invoices/$DLQ → 3                                                     [90m│[m
-[1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
+[1;32m│[m                                  [1;32m│[m[90m│[m[90m 16:00 [mpeek invoices: sessionful: active messages need a session lock (not in v0.…[90m│[m
 [1;32m└──────────────────────────────────┘[m[90m└──────────────────────────────────────────────────────────────────────────────────┘[m
- [36menter[m focus main pane  [36mtab[m DLQ / Active  [36mr[m resubmit  [36m[ ][m tab  [36m/[m filter  [36m:[m jump  [36m?[m keybindings  [36mq[m quit                  
+ [36menter[m focus main pane  [36mtab[m DLQ / Active  [36m[ ][m tab  [36m/[m filter  [36m:[m jump  [36m?[m keybindings  [36mq[m quit                              

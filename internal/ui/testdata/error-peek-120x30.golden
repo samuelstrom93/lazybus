@@ -1,14 +1,14 @@
-[1;32m┌[m [1;32m1 Namespaces[m [1;32m────────────────────┐[m[90m┌[m [1mBody[m[90m │ [m[90mProperties[m[90m │ [m[90mSystem[m [90m──────────────────────────────────────────────────────┐[m
-[1;32m│[m[1;44m▸ [m[1;44msb-prod-weu[m[1;44m                     [m[1;32m│[m[90m│[m[31m error: peek invoices/$DLQ: amqp:not-found: The messaging entity 'sb://sb-prod-[m   [90m│[m
-[1;32m│[m  sb-test-weu                     [1;32m│[m[90m│[m[31m weu.servicebus.windows.net/invoices/$deadletterqueue' could not be found. To[m     [90m│[m
+[1;32m┌[m [1;32m1 Namespaces[m [1;32m────────────────────┐[m[90m┌[m [1mNamespace[m [90m───────────────────────────────────────────────────────────────────────┐[m
+[1;32m│[m[1;44m▸ [m[1;44msb-prod-weu[m[1;44m                     [m[1;32m│[m[90m│[m[90m Namespace        [msb-prod-weu                                                     [90m│[m
+[1;32m│[m  sb-test-weu                     [1;32m│[m[90m│[m[90m FQDN             [msb-prod-weu.servicebus.windows.net                              [90m│[m
+[1;32m│[m                                  [1;32m│[m[90m│[m[90m Auth             [mdemo data                                                       [90m│[m
+[1;32m│[m                                  [1;32m│[m[90m│[m[90m Source           [m[90mcommand line (not discovered)[m                                   [90m│[m
+[1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
+[1;32m│[m                                  [1;32m│[m[90m│[m[90m open in Entities[m                                                                 [90m│[m
+[1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
+[1;32m│[m                                  [1;32m│[m[90m│[m[31m error: peek invoices/$DLQ: amqp:not-found: The messaging entity 'sb://sb-prod-[m   [90m│[m
+[1;32m│[m                                  [1;32m│[m[90m│[m[31m weu.servicebus.windows.net/invoices/$deadletterqueue' could not be found. To[m     [90m│[m
 [1;32m│[m                                  [1;32m│[m[90m│[m[31m know more visit https://aka.ms/sbResourceMgrExceptions[m                           [90m│[m
-[1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
-[1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
 [1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
 [1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
 [1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
@@ -27,4 +27,4 @@
 [90m├[m 3 Messages  [1mDLQ[m[90m│[m[90mActive[m [90m──────────┤[m[90m│[m[90m 16:00 [m[31mpeek invoices/$DLQ: amqp:not-found: The messaging entity 'sb://sb-prod-weu…[m[90m│[m
 [90m│[m  [31merror: amqp:not-found: The mess…[m[90m│[m[90m│[m                                                                                  [90m│[m
 [90m└──────────────────────────────────┘[m[90m└──────────────────────────────────────────────────────────────────────────────────┘[m
- [36menter[m open  [36m[ ][m tab  [36m?[m keybindings  [36mq[m quit                                                                             
+ [36menter[m open  [36m[ ][m tab  [36m/[m filter  [36m:[m jump  [36m?[m keybindings  [36mq[m quit                                                           

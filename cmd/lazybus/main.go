@@ -54,18 +54,14 @@ func parseFlags(args []string, stderr io.Writer, getenv func(string) string) (co
 	return c, nil
 }
 
-// errNoTarget means no namespace source was given.
-var errNoTarget = errors.New("nothing to open: use --namespace, --connection-string (or LAZYBUS_CONNECTION_STRING), --emulator or --demo")
-
 // backend builds the bus backend for c. newCred creates the az CLI
-// credential and is only called for --namespace. The returned close func
-// releases connections.
+// credential, used for --namespace or for ARM discovery, which
+// runs unless --namespace or --demo is given (spec §4, §7: discovered
+// namespaces plus any --connection-string/--emulator entry). The returned
+// close func releases connections.
 func backend(c config, newCred func() (azcore.TokenCredential, error)) (bus.Backend, func(), error) {
 	if c.demo {
-		return fake.New(), func() {}, nil
-	}
-	if c.connectionString == "" && c.namespace == "" && !c.emulator {
-		return nil, nil, errNoTarget
+		return fake.New(fake.WithDiscovery()), func() {}, nil
 	}
 	b := azure.New()
 	closeFn := func() {
@@ -87,14 +83,18 @@ func backend(c config, newCred func() (azcore.TokenCredential, error)) (bus.Back
 			return fail(err)
 		}
 	}
+	raw, err := newCred()
+	if err != nil {
+		return fail(fmt.Errorf("az CLI credential: %w", err))
+	}
+	// One token per scope shared by every client, not one az run each.
+	cred := azure.CachedCredential(raw)
 	if c.namespace != "" {
-		cred, err := newCred()
-		if err != nil {
-			return fail(fmt.Errorf("az CLI credential: %w", err))
-		}
 		if _, err := b.AddNamespace(c.namespace, cred); err != nil {
 			return fail(err)
 		}
+	} else {
+		b.EnableDiscovery(cred)
 	}
 	return b, closeFn, nil
 }

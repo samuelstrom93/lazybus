@@ -1,11 +1,11 @@
 [90m┌[m 1 Namespaces [90m────────────────────┐[m[90m┌[m [1mBody[m[90m │ [m[90mProperties[m[90m │ [m[90mSystem[m [90m──────────────────────────────────────────────────────┐[m
 [90m│[m▸ sb-prod-weu                     [90m│[m[90m│[m {                                                                                [90m│[m
 [90m│[m  sb-test-weu                     [90m│[m[90m│[m   "orderId": 1002,                                                               [90m│[m
-[1;32m├[m [1;32m2 Entities[m [1;32m──────────────────────┤[m[90m│[m   "status": "pending",                                                           [90m│[m
-[1;32m│[m[1;44m▸ [m[1;44minvoices                  [m[1;44mDLQ  3[m[1;32m│[m[90m│[m   "customer": null,                                                              [90m│[m
-[1;32m│[m  order-events/billing      [33mDLQ 12[m[1;32m│[m[90m│[m   "items": [                                                                     [90m│[m
-[1;32m│[m  order-events/shipping     [90mDLQ  0[m[1;32m│[m[90m│[m     {                                                                            [90m│[m
-[1;32m│[m  orders                    [33mDLQ 37[m[1;32m│[m[90m│[m       "sku": "A-100",                                                            [90m│[m
+[1;32m├[m [1;32m2 Entities[m[36m /ord[m [1;32m─────────────────┤[m[90m│[m   "status": "pending",                                                           [90m│[m
+[1;32m│[m[1;44m▸ [m[1;44morder-events/billing      [m[1;44mDLQ 12[m[1;32m│[m[90m│[m   "customer": null,                                                              [90m│[m
+[1;32m│[m  order-events/shipping     [90mDLQ  0[m[1;32m│[m[90m│[m   "items": [                                                                     [90m│[m
+[1;32m│[m  orders                    [33mDLQ 37[m[1;32m│[m[90m│[m     {                                                                            [90m│[m
+[1;32m│[m                                  [1;32m│[m[90m│[m       "sku": "A-100",                                                            [90m│[m
 [1;32m│[m                                  [1;32m│[m[90m│[m       "qty": 2                                                                   [90m│[m
 [1;32m│[m                                  [1;32m│[m[90m│[m     },                                                                           [90m│[m
 [1;32m│[m                                  [1;32m│[m[90m│[m     {                                                                            [90m│[m

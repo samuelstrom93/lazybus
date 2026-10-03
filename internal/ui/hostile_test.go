@@ -19,6 +19,14 @@ func (hostileBackend) Namespaces(context.Context) ([]bus.Namespace, error) {
 	return []bus.Namespace{{Name: "注文キュー本番ネームスペース西ヨーロッパ"}}, nil
 }
 
+func (hostileBackend) Subscriptions(context.Context) ([]bus.Subscription, error) {
+	return []bus.Subscription{{ID: "sub\x1b[2J", Name: "注文キュー本番サブスクリプション\x1b]0;pwned\x07"}}, nil
+}
+
+func (hostileBackend) SubscriptionNamespaces(_ context.Context, sub bus.Subscription) ([]bus.Namespace, error) {
+	return []bus.Namespace{{Name: "注文キュー開発\x1b[31m", FQDN: "dev\r\n.example", Subscription: sub.Name, SubscriptionID: sub.ID, ResourceGroup: "rg\x07", SKU: "Basic", Location: "west\teurope"}}, nil
+}
+
 func (hostileBackend) ListEntities(context.Context, bus.Namespace) ([]bus.Entity, error) {
 	return []bus.Entity{{Path: "注文キュー/請求サブスクリプション\x1b[2J", Kind: bus.KindSubscription, DeadLetterCount: 1}}, nil
 }

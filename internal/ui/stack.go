@@ -11,6 +11,8 @@ const (
 	CtxHelp
 	CtxConfirm // DLQ Repair / Finish Cleanup confirm popup
 	CtxBusy    // a broker call that changes state (or its pre-check) is running
+	CtxFilter  // typing a / filter for the panel underneath
+	CtxJump    // the : jump-to-entity popup
 )
 
 func (c ContextID) String() string {
@@ -29,6 +31,10 @@ func (c ContextID) String() string {
 		return "Confirm"
 	case CtxBusy:
 		return "Working"
+	case CtxFilter:
+		return "Filter"
+	case CtxJump:
+		return "Jump"
 	}
 	return "Unknown"
 }

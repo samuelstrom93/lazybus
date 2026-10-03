@@ -164,7 +164,7 @@ func TestEmulatorRepair(t *testing.T) {
 		}
 		var m tea.Model = ui.New(b, ui.Options{Location: time.UTC, CallTimeout: opTimeout})
 		m = drive(t, m, tea.WindowSizeMsg{Width: 120, Height: 30})
-		m = drive(t, m, m.Init()())
+		m = runCmds(m, m.Init())
 		m = drive(t, m, key("2"))
 		for _, e := range ents {
 			if e.Path == orders.Path && e.Kind == orders.Kind {

@@ -7,23 +7,23 @@
 [90m│[m  order-events/shipping     [90mDLQ[32;1m│[36;22m   tab      [mDLQ / Active                              [32;1m│[m                               [90m│[m
 [90m│[m  orders                    [33mDLQ[32;1m│[36;22m   r        [mresubmit                                  [32;1m│[m                               [90m│[m
 [32;1m├[m [32;1m3 Messages[m  [32;1mDLQ[90;22m│Active[m [32;1m───────│[36;22m   c        [mfinish cleanup                            [32;1m│[m                               [90m│[m
-[32;1m│[39;44m▸ 2 13:00 SchemaMismatch inv-10[32;49m│[39m Confirm popup[m                                        [32;1m│[m                               [90m│[m
-[32;1m│[m  3 [90m14:00 [mMaxDeliveryCo…[90m inv-10[32;1m│[36;22m   y        [mconfirm (enter does nothing)              [32;1m│[m                               [90m│[m
-[32;1m│[m  4 [90m15:00 [mDownstreamTim…[90m inv-10[32;1m│[36;22m   n esc    [mcancel                                    [32;1m│[m                               [90m│[m
+[32;1m│[39;44m▸ 2 13:00 SchemaMismatch inv-10[32;49m│[39m Filter (/)[m                                           [32;1m│[m                               [90m│[m
+[32;1m│[m  3 [90m14:00 [mMaxDeliveryCo…[90m inv-10[32;1m│[36;22m   enter    [mkeep filter                               [32;1m│[m                               [90m│[m
+[32;1m│[m  4 [90m15:00 [mDownstreamTim…[90m inv-10[32;1m│[36;22m   esc      [mclear filter                              [32;1m│[m                               [90m│[m
+[32;1m│[m                               [32;1m│[36;22m   ↑ ↓      [mmove                                      [32;1m│[m                               [90m│[m
+[32;1m│[m                               [32;1m│[39m Jump popup (:)[m                                       [32;1m│[m                               [90m│[m
+[32;1m│[m                               [32;1m│[36;22m   enter    [mopen                                      [32;1m│[m                               [90m│[m
+[32;1m│[m                               [32;1m│[36;22m   esc      [mcancel                                    [32;1m│[m                               [90m│[m
+[32;1m│[m                               [32;1m│[36;22m   ↑        [mprevious                                  [32;1m│[m                               [90m│[m
+[32;1m│[m                               [32;1m│[36;22m   ↓        [mnext                                      [32;1m│[m                               [90m│[m
+[32;1m│[m                               [32;1m│[39m Confirm popup[m                                        [32;1m│[m                               [90m│[m
+[32;1m│[m                               [32;1m│[36;22m   y        [mconfirm (enter does nothing)              [32;1m│[m                               [90m│[m
+[32;1m│[m                               [32;1m│[36;22m   n esc    [mcancel                                    [32;1m│[m                               [90m│[m
 [32;1m│[m                               [32;1m│[36;22m   m        [mMessageId keep/new                        [32;1m│[m                               [90m│[m
 [32;1m│[m                               [32;1m│[39m Global[m                                               [32;1m│[m                               [90m│[m
-[32;1m│[m                               [32;1m│[36;22m   1        [mfocus Namespaces                          [32;1m│[m                               [90m│[m
+[32;1m│[m                               [32;1m│[36;22m   1        [mfocus Namespaces                          [32;1m│[90;22m───────────────────────────────┤[m
 [32;1m│[m                               [32;1m│[36;22m   2        [mfocus Entities                            [32;1m│[m                               [90m│[m
 [32;1m│[m                               [32;1m│[36;22m   3        [mfocus Messages                            [32;1m│[m                               [90m│[m
-[32;1m│[m                               [32;1m│[36;22m   0        [mfocus main pane                           [32;1m│[m                               [90m│[m
-[32;1m│[m                               [32;1m│[36;22m   h ←      [mprevious panel                            [32;1m│[m                               [90m│[m
-[32;1m│[m                               [32;1m│[36;22m   l →      [mnext panel                                [32;1m│[m                               [90m│[m
-[32;1m│[m                               [32;1m│[36;22m   j ↓      [mmove down                                 [32;1m│[m                               [90m│[m
-[32;1m│[m                               [32;1m│[36;22m   k ↑      [mmove up                                   [32;1m│[m                               [90m│[m
-[32;1m│[m                               [32;1m│[36;22m   g        [mtop                                       [32;1m│[m                               [90m│[m
-[32;1m│[m                               [32;1m│[36;22m   G        [mbottom                                    [32;1m│[90;22m───────────────────────────────┤[m
-[32;1m│[m                               [32;1m│[36;22m   ctrl-d   [mhalf page down                            [32;1m│[m                               [90m│[m
-[32;1m│[m                               [32;1m│[36;22m   ctrl-u   [mhalf page up                              [32;1m│[m                               [90m│[m
 [32;1m│[m                               [32;1m└[m [90mtype to filter · esc close[m [32;1m──────────────────────────┘[m                               [90m│[m
 [32;1m│[m                                  [32;1m│[90;22m│[m                                                                                  [90m│[m
 [32;1m└──────────────────────────────────┘[90;22m└──────────────────────────────────────────────────────────────────────────────────┘[m

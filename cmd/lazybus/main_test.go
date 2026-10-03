@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 
 	"github.com/samuelstrom93/lazybus/internal/bus/azure"
 )
@@ -38,26 +39,51 @@ func TestParseFlags(t *testing.T) {
 	}
 }
 
-// TestBackendWiring checks which namespaces each flag opens. Nothing here
-// touches the network or runs az: clients connect lazily.
+// TestBackendWiring checks which namespaces each flag opens and when ARM
+// discovery runs. Nothing here touches the network or runs az: clients
+// connect lazily, and the test credential fails before any request.
 func TestBackendWiring(t *testing.T) {
+	ctx := context.Background()
 	noCred := func() (azcore.TokenCredential, error) { t.Fatal("credential requested"); return nil, nil }
-	if _, _, err := backend(config{}, noCred); !errors.Is(err, errNoTarget) {
-		t.Fatalf("no flags: err = %v", err)
-	}
+	credCalls := 0
+	cred := func() (azcore.TokenCredential, error) { credCalls++; return failingCred{}, nil }
 
-	be, closeFn, err := backend(config{emulator: true, emulatorAMQPPort: 5682, emulatorAdminPort: 5310}, noCred)
+	// --demo: the fake backend, with demo discovery.
+	be, closeFn, err := backend(config{demo: true}, noCred)
 	if err != nil {
 		t.Fatal(err)
 	}
-	nss, _ := be.Namespaces(context.Background())
 	closeFn()
-	if len(nss) != 1 || nss[0].Name != "emulator" || nss[0].FQDN != "localhost:5682" {
-		t.Fatalf("--emulator namespaces = %+v", nss)
+	if subs, _ := be.Subscriptions(ctx); len(subs) == 0 {
+		t.Fatal("--demo: no demo subscriptions")
 	}
 
-	credCalls := 0
-	cred := func() (azcore.TokenCredential, error) { credCalls++; return cliCredential() }
+	// No flags: discovery only.
+	be, closeFn, err = backend(config{}, cred)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nss, _ := be.Namespaces(ctx)
+	_, subErr := be.Subscriptions(ctx)
+	closeFn()
+	if credCalls != 1 || len(nss) != 0 || !errors.Is(subErr, errNoToken) {
+		t.Fatalf("no flags: namespaces %+v, subscriptions err %v, credential calls %d", nss, subErr, credCalls)
+	}
+
+	// --emulator: the emulator plus discovery.
+	be, closeFn, err = backend(config{emulator: true, emulatorAMQPPort: 5682, emulatorAdminPort: 5310}, cred)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nss, _ = be.Namespaces(ctx)
+	_, subErr = be.Subscriptions(ctx)
+	closeFn()
+	if len(nss) != 1 || nss[0].Name != "emulator" || nss[0].FQDN != "localhost:5682" || subErr == nil {
+		t.Fatalf("--emulator: namespaces %+v, subscriptions err %v", nss, subErr)
+	}
+
+	// --namespace skips discovery.
+	credCalls = 0
 	be, closeFn, err = backend(config{
 		namespace:         "sb-prod-weu.servicebus.windows.net",
 		connectionString:  azure.EmulatorConnectionString("localhost", 5682),
@@ -67,12 +93,28 @@ func TestBackendWiring(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer closeFn()
-	nss, _ = be.Namespaces(context.Background())
+	nss, _ = be.Namespaces(ctx)
+	subs, subErr := be.Subscriptions(ctx)
 	if credCalls != 1 || len(nss) != 2 || nss[0].Name != "emulator" || nss[1].Name != "sb-prod-weu" {
 		t.Fatalf("namespaces = %+v, credential calls %d", nss, credCalls)
 	}
+	if len(subs) != 0 || subErr != nil {
+		t.Fatalf("--namespace ran discovery: %+v, %v", subs, subErr)
+	}
 
-	if _, _, err := backend(config{connectionString: "garbage"}, noCred); err == nil {
+	if _, _, err := backend(config{connectionString: "garbage"}, cred); err == nil {
 		t.Fatal("bad connection string accepted")
 	}
+	if _, _, err := backend(config{}, func() (azcore.TokenCredential, error) { return nil, errNoToken }); !errors.Is(err, errNoToken) {
+		t.Fatalf("credential error = %v", err)
+	}
+}
+
+var errNoToken = errors.New("no token in tests")
+
+// failingCred fails every token request, so no request leaves the host.
+type failingCred struct{}
+
+func (failingCred) GetToken(context.Context, policy.TokenRequestOptions) (azcore.AccessToken, error) {
+	return azcore.AccessToken{}, errNoToken
 }

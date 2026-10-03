@@ -72,6 +72,8 @@ func (m Model) render() string {
 	switch m.stack.Top() {
 	case CtxHelp:
 		screen = m.overlayHelp(screen)
+	case CtxJump:
+		screen = m.overlayJump(screen)
 	case CtxConfirm:
 		screen = m.overlayConfirm(screen)
 	case CtxBusy:
@@ -90,8 +92,8 @@ func (m Model) renderSide(l layout) []string {
 		title []seg
 		rows  []string
 	}{
-		{CtxNamespaces, m.sideTitle(CtxNamespaces, "1 Namespaces", m.namespaces.loading), m.namespaceRows(inner, l.side[0])},
-		{CtxEntities, m.sideTitle(CtxEntities, "2 Entities", m.entities.loading), m.entityRows(inner, l.side[1])},
+		{CtxNamespaces, m.sideTitle(CtxNamespaces, "1 Namespaces", m.namespaces.loading, m.namespaces.filter), m.namespaceRows(inner, l.side[0])},
+		{CtxEntities, m.entitiesTitle(), m.entityRows(inner, l.side[1])},
 		{CtxMessages, m.messagesTitle(), m.messageRows(inner, l.side[2])},
 	}
 	var out []string
@@ -127,12 +129,34 @@ func (m Model) titleStyle(c ContextID) lipgloss.Style {
 	return stPlain
 }
 
-func (m Model) sideTitle(c ContextID, name string, loading bool) []seg {
+func (m Model) sideTitle(c ContextID, name string, loading bool, filter string) []seg {
 	t := []seg{{name, m.titleStyle(c)}}
 	if loading {
 		t = append(t, seg{" loading…", stDim})
 	}
+	return append(t, m.filterTitle(c, filter)...)
+}
+
+// filterTitle is the filter part of a panel title: " /text" while it
+// applies, with a cursor while it is being typed.
+func (m Model) filterTitle(c ContextID, filter string) []seg {
+	typing := m.stack.Top() == CtxFilter && m.stack.Root() == c
+	if filter == "" && !typing {
+		return nil
+	}
+	t := []seg{{" /" + filter, stKey}}
+	if typing {
+		t = append(t, seg{"▏", stTitleFocus})
+	}
 	return t
+}
+
+func (m Model) entitiesTitle() []seg {
+	t := m.sideTitle(CtxEntities, "2 Entities", m.entities.loading, "")
+	if m.sortDLQ {
+		t = append(t, seg{" by DLQ", stDim})
+	}
+	return append(t, m.filterTitle(CtxEntities, m.entities.filter)...)
 }
 
 func (m Model) messagesTitle() []seg {
@@ -152,7 +176,7 @@ func (m Model) messagesTitle() []seg {
 		// A failed next page: the rows stay, the title says so.
 		t = append(t, seg{" error", stErr})
 	}
-	return t
+	return append(t, m.filterTitle(CtxMessages, m.messages.filter)...)
 }
 
 // listRows renders n rows of a list: the visible window from offset, the
@@ -182,12 +206,20 @@ func listStatus[T any](l list[T], empty string) []seg {
 	switch {
 	case l.err != nil:
 		return []seg{{"error: " + shortErr(l.err), stErr}}
-	case l.loading:
+	case l.loading && len(l.all) == 0:
 		return []seg{{"loading…", stDim}}
+	case len(l.all) > 0 && l.filter != "":
+		return []seg{{"no match for /" + l.filter, stDim}}
 	case empty != "":
 		return []seg{{empty, stDim}}
 	}
 	return nil
+}
+
+// isSessionful reports whether err is the Active-tab peek of a sessionful
+// entity: not a failure, a v0.1 limit (spec §4 panel 3).
+func (m Model) isSessionful(err error) bool {
+	return m.subQueue == bus.Active && bus.KindOf(err) == bus.ErrNotAllowed
 }
 
 // shortErr is the error text for a panel: a *bus.Error without its
@@ -203,7 +235,7 @@ func shortErr(err error) string {
 func (m Model) namespaceRows(width, n int) []string {
 	return listRows(m.namespaces, m.stack.Root() == CtxNamespaces, width, n,
 		listStatus(m.namespaces, "no namespaces"),
-		func(ns bus.Namespace) []seg { return []seg{{ns.Name, stPlain}} })
+		func(r nsRow) []seg { return nsRowSegs(r, width-2) })
 }
 
 func (m Model) entityRows(width, n int) []string {
@@ -212,7 +244,7 @@ func (m Model) entityRows(width, n int) []string {
 		empty = "open a namespace"
 	}
 	digits := 1
-	for _, e := range m.entities.items {
+	for _, e := range m.entities.all {
 		if e.CountsKnown {
 			digits = max(digits, len(strconv.FormatInt(e.DeadLetterCount, 10)))
 		}
@@ -246,7 +278,7 @@ func (m Model) messageRows(width, n int) []string {
 	}
 	digits := 1
 	reasonMax := 0
-	for _, msg := range m.messages.items {
+	for _, msg := range m.messages.all {
 		digits = max(digits, len(strconv.FormatInt(msg.SequenceNumber, 10)))
 		reasonMax = max(reasonMax, ansi.StringWidth(sanitize(m.rowReason(msg))))
 	}
@@ -258,8 +290,12 @@ func (m Model) messageRows(width, n int) []string {
 		reasonW, idW = rest, 0
 	}
 	now := m.opts.Now()
+	status := listStatus(m.messages, empty)
+	if m.isSessionful(m.messages.err) {
+		status = []seg{{shortErr(m.messages.err), stWarn}}
+	}
 	return listRows(m.messages, m.stack.Root() == CtxMessages, width, n,
-		listStatus(m.messages, empty),
+		status,
 		func(msg bus.Message) []seg {
 			seq := padLeft(strconv.FormatInt(msg.SequenceNumber, 10), digits) + " "
 			at := listTime(msg.EnqueuedTime, now, m.opts.Location) + " "
@@ -316,12 +352,18 @@ func (m Model) renderMain(l layout) []string {
 		}
 		tabs = append(tabs, seg{t.String(), st})
 	}
+	lines, scroll := m.mainLines(inner), m.mainScroll
+	if m.stack.Root() == CtxNamespaces {
+		// Namespaces focused: the main pane shows the selected namespace.
+		var title string
+		title, lines = m.namespaceDetails(inner)
+		tabs, scroll = []seg{{title, stBold}}, 0
+	}
 
 	out := []string{hBorder(l.mainW, "┌", "┐", tabs, edge)}
-	lines := m.mainLines(inner)
 	for i := range l.mainRows {
 		var s string
-		if j := m.mainScroll + i; j < len(lines) {
+		if j := scroll + i; j < len(lines) {
 			s = lines[j]
 		}
 		out = append(out, boxRow(fitStyled(s, inner), edge))
@@ -355,7 +397,7 @@ func fitStyled(s string, width int) string {
 	return s + strings.Repeat(" ", max(0, width-ansi.StringWidth(s)))
 }
 
-// linesCache holds the main pane lines for one (message, tab, width).
+// linesCache holds the Body tab lines for one (message, width).
 type linesCache struct {
 	key   linesKey
 	lines []string
@@ -366,35 +408,53 @@ type linesKey struct {
 	kind     bus.EntityKind
 	sub      bus.SubQueue
 	seq      int64
-	tab      mainTab
 	width    int
 }
 
 // mainLines is the full content of the main pane for the current tab, one
-// styled line per screen row, each at most width cells. Lines for a
-// message are cached per (message, tab, width): View and every Update ask
-// for them, and formatting a large body each time would lag the keys.
+// styled line per screen row, each at most width cells.
 func (m Model) mainLines(width int) []string {
-	msg, ok := m.selectedMessage()
-	if !ok {
-		return m.statusLines(width)
-	}
-	if banner := m.bannerLines(msg.SequenceNumber, width); banner != nil {
-		return append(banner, m.cachedLines(msg, width)...)
-	}
-	return m.cachedLines(msg, width)
+	lines, _ := m.mainContent(width)
+	return lines
 }
 
-// cachedLines is the tab content of msg, from the cache when it matches.
+// mainContent is mainLines plus, on the Properties and System tabs, the
+// line of each selectable row (what y copies). Body lines are cached per
+// (message, width): View and every Update ask for them, and formatting a
+// large body each time would lag the keys. The other tabs are short and
+// show the row cursor, so they are rendered each time.
+func (m Model) mainContent(width int) (lines []string, rows []int) {
+	msg, ok := m.selectedMessage()
+	if !ok {
+		return m.statusLines(width), nil
+	}
+	switch m.tab {
+	case tabProperties:
+		lines, rows = m.propertyLines(msg, width)
+	case tabSystem:
+		lines, rows = m.systemLines(msg, width)
+	default:
+		lines = m.cachedLines(msg, width)
+	}
+	if banner := m.bannerLines(msg.SequenceNumber, width); banner != nil {
+		for i := range rows {
+			rows[i] += len(banner)
+		}
+		lines = append(banner, lines...)
+	}
+	return lines, rows
+}
+
+// cachedLines is the Body tab of msg, from the cache when it matches.
 func (m Model) cachedLines(msg bus.Message, width int) []string {
 	var key linesKey
 	if m.openNS != nil && m.openEntity != nil {
-		key = linesKey{m.openNS.FQDN, m.openEntity.Path, m.openEntity.Kind, m.subQueue, msg.SequenceNumber, m.tab, width}
+		key = linesKey{m.openNS.FQDN, m.openEntity.Path, m.openEntity.Kind, m.subQueue, msg.SequenceNumber, width}
 		if m.lines != nil && m.lines.lines != nil && m.lines.key == key {
 			return m.lines.lines
 		}
 	}
-	lines := m.messageLines(msg, width)
+	lines := m.bodyLines(msg, width)
 	if m.lines != nil && m.openNS != nil && m.openEntity != nil {
 		*m.lines = linesCache{key: key, lines: lines}
 	}
@@ -404,6 +464,13 @@ func (m Model) cachedLines(msg bus.Message, width int) []string {
 // statusLines fill the main pane when no message is selected: the newest
 // error (wrapped, in full) or the loading/empty state.
 func (m Model) statusLines(width int) []string {
+	if m.isSessionful(m.messages.err) {
+		var out []string
+		for _, l := range wrapLines(shortErr(m.messages.err)+". The DLQ tab works: press tab.", width-2) {
+			out = append(out, row([]seg{{" " + l, stWarn}}, width, false))
+		}
+		return out
+	}
 	for _, err := range []error{m.messages.err, m.entities.err, m.namespaces.err} {
 		if err == nil {
 			continue
@@ -421,13 +488,8 @@ func (m Model) statusLines(width int) []string {
 	return []string{row(append([]seg{{" ", stPlain}}, status...), width, false)}
 }
 
-func (m Model) messageLines(msg bus.Message, width int) []string {
-	switch m.tab {
-	case tabProperties:
-		return m.propertyLines(msg, width)
-	case tabSystem:
-		return m.systemLines(msg, width)
-	}
+// bodyLines is the Body tab: wrapped, not cut.
+func (m Model) bodyLines(msg bus.Message, width int) []string {
 	text, _ := bodyText(msg.Body)
 	if text == "" {
 		return []string{" " + stDim.Render("(empty body)")}
@@ -441,23 +503,46 @@ func (m Model) messageLines(msg bus.Message, width int) []string {
 
 const removedOnResubmit = "✕ removed on resubmit"
 
-func (m Model) propertyLines(msg bus.Message, width int) []string {
-	type prop struct {
-		key, typ, val string
-		marker        bool
-	}
-	var props []prop
+// propItem is one row of the Properties tab. raw is the value y copies.
+type propItem struct {
+	key, typ, val, raw string
+	marker             bool
+}
+
+// propertyItems are the application properties, then the Dead-letter
+// Markers, in display order.
+func (m Model) propertyItems(msg bus.Message) []propItem {
+	var props []propItem
 	for _, p := range msg.Properties {
-		props = append(props, prop{sanitize(p.Key), p.Type.String(), sanitize(propertyValue(p, m.opts.Location)), false})
+		raw := propertyValue(p, m.opts.Location)
+		props = append(props, propItem{sanitize(p.Key), p.Type.String(), sanitize(raw), raw, false})
 	}
 	if msg.DeadLetterReason != "" {
-		props = append(props, prop{bus.MarkerDeadLetterReason, bus.TypeString.String(), sanitize(msg.DeadLetterReason), true})
+		props = append(props, propItem{bus.MarkerDeadLetterReason, bus.TypeString.String(), sanitize(msg.DeadLetterReason), msg.DeadLetterReason, true})
 	}
 	if msg.DeadLetterErrorDescription != "" {
-		props = append(props, prop{bus.MarkerDeadLetterErrorDescription, bus.TypeString.String(), sanitize(msg.DeadLetterErrorDescription), true})
+		props = append(props, propItem{bus.MarkerDeadLetterErrorDescription, bus.TypeString.String(), sanitize(msg.DeadLetterErrorDescription), msg.DeadLetterErrorDescription, true})
 	}
+	return props
+}
+
+// cursorMark is the first cell of a Properties or System row: ▸ on the
+// selected row while the main pane is not focused (focused, the row is
+// highlighted instead).
+func (m Model) cursorMark(i int) (mark string, selected bool) {
+	if i != m.mainCursor {
+		return " ", false
+	}
+	if m.stack.Root() == CtxMain {
+		return " ", true
+	}
+	return "▸", false
+}
+
+func (m Model) propertyLines(msg bus.Message, width int) ([]string, []int) {
+	props := m.propertyItems(msg)
 	if len(props) == 0 {
-		return []string{" " + stDim.Render("(no application properties)")}
+		return []string{" " + stDim.Render("(no application properties)")}, nil
 	}
 	keyW := len("Key")
 	for _, p := range props {
@@ -470,32 +555,39 @@ func (m Model) propertyLines(msg bus.Message, width int) []string {
 	// resubmit" label, so their values (often the only error text there is)
 	// keep the full column instead of sharing it with a per-row suffix.
 	out := []string{row([]seg{{" " + fitPlain("Key", keyW) + "  " + fitPlain("Type", typeW) + "  Value", stDim}}, width, false)}
+	rows := make([]int, 0, len(props))
 	markerHeader := false
-	for _, p := range props {
+	for i, p := range props {
+		mark, sel := m.cursorMark(i)
 		if !p.marker {
+			rows = append(rows, len(out))
 			out = append(out, row([]seg{
-				{" " + fitPlain(p.key, keyW) + "  ", stPlain},
+				{mark + fitPlain(p.key, keyW) + "  ", stPlain},
 				{fitPlain(p.typ, typeW) + "  ", stDim},
 				{p.val, stPlain},
-			}, width, false))
+			}, width, sel))
 			continue
 		}
 		if !markerHeader {
 			markerHeader = true
 			out = append(out, "", row([]seg{{" Dead-letter markers  " + removedOnResubmit, stDim}}, width, false))
 		}
+		rows = append(rows, len(out))
 		out = append(out, row([]seg{
-			{" " + fitPlain(p.key, keyW) + "  " + fitPlain(p.typ, typeW) + "  " + p.val, stDim},
-		}, width, false))
+			{mark + fitPlain(p.key, keyW) + "  " + fitPlain(p.typ, typeW) + "  " + p.val, stDim},
+		}, width, sel))
 	}
-	return out
+	return out, rows
 }
 
-func (m Model) systemLines(msg bus.Message, width int) []string {
-	fields := []struct {
-		label, value string
-		editable     bool
-	}{
+// sysField is one row of the System tab.
+type sysField struct {
+	label, value string
+	editable     bool
+}
+
+func (m Model) systemFields(msg bus.Message) []sysField {
+	return []sysField{
 		{"MessageId", msg.MessageID, false},
 		{"CorrelationId", msg.CorrelationID, false},
 		{"Subject", msg.Subject, true},
@@ -510,9 +602,13 @@ func (m Model) systemLines(msg bus.Message, width int) []string {
 		{"SequenceNumber", strconv.FormatInt(msg.SequenceNumber, 10), false},
 		{"DeadLetterSource", msg.DeadLetterSource, false},
 	}
+}
+
+func (m Model) systemLines(msg bus.Message, width int) ([]string, []int) {
 	const labelW = 18
 	var out []string
-	for _, f := range fields {
+	var rows []int
+	for i, f := range m.systemFields(msg) {
 		label := f.label
 		if f.editable {
 			label += " ✎"
@@ -521,9 +617,11 @@ func (m Model) systemLines(msg bus.Message, width int) []string {
 		if f.value == "" {
 			val = seg{"—", stDim}
 		}
-		out = append(out, row([]seg{{" " + fitPlain(label, labelW), stDim}, {" ", stPlain}, val}, width, false))
+		mark, sel := m.cursorMark(i)
+		rows = append(rows, len(out))
+		out = append(out, row([]seg{{mark + fitPlain(label, labelW), stDim}, {" ", stPlain}, val}, width, sel))
 	}
-	return out
+	return out, rows
 }
 
 // --- options bar -------------------------------------------------------------
@@ -550,6 +648,9 @@ func (m Model) renderOptions() string {
 	}
 	repair := !m.opts.ReadOnly && m.subQueue == bus.DeadLetter
 	bindings := optionsBindings(m.stack.Top(), repair, cleanup && repair)
+	if m.stack.Top() == CtxFilter || m.stack.Top() == CtxJump {
+		bindings = contextBindings(m.stack.Top())
+	}
 	if m.stack.Top() == CtxConfirm && m.confirm.kind == confirmRepair && !m.confirm.uncertain {
 		bindings = append(bindings, keys.ToggleID)
 	}

@@ -48,7 +48,14 @@ func (t mainTab) String() string {
 
 // list is the state of one side panel.
 type list[T any] struct {
+	// all holds every loaded item in display order; items the visible
+	// ones: all, or those matching filter. items[i] is all[idx[i]]; idx
+	// is nil when no filter is set. The cursor indexes items. Replace all
+	// only through setAll, which re-applies the filter.
+	all     []T
 	items   []T
+	idx     []int
+	filter  string
 	cursor  int
 	offset  int
 	loading bool
@@ -57,6 +64,61 @@ type list[T any] struct {
 	more    bool // the last page was not empty: another page may follow
 
 	cancel context.CancelFunc // cancels the newest load
+}
+
+// setAll replaces the items and applies the filter, matching each item's
+// visible text (text). The cursor is left to the caller; it is clamped.
+func (l *list[T]) setAll(all []T, text func(T) string) {
+	l.all = all
+	l.applyFilter(text)
+}
+
+// applyFilter recomputes the visible items: a case-insensitive substring
+// match of the filter on each item's text.
+func (l *list[T]) applyFilter(text func(T) string) {
+	if l.filter == "" {
+		l.items, l.idx = l.all, nil
+	} else {
+		f := strings.ToLower(l.filter)
+		var items []T
+		var idx []int
+		for i, it := range l.all {
+			if strings.Contains(strings.ToLower(text(it)), f) {
+				items = append(items, it)
+				idx = append(idx, i)
+			}
+		}
+		l.items, l.idx = items, idx
+	}
+	l.move(l.cursor)
+}
+
+// allIndex maps a visible index to its index in all; -1 when out of range.
+func (l list[T]) allIndex(i int) int {
+	if i < 0 || i >= len(l.items) {
+		return -1
+	}
+	if l.idx == nil {
+		return i
+	}
+	return l.idx[i]
+}
+
+// visibleIndex maps an index in all to its visible index; -1 when the
+// filter hides it.
+func (l list[T]) visibleIndex(i int) int {
+	if l.idx == nil {
+		if i < 0 || i >= len(l.items) {
+			return -1
+		}
+		return i
+	}
+	for v, a := range l.idx {
+		if a == i {
+			return v
+		}
+	}
+	return -1
 }
 
 // begin starts a new load: it cancels the one in flight (its response
@@ -74,8 +136,8 @@ func (l *list[T]) begin(timeout time.Duration) (context.Context, context.CancelF
 	return ctx, cancel, l.req
 }
 
-// reset cancels any load in flight and empties the list. Responses to
-// earlier loads are dropped.
+// reset cancels any load in flight and empties the list, filter included.
+// Responses to earlier loads are dropped.
 func (l *list[T]) reset() {
 	if l.cancel != nil {
 		l.cancel()
@@ -131,9 +193,12 @@ type Model struct {
 	stack    ContextStack
 	lastSide ContextID // side panel that stays expanded while main is focused
 
-	namespaces list[bus.Namespace]
+	namespaces list[nsRow]
 	entities   list[bus.Entity]
 	messages   list[bus.Message]
+
+	disc    discoveryState
+	sortDLQ bool // s: Entities sorted by DLQ count, not path
 
 	openNS     *bus.Namespace
 	openEntity *bus.Entity
@@ -141,12 +206,22 @@ type Model struct {
 
 	tab        mainTab
 	mainScroll int
+	// mainCursor is the selected row on the Properties and System tabs:
+	// what y copies.
+	mainCursor int
 
 	// afterPage is the cursor index to apply when the next page arrives:
 	// a repair removed the last loaded row, and the next message is on
 	// that page.
 	afterPage    int
 	hasAfterPage bool
+	// keepIndex is the cursor index to restore when the first page of a
+	// refresh (R) arrives.
+	keepIndex    int
+	hasKeepIndex bool
+
+	jump jumpState // the : popup (CtxJump)
+	clip clipboard
 
 	log  []logEntry
 	help helpState
@@ -184,23 +259,22 @@ func New(be bus.Backend, opts Options) Model {
 		opts:       opts,
 		stack:      NewContextStack(CtxNamespaces),
 		lastSide:   CtxNamespaces,
-		namespaces: list[bus.Namespace]{loading: true},
+		namespaces: list[nsRow]{loading: true},
+		disc:       discoveryState{configuredLoading: true, subsLoading: true},
 		spin:       spinner.New(spinner.WithSpinner(spinner.MiniDot)),
+		clip:       newClipboard(),
 	}
 }
 
 // Messages returned by broker commands.
 type (
-	namespacesLoadedMsg struct {
-		items []bus.Namespace
-		err   error
-	}
 	entitiesLoadedMsg struct {
 		req     int
 		ns      bus.Namespace
 		items   []bus.Entity
 		err     error
-		cascade bool
+		cascade bool // open the first entity (startup)
+		keep    bool // a refresh: keep the cursor on the same entity
 	}
 	messagesLoadedMsg struct {
 		req   int
@@ -226,22 +300,16 @@ func call[T any](f func() (T, error)) (v T, err error) {
 
 // Init starts namespace discovery.
 func (m Model) Init() tea.Cmd {
-	be, timeout := m.be, m.opts.CallTimeout
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		defer cancel()
-		items, err := call(func() ([]bus.Namespace, error) { return be.Namespaces(ctx) })
-		return namespacesLoadedMsg{items: items, err: err}
-	}
+	return m.discover()
 }
 
-func (m *Model) loadEntities(ns bus.Namespace, cascade bool) tea.Cmd {
+func (m *Model) loadEntities(ns bus.Namespace, cascade, keep bool) tea.Cmd {
 	ctx, cancel, req := m.entities.begin(m.opts.CallTimeout)
 	be := m.be
 	return func() tea.Msg {
 		defer cancel()
 		items, err := call(func() ([]bus.Entity, error) { return be.ListEntities(ctx, ns) })
-		return entitiesLoadedMsg{req: req, ns: ns, items: items, err: err, cascade: cascade}
+		return entitiesLoadedMsg{req: req, ns: ns, items: items, err: err, cascade: cascade, keep: keep}
 	}
 }
 
@@ -256,7 +324,14 @@ func (m *Model) peek(ns bus.Namespace, ent bus.Entity, sub bus.SubQueue) tea.Cmd
 func (m *Model) resetMessages() {
 	m.messages.reset()
 	m.hasAfterPage = false
+	m.hasKeepIndex = false
 	m.clearLines()
+}
+
+// resetMain puts the main pane back at its top: another message or tab.
+func (m *Model) resetMain() {
+	m.mainScroll = 0
+	m.mainCursor = 0
 }
 
 func (m *Model) clearLines() {
@@ -273,7 +348,7 @@ func (m *Model) loadMore() tea.Cmd {
 	if !l.more || l.loading || len(l.items) == 0 || l.cursor != len(l.items)-1 || m.openNS == nil || m.openEntity == nil {
 		return nil
 	}
-	return m.peekFrom(*m.openNS, *m.openEntity, m.subQueue, l.items[len(l.items)-1].SequenceNumber+1)
+	return m.peekFrom(*m.openNS, *m.openEntity, m.subQueue, l.all[len(l.all)-1].SequenceNumber+1)
 }
 
 func (m *Model) peekFrom(ns bus.Namespace, ent bus.Entity, sub bus.SubQueue, from int64) tea.Cmd {
@@ -318,20 +393,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 
-	case namespacesLoadedMsg:
-		m.namespaces.loading = false
-		m.namespaces.err = msg.err
-		if msg.err != nil {
-			m.logf(true, "%s", errText("list namespaces", msg.err))
-			break
-		}
-		m.namespaces.items = msg.items
-		m.namespaces.move(0)
-		m.logf(false, "list namespaces → %d", len(msg.items))
-		if ns, ok := m.namespaces.selected(); ok {
-			m.openNS = &ns
-			cmd = m.loadEntities(ns, true)
-		}
+	case configuredLoadedMsg:
+		m, cmd = m.configuredLoaded(msg)
+
+	case subscriptionsLoadedMsg:
+		m, cmd = m.subscriptionsLoaded(msg)
+
+	case subNamespacesLoadedMsg:
+		m = m.subNamespacesLoaded(msg)
 
 	case entitiesLoadedMsg:
 		if msg.req != m.entities.req {
@@ -339,14 +408,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.entities.loading = false
 		m.entities.cancel = nil
+		var partial *bus.PartialError
+		if errors.As(msg.err, &partial) {
+			// A usable list with a part missing (Basic tier: no topics).
+			m.logf(true, "%s", errText("list topics "+msg.ns.Name, partial.Err))
+			msg.err = nil
+		}
 		m.entities.err = msg.err
 		if msg.err != nil {
 			m.logf(true, "%s", errText("list entities "+msg.ns.Name, msg.err))
 			break
 		}
-		m.entities.items = msg.items
-		m.entities.offset = 0
-		m.entities.move(0)
+		prev, hadPrev := m.entities.selected()
+		m.entities.setAll(sortEntities(msg.items, m.sortDLQ), m.entityText)
+		if msg.keep && hadPrev {
+			m.selectEntity(prev)
+		} else {
+			m.entities.offset = 0
+			m.entities.move(0)
+		}
 		m.logf(false, "list entities %s → %d", msg.ns.Name, len(msg.items))
 		if ent, ok := m.entities.selected(); ok && msg.cascade {
 			m.openEntity = &ent
@@ -364,26 +444,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			// A failed next page keeps the rows and `more`, so moving onto
 			// the last row again retries.
-			m.logf(true, "%s", errText("peek "+label, msg.err))
-			m.hasAfterPage = false
+			if m.isSessionful(msg.err) {
+				m.logf(false, "peek %s: %s", label, shortErr(msg.err))
+			} else {
+				m.logf(true, "%s", errText("peek "+label, msg.err))
+			}
+			m.hasAfterPage, m.hasKeepIndex = false, false
 			break
 		}
 		m.messages.more = len(msg.items) > 0
 		if msg.from > 0 {
-			m.messages.items = append(m.messages.items, msg.items...)
+			all := m.messages.all
+			m.messages.setAll(append(all[:len(all):len(all)], msg.items...), m.messageText)
 			m.logf(false, "peek %s from %d → %d", label, msg.from, len(msg.items))
 			if m.hasAfterPage {
 				m.hasAfterPage = false
 				m.messages.move(m.afterPage)
-				m.mainScroll = 0
+				m.resetMain()
 			}
 			break
 		}
 		m.clearLines()
-		m.messages.items = msg.items
-		m.messages.offset = 0
-		m.messages.move(0)
-		m.mainScroll = 0
+		m.messages.setAll(msg.items, m.messageText)
+		if m.hasKeepIndex {
+			// A refresh: same index, now on whatever message is there.
+			m.hasKeepIndex = false
+			m.messages.move(m.keepIndex)
+		} else {
+			m.messages.offset = 0
+			m.messages.move(0)
+		}
+		m.resetMain()
 		m.logf(false, "peek %s → %d", label, len(msg.items))
 
 	case planDoneMsg:
@@ -420,8 +511,13 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.handleConfirmKey(msg)
 	}
 	m.status = statusLine{}
-	if m.stack.Top() == CtxHelp {
+	switch m.stack.Top() {
+	case CtxHelp:
 		return m.handleHelpKey(msg)
+	case CtxFilter:
+		return m.handleFilterKey(msg)
+	case CtxJump:
+		return m.handleJumpKey(msg)
 	}
 	return m.handlePanelKey(msg)
 }
@@ -502,14 +598,28 @@ func (m Model) handlePanelKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		m.focus(panelOrder[max(0, min(i, len(panelOrder)-1))])
 	case key.Matches(msg, keys.PrevTab):
 		m.tab = (m.tab + tabCount - 1) % tabCount
-		m.mainScroll = 0
+		m.resetMain()
 	case key.Matches(msg, keys.NextTab):
 		m.tab = (m.tab + 1) % tabCount
-		m.mainScroll = 0
+		m.resetMain()
 	case key.Matches(msg, keys.Back):
 		if cur == CtxMain {
 			m.focus(m.lastSide)
+		} else if m.clearFilter(cur) {
+			m.setStatus(statusInfo, "filter cleared")
 		}
+	case key.Matches(msg, keys.Filter):
+		return m.startFilter(cur)
+	case key.Matches(msg, keys.Jump):
+		return m.startJump()
+	case key.Matches(msg, keys.Refresh):
+		return m.refresh(cur)
+	case key.Matches(msg, keys.Copy):
+		return m.copySelected(cur)
+	case key.Matches(msg, keys.CopyID):
+		return m.copyMessageID()
+	case cur == CtxEntities && key.Matches(msg, keys.Sort):
+		m.toggleSort()
 	case cur == CtxMessages && key.Matches(msg, keys.SubQueue):
 		if m.openNS != nil && m.openEntity != nil {
 			if m.subQueue == bus.DeadLetter {
@@ -535,27 +645,32 @@ func (m Model) handlePanelKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 func (m Model) open(cur ContextID) (Model, tea.Cmd) {
 	switch cur {
 	case CtxNamespaces:
-		ns, ok := m.namespaces.selected()
+		r, ok := m.namespaces.selected()
 		if !ok {
 			return m, nil
 		}
+		switch r.kind {
+		case rowSubLoading:
+			m.setStatus(statusInfo, "still listing the namespaces of %s", r.sub.Name)
+			return m, nil
+		case rowSubFailed:
+			m.setStatus(statusWarn, "listing the namespaces of %s failed (see log); R retries", r.sub.Name)
+			return m, nil
+		}
+		ns := r.ns
 		m.openNS = &ns
 		m.openEntity = nil
-		m.entities.items = nil
+		m.entities.reset()
 		m.resetMessages()
 		m.focus(CtxEntities)
-		cmd := m.loadEntities(ns, false)
+		cmd := m.loadEntities(ns, false, false)
 		return m, cmd
 	case CtxEntities:
 		ent, ok := m.entities.selected()
 		if !ok || m.openNS == nil {
 			return m, nil
 		}
-		m.openEntity = &ent
-		m.subQueue = bus.DeadLetter
-		m.focus(CtxMessages)
-		cmd := m.peek(*m.openNS, ent, m.subQueue)
-		return m, cmd
+		return m.openEntityMessages(ent)
 	case CtxMessages:
 		m.focus(CtxMain)
 	}
@@ -595,10 +710,14 @@ func (m *Model) moveBy(c ContextID, d int) {
 		before := m.messages.cursor
 		m.messages.move(m.messages.cursor + d)
 		if m.messages.cursor != before {
-			m.mainScroll = 0
+			m.resetMain()
 		}
 	case CtxMain:
-		m.mainScroll += d
+		if m.tab == tabBody {
+			m.mainScroll += d
+		} else {
+			m.mainCursor += d
+		}
 	}
 }
 
@@ -612,10 +731,14 @@ func (m *Model) moveTo(c ContextID, i int) {
 		before := m.messages.cursor
 		m.messages.move(i)
 		if m.messages.cursor != before {
-			m.mainScroll = 0
+			m.resetMain()
 		}
 	case CtxMain:
-		m.mainScroll = i
+		if m.tab == tabBody {
+			m.mainScroll = i
+		} else {
+			m.mainCursor = i
+		}
 	}
 }
 
@@ -642,11 +765,28 @@ func (m *Model) clampScroll() {
 	m.namespaces.scrollTo(l.side[0])
 	m.entities.scrollTo(l.side[1])
 	m.messages.scrollTo(l.side[2])
-	maxScroll := max(0, len(m.mainLines(l.mainW-2))-l.mainRows)
+	lines, rows := m.mainContent(l.mainW - 2)
+	if len(rows) > 0 {
+		// Properties and System: the scroll follows the cursor.
+		m.mainCursor = max(0, min(m.mainCursor, len(rows)-1))
+		at := rows[m.mainCursor]
+		if at < m.mainScroll {
+			m.mainScroll = at
+		}
+		if at >= m.mainScroll+l.mainRows {
+			m.mainScroll = at - l.mainRows + 1
+		}
+	} else {
+		m.mainCursor = 0
+	}
+	maxScroll := max(0, len(lines)-l.mainRows)
 	m.mainScroll = max(0, min(m.mainScroll, maxScroll))
-	if m.stack.Top() == CtxHelp {
+	switch m.stack.Top() {
+	case CtxHelp:
 		_, _, n := m.helpBox()
 		m.help.offset = max(0, min(m.help.offset, len(m.helpEntries())-n))
+	case CtxJump:
+		m.jump.cursor = max(0, min(m.jump.cursor, len(m.jumpMatches())-1))
 	}
 }
 
@@ -697,6 +837,10 @@ func (m Model) helpEntries() []helpLine {
 		name = "Main pane"
 	}
 	add(name, contextBindings(root))
+	if root.isSide() {
+		add("Filter (/)", contextBindings(CtxFilter))
+	}
+	add("Jump popup (:)", contextBindings(CtxJump))
 	if root == CtxMessages || root == CtxMain {
 		add("Confirm popup", confirmBindings())
 	}

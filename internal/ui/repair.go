@@ -190,7 +190,7 @@ func (m Model) startRepair(kind confirmKind) (Model, tea.Cmd) {
 	}
 	req := bus.RepairRequest{
 		Namespace: *m.openNS, Entity: *m.openEntity, SubQueue: bus.DeadLetter,
-		SequenceNumber: msg.SequenceNumber, Index: m.messages.cursor,
+		SequenceNumber: msg.SequenceNumber, Index: m.messages.allIndex(m.messages.cursor),
 	}
 	m.busy = busyState{text: fmt.Sprintf("checking %s seq %d", entityLabel(req.Entity, bus.DeadLetter), req.SequenceNumber)}
 	m.stack.Push(CtxBusy)
@@ -405,14 +405,15 @@ func (m Model) isOpenList(req bus.RepairRequest) bool {
 
 // removeRow drops req's row. The cursor keeps its index, which puts it on
 // the next message (or the new last row), so `r y r y` works down a list.
+// With a filter, "next" is the next visible row.
 func (m *Model) removeRow(req bus.RepairRequest) tea.Cmd {
 	m.clearMark(reqMarkKey(req))
 	if !m.isOpenList(req) {
 		return nil
 	}
-	items := m.messages.items
+	all := m.messages.all
 	i := -1
-	for j, it := range items {
+	for j, it := range all {
 		if it.SequenceNumber == req.SequenceNumber {
 			i = j
 			break
@@ -421,31 +422,32 @@ func (m *Model) removeRow(req bus.RepairRequest) tea.Cmd {
 	if i < 0 {
 		return nil
 	}
+	v := m.messages.visibleIndex(i)
 	// A new slice: older Model copies keep theirs.
-	m.messages.items = append(items[:i:i], items[i+1:]...)
-	if m.messages.cursor > i {
+	m.messages.setAll(append(all[:i:i], all[i+1:]...), m.messageText)
+	if v >= 0 && m.messages.cursor > v {
 		m.messages.cursor--
 	}
 	m.messages.move(m.messages.cursor)
-	m.mainScroll = 0
+	m.resetMain()
 	m.clearLines()
-	if i < len(m.messages.items) || !m.messages.more {
+	if v < 0 || v < len(m.messages.items) || !m.messages.more {
 		return m.loadMore()
 	}
-	// The removed row was the last loaded one and more may follow: the
-	// next message is on the next page, so the cursor moves there when
+	// The removed row was the last visible one and more may follow: the
+	// next message may be on the next page, so the cursor moves there when
 	// it arrives (an empty page leaves it on the new last row).
 	if m.messages.loading {
-		m.afterPage, m.hasAfterPage = i, true
+		m.afterPage, m.hasAfterPage = v, true
 		return nil
 	}
-	if len(m.messages.items) == 0 {
+	if len(m.messages.all) == 0 {
 		m.afterPage, m.hasAfterPage = 0, true
 		return m.peekFrom(*m.openNS, *m.openEntity, m.subQueue, req.SequenceNumber+1)
 	}
 	cmd := m.loadMore()
 	if cmd != nil {
-		m.afterPage, m.hasAfterPage = i, true
+		m.afterPage, m.hasAfterPage = v, true
 	}
 	return cmd
 }
@@ -456,11 +458,15 @@ func (m *Model) decDLQCount(req bus.RepairRequest) {
 	if m.openNS == nil || m.openNS.FQDN != req.Namespace.FQDN {
 		return
 	}
-	for i, e := range m.entities.items {
+	for i, e := range m.entities.all {
 		if e.Path == req.Entity.Path && e.Kind == req.Entity.Kind && e.CountsKnown && e.DeadLetterCount > 0 {
-			items := append([]bus.Entity(nil), m.entities.items...)
+			prev, ok := m.entities.selected()
+			items := append([]bus.Entity(nil), m.entities.all...)
 			items[i].DeadLetterCount--
-			m.entities.items = items
+			m.entities.setAll(items, m.entityText)
+			if ok {
+				m.selectEntity(prev)
+			}
 			return
 		}
 	}

@@ -46,6 +46,10 @@ type Backend struct {
 	mu    sync.Mutex
 	conns []*conn
 	svc   *bus.Service
+
+	// ARM discovery (discovery.go); nil when off.
+	discoveryCred azcore.TokenCredential
+	discoverySem  chan struct{}
 }
 
 var _ bus.Backend = (*Backend)(nil)
@@ -101,10 +105,10 @@ func (b *Backend) AddConnectionString(cs string, emulatorAdminPort int) (bus.Nam
 		return bus.Namespace{}, fmt.Errorf("connection string: %w", err)
 	}
 	if cfg.emulator {
-		c.ns = bus.Namespace{Name: "emulator", FQDN: cfg.host}
+		c.ns = bus.Namespace{Name: "emulator", FQDN: cfg.host, Auth: "emulator development key"}
 		c.admin, err = EmulatorAdminClient(cs, emulatorAdminPort)
 	} else {
-		c.ns = bus.Namespace{Name: shortName(cfg.host), FQDN: cfg.host}
+		c.ns = bus.Namespace{Name: shortName(cfg.host), FQDN: cfg.host, Auth: "SAS connection string"}
 		c.admin, err = admin.NewClientFromConnectionString(cs, nil)
 	}
 	if err != nil {
@@ -156,13 +160,19 @@ func (b *Backend) AddNamespace(fqdn string, cred azcore.TokenCredential) (bus.Na
 	if !strings.Contains(fqdn, ".") {
 		fqdn += ".servicebus.windows.net"
 	}
-	c := newConn(bus.Namespace{Name: shortName(fqdn), FQDN: fqdn}, false)
+	return b.addTokenNamespace(bus.Namespace{Name: shortName(fqdn), FQDN: fqdn, Auth: authEntra}, cred)
+}
+
+// addTokenNamespace adds ns (FQDN set) with clients authenticated by cred.
+// Clients connect lazily, so this does no network I/O.
+func (b *Backend) addTokenNamespace(ns bus.Namespace, cred azcore.TokenCredential) (bus.Namespace, error) {
+	c := newConn(ns, false)
 	var err error
-	if c.client, err = azservicebus.NewClient(fqdn, cred, nil); err != nil {
-		return bus.Namespace{}, fmt.Errorf("namespace %s: %w", fqdn, err)
+	if c.client, err = azservicebus.NewClient(ns.FQDN, cred, nil); err != nil {
+		return bus.Namespace{}, fmt.Errorf("namespace %s: %w", ns.FQDN, err)
 	}
-	if c.admin, err = admin.NewClient(fqdn, cred, nil); err != nil {
-		return bus.Namespace{}, fmt.Errorf("namespace %s: %w", fqdn, err)
+	if c.admin, err = admin.NewClient(ns.FQDN, cred, nil); err != nil {
+		return bus.Namespace{}, fmt.Errorf("namespace %s: %w", ns.FQDN, err)
 	}
 	return b.add(c), nil
 }
@@ -215,7 +225,8 @@ func (b *Backend) conn(ns bus.Namespace) (*conn, error) {
 	return nil, &bus.Error{Kind: bus.ErrNotFound, Op: "open namespace", Msg: fmt.Sprintf("namespace %q is not configured", ns.Name)}
 }
 
-// Namespaces implements bus.Discovery: the configured namespaces.
+// Namespaces implements bus.Discovery: the configured namespaces, not the
+// ones discovery added.
 func (b *Backend) Namespaces(ctx context.Context) ([]bus.Namespace, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, mapErr("list namespaces", err)
@@ -224,47 +235,76 @@ func (b *Backend) Namespaces(ctx context.Context) ([]bus.Namespace, error) {
 	defer b.mu.Unlock()
 	out := make([]bus.Namespace, 0, len(b.conns))
 	for _, c := range b.conns {
-		out = append(out, c.ns)
+		if c.ns.SubscriptionID == "" {
+			out = append(out, c.ns)
+		}
 	}
 	return out, nil
 }
 
 // ListEntities implements bus.Entities: queues and topic subscriptions,
 // sorted by path. Topics are not listed (they have no dead-letter queue).
+// When the queues list but the topics or their subscriptions don't (a
+// Basic-tier namespace has no topics), the queues come back with a
+// *bus.PartialError.
 func (b *Backend) ListEntities(ctx context.Context, ns bus.Namespace) ([]bus.Entity, error) {
 	c, err := b.conn(ns)
 	if err != nil {
 		return nil, err
 	}
-	op := "list entities " + ns.Name
 	var out []bus.Entity
-	err = Safe(op, func() error {
+	err = Safe("list entities "+ns.Name, func() error {
 		var err error
-		if c.emulator {
-			out, err = c.listWithoutCounts(ctx)
-		} else {
-			out, err = c.listWithCounts(ctx)
-		}
+		out, err = c.listQueues(ctx)
 		return err
 	})
 	if err != nil {
 		return nil, err
 	}
+	var subs []bus.Entity
+	var partial error
+	err = Safe("list topics "+ns.Name, func() error {
+		var err error
+		subs, err = c.listSubscriptions(ctx)
+		return err
+	})
+	switch {
+	case bus.KindOf(err) == bus.ErrCanceled:
+		return nil, err // superseded; nobody shows it
+	case err != nil:
+		partial = &bus.PartialError{Err: err}
+	}
+	out = append(out, subs...)
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Path != out[j].Path {
 			return out[i].Path < out[j].Path
 		}
 		return out[i].Kind < out[j].Kind
 	})
-	return out, nil
+	return out, partial
 }
 
 // maxParallelTopics bounds the concurrent per-topic subscription listings.
 const maxParallelTopics = 8
 
-// listWithCounts lists entities through the runtime-properties pagers, which
-// carry the counts. Never used on the emulator.
-func (c *conn) listWithCounts(ctx context.Context) ([]bus.Entity, error) {
+// listQueues lists the queues: through the runtime-properties pager, which
+// carries the counts, except on the emulator, where runtime calls fail
+// (S−1) and counts stay unknown.
+func (c *conn) listQueues(ctx context.Context) ([]bus.Entity, error) {
+	if c.emulator {
+		var out []bus.Entity
+		qp := c.admin.NewListQueuesPager(nil)
+		for qp.More() {
+			page, err := qp.NextPage(ctx)
+			if err != nil {
+				return nil, err
+			}
+			for _, q := range page.Queues {
+				out = append(out, bus.Entity{Path: q.QueueName, Kind: bus.KindQueue})
+			}
+		}
+		return out, nil
+	}
 	var out []bus.Entity
 	qp := c.admin.NewListQueuesRuntimePropertiesPager(nil)
 	for qp.More() {
@@ -279,7 +319,29 @@ func (c *conn) listWithCounts(ctx context.Context) ([]bus.Entity, error) {
 			})
 		}
 	}
-	subs, err := c.eachTopic(ctx, func(ctx context.Context, topic string) ([]bus.Entity, error) {
+	return out, nil
+}
+
+// listSubscriptions lists the subscriptions of every topic, with counts
+// except on the emulator.
+func (c *conn) listSubscriptions(ctx context.Context) ([]bus.Entity, error) {
+	if c.emulator {
+		return c.eachTopic(ctx, func(ctx context.Context, topic string) ([]bus.Entity, error) {
+			var subs []bus.Entity
+			sp := c.admin.NewListSubscriptionsPager(topic, nil)
+			for sp.More() {
+				page, err := sp.NextPage(ctx)
+				if err != nil {
+					return nil, err
+				}
+				for _, s := range page.Subscriptions {
+					subs = append(subs, bus.Entity{Path: topic + "/" + s.SubscriptionName, Kind: bus.KindSubscription})
+				}
+			}
+			return subs, nil
+		})
+	}
+	return c.eachTopic(ctx, func(ctx context.Context, topic string) ([]bus.Entity, error) {
 		var subs []bus.Entity
 		sp := c.admin.NewListSubscriptionsRuntimePropertiesPager(topic, nil)
 		for sp.More() {
@@ -296,38 +358,6 @@ func (c *conn) listWithCounts(ctx context.Context) ([]bus.Entity, error) {
 		}
 		return subs, nil
 	})
-	return append(out, subs...), err
-}
-
-// listWithoutCounts lists entities through the plain pagers (the emulator
-// path): counts are unknown.
-func (c *conn) listWithoutCounts(ctx context.Context) ([]bus.Entity, error) {
-	var out []bus.Entity
-	qp := c.admin.NewListQueuesPager(nil)
-	for qp.More() {
-		page, err := qp.NextPage(ctx)
-		if err != nil {
-			return nil, err
-		}
-		for _, q := range page.Queues {
-			out = append(out, bus.Entity{Path: q.QueueName, Kind: bus.KindQueue})
-		}
-	}
-	subs, err := c.eachTopic(ctx, func(ctx context.Context, topic string) ([]bus.Entity, error) {
-		var subs []bus.Entity
-		sp := c.admin.NewListSubscriptionsPager(topic, nil)
-		for sp.More() {
-			page, err := sp.NextPage(ctx)
-			if err != nil {
-				return nil, err
-			}
-			for _, s := range page.Subscriptions {
-				subs = append(subs, bus.Entity{Path: topic + "/" + s.SubscriptionName, Kind: bus.KindSubscription})
-			}
-		}
-		return subs, nil
-	})
-	return append(out, subs...), err
 }
 
 // eachTopic lists the topics and runs list for each, a few at a time.
@@ -408,7 +438,7 @@ func (b *Backend) Peek(ctx context.Context, req bus.PeekRequest) ([]bus.Message,
 	if req.SubQueue == bus.Active && errors.As(err, &be) && be.Kind == bus.ErrNotAllowed {
 		// S−1: a plain receiver can't peek the active side of a sessionful
 		// entity; that needs a session lock, which v0.1 never takes.
-		be.Msg = "sessionful: active messages need a session lock (not in v0.1)"
+		be.Msg = bus.SessionfulActive
 	}
 	return out, err
 }
