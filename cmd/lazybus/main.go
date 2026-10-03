@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime/debug"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -20,7 +22,17 @@ import (
 	"github.com/samuelstrom93/lazybus/internal/ui"
 )
 
+// Set by the release build (goreleaser ldflags -X); a plain go build or go
+// install leaves them empty and versionString falls back to the module and
+// VCS info the Go toolchain embeds.
+var (
+	version = ""
+	commit  = ""
+	date    = ""
+)
+
 type config struct {
+	version           bool
 	demo              bool
 	connectionString  string
 	namespace         string
@@ -30,28 +42,101 @@ type config struct {
 	readOnly          bool
 }
 
-func parseFlags(args []string, stderr io.Writer, getenv func(string) string) (config, error) {
+const usageHead = `lazybus: a terminal UI for Azure Service Bus dead-letter queues.
+Browse, peek, edit and resubmit dead-lettered messages.
+
+Usage:
+  lazybus [flags]
+
+Without --namespace, --connection-string, --emulator or --demo, lazybus
+discovers your namespaces from az login.
+
+Examples:
+  lazybus                                   discover namespaces from az login
+  lazybus --namespace sb-prod-weu           one namespace, az login credential, no discovery
+  lazybus --connection-string "$CS"         the namespace of a SAS connection string
+  lazybus --emulator                        the local Service Bus emulator (ports 5672 / 5300)
+  lazybus --demo                            built-in demo data, no Azure
+  lazybus --read-only --namespace sb-prod   browse and peek only: r and c are off
+
+Flags:
+`
+
+const usageTail = `
+In lazybus, press ? for the keybindings and q to quit.
+Pending Edits live in memory only: they are lost when lazybus quits.
+`
+
+func parseFlags(args []string, stdout, stderr io.Writer, getenv func(string) string) (config, error) {
 	var c config
 	fs := flag.NewFlagSet("lazybus", flag.ContinueOnError)
 	fs.SetOutput(stderr)
+	fs.Usage = func() {} // printed below: --help to stdout, errors to stderr
+	fs.BoolVar(&c.version, "version", false, "print the version and exit")
 	fs.BoolVar(&c.demo, "demo", false, "run against built-in demo data (no Azure)")
-	fs.StringVar(&c.connectionString, "connection-string", "", "open one namespace by SAS connection string (or LAZYBUS_CONNECTION_STRING)")
-	fs.StringVar(&c.namespace, "namespace", "", "open this namespace (FQDN, or a bare name for *.servicebus.windows.net) with the az CLI credential")
-	fs.BoolVar(&c.emulator, "emulator", false, "connect to the local Service Bus emulator on localhost")
+	fs.StringVar(&c.connectionString, "connection-string", "", "open the namespace of a SAS connection string (or LAZYBUS_CONNECTION_STRING)")
+	fs.StringVar(&c.namespace, "namespace", "", "open this namespace (FQDN, or a bare name for *.servicebus.windows.net) with the az CLI credential; skips discovery")
+	fs.BoolVar(&c.emulator, "emulator", false, "open the local Service Bus emulator on localhost")
 	fs.IntVar(&c.emulatorAMQPPort, "emulator-amqp-port", azure.DefaultEmulatorAMQPPort, "emulator AMQP port")
 	fs.IntVar(&c.emulatorAdminPort, "emulator-admin-port", azure.DefaultEmulatorAdminPort, "emulator admin (HTTP) port")
-	fs.BoolVar(&c.readOnly, "read-only", false, "disable every state-changing key")
+	fs.BoolVar(&c.readOnly, "read-only", false, "disable every state-changing key (r resubmit, c finish cleanup)")
+	usage := func(w io.Writer) {
+		fmt.Fprint(w, usageHead)
+		fs.SetOutput(w)
+		fs.PrintDefaults()
+		fs.SetOutput(stderr)
+		fmt.Fprint(w, usageTail)
+	}
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			usage(stdout)
+		} else {
+			fmt.Fprintln(stderr, "see lazybus --help")
+		}
 		return c, err
 	}
 	if fs.NArg() > 0 {
-		fmt.Fprintf(stderr, "lazybus: unexpected argument %q\n", fs.Arg(0))
+		fmt.Fprintf(stderr, "lazybus: unexpected argument %q (see lazybus --help)\n", fs.Arg(0))
 		return c, errors.New("unexpected arguments")
 	}
 	if c.connectionString == "" {
 		c.connectionString = getenv("LAZYBUS_CONNECTION_STRING")
 	}
 	return c, nil
+}
+
+// versionString is "lazybus <version> (<commit>, <date>)": the release
+// build's ldflags, else what the Go toolchain embedded (the module version
+// for go install …@version, VCS info for a build in a git checkout).
+func versionString() string {
+	v, c, d := version, commit, date
+	if info, ok := debug.ReadBuildInfo(); ok {
+		if v == "" && info.Main.Version != "" && info.Main.Version != "(devel)" {
+			v = info.Main.Version
+		}
+		for _, s := range info.Settings {
+			switch {
+			case s.Key == "vcs.revision" && c == "":
+				c = s.Value
+			case s.Key == "vcs.time" && d == "":
+				d = s.Value
+			}
+		}
+	}
+	if v == "" {
+		v = "dev"
+	}
+	var meta []string
+	if c != "" {
+		meta = append(meta, c[:min(len(c), 12)])
+	}
+	if d != "" {
+		meta = append(meta, d)
+	}
+	if len(meta) == 0 {
+		return "lazybus " + v
+	}
+	return "lazybus " + v + " (" + strings.Join(meta, ", ") + ")"
 }
 
 // backend builds the bus backend for c. newCred creates the az CLI
@@ -109,9 +194,16 @@ func cliCredential() (azcore.TokenCredential, error) {
 }
 
 func main() {
-	c, err := parseFlags(os.Args[1:], os.Stderr, os.Getenv)
+	c, err := parseFlags(os.Args[1:], os.Stdout, os.Stderr, os.Getenv)
+	if errors.Is(err, flag.ErrHelp) {
+		return
+	}
 	if err != nil {
 		os.Exit(2)
+	}
+	if c.version {
+		fmt.Println(versionString())
+		return
 	}
 	be, closeFn, err := backend(c, cliCredential)
 	if err != nil {

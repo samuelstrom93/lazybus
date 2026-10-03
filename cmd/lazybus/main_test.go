@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"flag"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -19,23 +22,55 @@ func TestParseFlags(t *testing.T) {
 		}
 		return ""
 	}
-	c, err := parseFlags([]string{"--emulator", "--emulator-amqp-port", "5682", "--emulator-admin-port", "5310"}, io.Discard, env)
+	c, err := parseFlags([]string{"--emulator", "--emulator-amqp-port", "5682", "--emulator-admin-port", "5310"}, io.Discard, io.Discard, env)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !c.emulator || c.emulatorAMQPPort != 5682 || c.emulatorAdminPort != 5310 || c.connectionString != "from-env" {
 		t.Fatalf("config = %+v", c)
 	}
-	c, _ = parseFlags(nil, io.Discard, func(string) string { return "" })
+	c, _ = parseFlags(nil, io.Discard, io.Discard, func(string) string { return "" })
 	if c.emulatorAMQPPort != 5672 || c.emulatorAdminPort != 5300 {
 		t.Fatalf("default ports = %d/%d", c.emulatorAMQPPort, c.emulatorAdminPort)
 	}
-	c, _ = parseFlags([]string{"--connection-string", "flag"}, io.Discard, env)
+	c, _ = parseFlags([]string{"--connection-string", "flag"}, io.Discard, io.Discard, env)
 	if c.connectionString != "flag" {
 		t.Fatalf("flag did not win over env: %q", c.connectionString)
 	}
-	if _, err := parseFlags([]string{"stray"}, io.Discard, env); err == nil {
+	if _, err := parseFlags([]string{"stray"}, io.Discard, io.Discard, env); err == nil {
 		t.Fatal("stray argument accepted")
+	}
+}
+
+func TestHelpAndVersion(t *testing.T) {
+	var out, errOut bytes.Buffer
+	_, err := parseFlags([]string{"--help"}, &out, &errOut, func(string) string { return "" })
+	if !errors.Is(err, flag.ErrHelp) || errOut.Len() != 0 {
+		t.Fatalf("--help: err %v, stderr %q", err, errOut.String())
+	}
+	for _, want := range []string{"Usage:", "-read-only", "-version", "--demo", "press ? for the keybindings"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("--help lacks %q:\n%s", want, out.String())
+		}
+	}
+	out.Reset()
+	if _, err := parseFlags([]string{"--bogus"}, &out, &errOut, func(string) string { return "" }); err == nil ||
+		out.Len() != 0 || !strings.Contains(errOut.String(), "flag provided but not defined") {
+		t.Fatalf("unknown flag: err %v, stdout %q, stderr %q", err, out.String(), errOut.String())
+	}
+	c, err := parseFlags([]string{"--version"}, io.Discard, io.Discard, func(string) string { return "" })
+	if err != nil || !c.version {
+		t.Fatalf("--version: %+v, %v", c, err)
+	}
+
+	defer func(v, c, d string) { version, commit, date = v, c, d }(version, commit, date)
+	version, commit, date = "0.1.0", "5f83d80abcdef0123456789", "2026-10-03T12:00:00Z"
+	if got, want := versionString(), "lazybus 0.1.0 (5f83d80abcde, 2026-10-03T12:00:00Z)"; got != want {
+		t.Fatalf("versionString = %q, want %q", got, want)
+	}
+	version, commit, date = "", "", ""
+	if got := versionString(); !strings.HasPrefix(got, "lazybus ") {
+		t.Fatalf("versionString without ldflags = %q", got)
 	}
 }
 
