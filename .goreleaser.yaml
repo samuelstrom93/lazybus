@@ -1,0 +1,71 @@
+# GoReleaser v2 config: GitHub release archives for linux/darwin × amd64/arm64.
+# Check locally with:
+#   goreleaser check
+#   goreleaser release --snapshot --clean   # builds into dist/, publishes nothing
+# No Homebrew tap in v0.1.
+version: 2
+
+project_name: lazybus
+
+before:
+  hooks:
+    - go mod tidy -diff
+
+builds:
+  - id: lazybus
+    main: ./cmd/lazybus
+    binary: lazybus
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.FullCommit}} -X main.date={{.CommitDate}}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: lazybus
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE-MIT
+      - LICENSE-APACHE
+      - README.md
+      - CHANGELOG.md
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  use: git
+  sort: asc
+  filters:
+    exclude:
+      - "^docs"
+      - "^test"
+      - "^chore"
+      - "^style"
+  groups:
+    - title: Features
+      regexp: '^feat'
+      order: 0
+    - title: Fixes
+      regexp: '^fix'
+      order: 1
+    - title: Other
+      order: 999
+
+release:
+  github:
+    owner: samuelstrom93
+    name: lazybus
+  draft: true
