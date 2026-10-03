@@ -26,6 +26,9 @@ _Avoid_: resend, replay, requeue (other tools use these for the copy-and-leave f
 The outcome of a DLQ Repair where the copy reached the Resubmit Target but the original could not be removed from the dead-letter queue — a copy now exists in both places. Reported distinctly, never as success or failure.
 _Avoid_: partial resubmit, warning
 
+**Send Uncertain**:
+The outcome of a DLQ Repair where the send to the Resubmit Target ended ambiguously (timeout, dropped link): the original is back in the dead-letter queue and the copy may or may not exist in the target. Never retried automatically.
+
 **Context Stack**:
 The ordered set of UI contexts (side panels, main pane, popups, menus, filter) where only the top context receives keys and `esc` pops one level.
 
