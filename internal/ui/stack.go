@@ -9,6 +9,8 @@ const (
 	CtxMessages
 	CtxMain
 	CtxHelp
+	CtxConfirm // DLQ Repair / Finish Cleanup confirm popup
+	CtxBusy    // a broker call that changes state (or its pre-check) is running
 )
 
 func (c ContextID) String() string {
@@ -23,6 +25,10 @@ func (c ContextID) String() string {
 		return "Main"
 	case CtxHelp:
 		return "Keybindings"
+	case CtxConfirm:
+		return "Confirm"
+	case CtxBusy:
+		return "Working"
 	}
 	return "Unknown"
 }

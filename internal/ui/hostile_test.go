@@ -13,7 +13,7 @@ import (
 
 // hostileBackend serves names and message data with wide runes, line breaks
 // and escape sequences.
-type hostileBackend struct{}
+type hostileBackend struct{ bus.Repairer }
 
 func (hostileBackend) Namespaces(context.Context) ([]bus.Namespace, error) {
 	return []bus.Namespace{{Name: "注文キュー本番ネームスペース西ヨーロッパ"}}, nil

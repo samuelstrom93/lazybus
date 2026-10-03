@@ -60,7 +60,7 @@ var errNoTarget = errors.New("nothing to open: use --namespace, --connection-str
 // backend builds the bus backend for c. newCred creates the az CLI
 // credential and is only called for --namespace. The returned close func
 // releases connections.
-func backend(c config, newCred func() (azcore.TokenCredential, error)) (bus.Browser, func(), error) {
+func backend(c config, newCred func() (azcore.TokenCredential, error)) (bus.Backend, func(), error) {
 	if c.demo {
 		return fake.New(), func() {}, nil
 	}
@@ -73,7 +73,7 @@ func backend(c config, newCred func() (azcore.TokenCredential, error)) (bus.Brow
 		defer cancel()
 		_ = b.Close(ctx)
 	}
-	fail := func(err error) (bus.Browser, func(), error) {
+	fail := func(err error) (bus.Backend, func(), error) {
 		closeFn()
 		return nil, nil, err
 	}

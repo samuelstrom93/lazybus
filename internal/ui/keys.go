@@ -25,9 +25,15 @@ type keyMap struct {
 	Quit            key.Binding
 	ForceQuit       key.Binding
 
-	Open        key.Binding // Namespaces, Entities
-	FocusMainOp key.Binding // Messages: enter
-	SubQueue    key.Binding // Messages: tab
+	Open          key.Binding // Namespaces, Entities
+	FocusMainOp   key.Binding // Messages: enter
+	SubQueue      key.Binding // Messages: tab
+	Resubmit      key.Binding // Messages, Main: r
+	FinishCleanup key.Binding // Messages, Main: c
+
+	Confirm  key.Binding // popups
+	Cancel   key.Binding
+	ToggleID key.Binding // resubmit popup: m
 
 	HelpUp    key.Binding
 	HelpDown  key.Binding
@@ -59,6 +65,13 @@ var keys = keyMap{
 	FocusMainOp: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "focus main pane")),
 	SubQueue:    key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "DLQ / Active")),
 
+	Resubmit:      key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "resubmit")),
+	FinishCleanup: key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "finish cleanup")),
+
+	Confirm:  key.NewBinding(key.WithKeys("y", "enter"), key.WithHelp("y enter", "confirm")),
+	Cancel:   key.NewBinding(key.WithKeys("n", "esc"), key.WithHelp("n esc", "cancel")),
+	ToggleID: key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "MessageId keep/new")),
+
 	HelpUp:    key.NewBinding(key.WithKeys("up", "ctrl+p"), key.WithHelp("↑", "scroll up")),
 	HelpDown:  key.NewBinding(key.WithKeys("down", "ctrl+n"), key.WithHelp("↓", "scroll down")),
 	HelpClose: key.NewBinding(key.WithKeys("esc", "enter"), key.WithHelp("esc", "close")),
@@ -71,9 +84,9 @@ func contextBindings(c ContextID) []key.Binding {
 	case CtxNamespaces, CtxEntities:
 		return []key.Binding{keys.Open}
 	case CtxMessages:
-		return []key.Binding{keys.FocusMainOp, keys.SubQueue}
+		return []key.Binding{keys.FocusMainOp, keys.SubQueue, keys.Resubmit, keys.FinishCleanup}
 	case CtxMain:
-		return []key.Binding{keys.Back}
+		return []key.Binding{keys.Back, keys.Resubmit, keys.FinishCleanup}
 	case CtxHelp:
 		return []key.Binding{keys.HelpUp, keys.HelpDown, keys.HelpErase, keys.HelpClose}
 	}
@@ -90,10 +103,31 @@ func globalBindings() []key.Binding {
 }
 
 // optionsBindings are the keys shown in the options bar for context c.
-func optionsBindings(c ContextID) []key.Binding {
-	if c == CtxHelp {
+// repair shows `r` (DLQ tab, not --read-only); cleanup shows `c`, which
+// only acts on a CleanupPending row.
+func optionsBindings(c ContextID, repair, cleanup bool) []key.Binding {
+	switch c {
+	case CtxHelp:
 		return []key.Binding{keys.HelpClose, keys.HelpUp, keys.HelpDown}
+	case CtxConfirm:
+		return []key.Binding{keys.Confirm, keys.Cancel}
+	case CtxBusy:
+		return nil
+	}
+	var out []key.Binding
+	for _, b := range contextBindings(c) {
+		switch b.Help().Key {
+		case keys.Resubmit.Help().Key:
+			if !repair {
+				continue
+			}
+		case keys.FinishCleanup.Help().Key:
+			if !cleanup {
+				continue
+			}
+		}
+		out = append(out, b)
 	}
 	tab := key.NewBinding(key.WithKeys("[", "]"), key.WithHelp("[ ]", "tab"))
-	return append(contextBindings(c), tab, keys.Help, keys.Quit)
+	return append(out, tab, keys.Help, keys.Quit)
 }

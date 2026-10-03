@@ -69,8 +69,13 @@ func (m Model) render() string {
 	}
 	lines = append(lines, m.renderOptions())
 	screen := strings.Join(lines, "\n")
-	if m.stack.Top() == CtxHelp {
+	switch m.stack.Top() {
+	case CtxHelp:
 		screen = m.overlayHelp(screen)
+	case CtxConfirm:
+		screen = m.overlayConfirm(screen)
+	case CtxBusy:
+		screen = m.overlayBusy(screen)
 	}
 	return screen
 }
@@ -256,9 +261,21 @@ func (m Model) messageRows(width, n int) []string {
 	return listRows(m.messages, m.stack.Root() == CtxMessages, width, n,
 		listStatus(m.messages, empty),
 		func(msg bus.Message) []seg {
+			seq := padLeft(strconv.FormatInt(msg.SequenceNumber, 10), digits) + " "
+			at := listTime(msg.EnqueuedTime, now, m.opts.Location) + " "
+			if mark, ok := m.markOf(msg.SequenceNumber); ok {
+				// A marked row (SendUncertain, CleanupPending) is amber or
+				// red and names its outcome in the reason and id columns.
+				st := levelStyle(markStyleOf(mark.outcome))
+				labelW := reasonW
+				if idW > 0 {
+					labelW += 1 + idW
+				}
+				return []seg{{seq, st}, {at, st}, {fitPlain(mark.outcome.String()+" · "+m.rowReason(msg), labelW), st}}
+			}
 			segs := []seg{
-				{padLeft(strconv.FormatInt(msg.SequenceNumber, 10), digits) + " ", stPlain},
-				{listTime(msg.EnqueuedTime, now, m.opts.Location) + " ", stDim},
+				{seq, stPlain},
+				{at, stDim},
 				{fitPlain(m.rowReason(msg), reasonW), stPlain},
 			}
 			if idW > 0 {
@@ -362,6 +379,14 @@ func (m Model) mainLines(width int) []string {
 	if !ok {
 		return m.statusLines(width)
 	}
+	if banner := m.bannerLines(msg.SequenceNumber, width); banner != nil {
+		return append(banner, m.cachedLines(msg, width)...)
+	}
+	return m.cachedLines(msg, width)
+}
+
+// cachedLines is the tab content of msg, from the cache when it matches.
+func (m Model) cachedLines(msg bus.Message, width int) []string {
 	var key linesKey
 	if m.openNS != nil && m.openEntity != nil {
 		key = linesKey{m.openNS.FQDN, m.openEntity.Path, m.openEntity.Kind, m.subQueue, msg.SequenceNumber, m.tab, width}
@@ -511,7 +536,24 @@ func (m Model) renderOptions() string {
 	rw := segsWidth(right)
 
 	left := []seg{{" ", stPlain}}
-	for i, b := range optionsBindings(m.stack.Top()) {
+	if m.status.text != "" && m.stack.AtRoot() {
+		// The status bar: an outcome or a refusal, until the next key.
+		left = append(left, seg{m.status.text, levelStyle(m.status.level)})
+		l := row(left, max(0, m.width-rw-1), false)
+		r, _ := renderSegs(right, rw, nil)
+		return l + " " + r
+	}
+	cleanup := false
+	if msg, ok := m.selectedMessage(); ok {
+		mark, marked := m.markOf(msg.SequenceNumber)
+		cleanup = marked && mark.outcome == bus.CleanupPending
+	}
+	repair := !m.opts.ReadOnly && m.subQueue == bus.DeadLetter
+	bindings := optionsBindings(m.stack.Top(), repair, cleanup && repair)
+	if m.stack.Top() == CtxConfirm && m.confirm.kind == confirmRepair {
+		bindings = append(bindings, keys.ToggleID)
+	}
+	for i, b := range bindings {
 		if i > 0 {
 			left = append(left, seg{"  ", stPlain})
 		}
@@ -534,7 +576,7 @@ func (m Model) helpBox() (w, h, listRows int) {
 }
 
 func (m Model) overlayHelp(screen string) string {
-	w, h, n := m.helpBox()
+	w, _, n := m.helpBox()
 	inner := w - 2
 	entries := m.helpEntries()
 	offset := max(0, min(m.help.offset, len(entries)-n))
@@ -561,8 +603,14 @@ func (m Model) overlayHelp(screen string) string {
 	}
 	lines = append(lines, hBorder(w, "└", "┘", []seg{{"type to filter · esc close", stDim}}, stBorderFocus))
 
+	return m.overlay(screen, lines, w)
+}
+
+// overlay draws a popup of width w, centred over the screen above the
+// options bar.
+func (m Model) overlay(screen string, lines []string, w int) string {
 	x := (m.width - w) / 2
-	y := max(0, (m.height-1-h)/2)
+	y := max(0, (m.height-1-len(lines))/2)
 	base := lipgloss.NewLayer(screen)
 	popup := lipgloss.NewLayer(strings.Join(lines, "\n")).X(x).Y(y).Z(1)
 	// The compositor trims trailing blanks; pad back to full width.

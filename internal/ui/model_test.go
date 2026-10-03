@@ -23,12 +23,21 @@ func run(t *testing.T, m Model, msg tea.Msg) Model {
 	return runCmd(t, next.(Model), cmd)
 }
 
+// runCmd runs cmd and everything it leads to inline. A batch runs depth
+// first, in order: the broker call before the spinner tick, so the tick
+// finds the busy popup closed and ends.
 func runCmd(t *testing.T, m Model, cmd tea.Cmd) Model {
 	t.Helper()
 	for cmd != nil {
 		msg := cmd()
-		if _, ok := msg.(tea.QuitMsg); ok {
+		switch msg := msg.(type) {
+		case tea.QuitMsg:
 			t.Fatal("unexpected quit")
+		case tea.BatchMsg:
+			for _, c := range msg {
+				m = runCmd(t, m, c)
+			}
+			return m
 		}
 		var next tea.Model
 		next, cmd = m.Update(msg)
@@ -43,6 +52,8 @@ func press(s string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: tea.KeyEscape}
 	case "enter":
 		return tea.KeyPressMsg{Code: tea.KeyEnter}
+	case "tab":
+		return tea.KeyPressMsg{Code: tea.KeyTab}
 	}
 	r := []rune(s)[0]
 	return tea.KeyPressMsg{Code: r, Text: s}

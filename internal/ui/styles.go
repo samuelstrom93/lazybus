@@ -32,6 +32,19 @@ var (
 	stReadOnly    = lipgloss.NewStyle().Foreground(colRed).Bold(true)
 )
 
+// levelStyle is the colour of a status level.
+func levelStyle(l statusLevel) lipgloss.Style {
+	switch l {
+	case statusOK:
+		return stTitleFocus
+	case statusWarn:
+		return stWarn
+	case statusErr:
+		return stErr
+	}
+	return stPlain
+}
+
 // seg is a run of text with one style. Rows and titles are built from
 // segments so they can be truncated before styling.
 type seg struct {

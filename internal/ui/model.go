@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/samuelstrom93/lazybus/internal/bus"
@@ -122,7 +123,7 @@ type helpState struct {
 
 // Model is the root Bubble Tea model.
 type Model struct {
-	be   bus.Browser
+	be   bus.Backend
 	opts Options
 
 	width, height int
@@ -141,8 +142,24 @@ type Model struct {
 	tab        mainTab
 	mainScroll int
 
+	// afterPage is the cursor index to apply when the next page arrives:
+	// a repair removed the last loaded row, and the next message is on
+	// that page.
+	afterPage    int
+	hasAfterPage bool
+
 	log  []logEntry
 	help helpState
+
+	// status is the status bar text (an outcome or a refusal); the next
+	// key clears it.
+	status statusLine
+	// marks are the rows that keep an outcome (SendUncertain,
+	// CleanupPending). Copied on write.
+	marks   map[markKey]rowMark
+	confirm confirmState // the open confirm popup (CtxConfirm)
+	busy    busyState    // the busy popup (CtxBusy)
+	spin    spinner.Model
 
 	// lines caches the main pane content of the selected message, so a
 	// large body is not re-formatted on every keystroke. A pointer: the
@@ -151,7 +168,7 @@ type Model struct {
 }
 
 // New returns the root model for backend be.
-func New(be bus.Browser, opts Options) Model {
+func New(be bus.Backend, opts Options) Model {
 	if opts.Location == nil {
 		opts.Location = time.Local
 	}
@@ -168,6 +185,7 @@ func New(be bus.Browser, opts Options) Model {
 		stack:      NewContextStack(CtxNamespaces),
 		lastSide:   CtxNamespaces,
 		namespaces: list[bus.Namespace]{loading: true},
+		spin:       spinner.New(spinner.WithSpinner(spinner.MiniDot)),
 	}
 }
 
@@ -237,6 +255,7 @@ func (m *Model) peek(ns bus.Namespace, ent bus.Entity, sub bus.SubQueue) tea.Cmd
 // lines, which belong to the old list.
 func (m *Model) resetMessages() {
 	m.messages.reset()
+	m.hasAfterPage = false
 	m.clearLines()
 }
 
@@ -346,12 +365,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// A failed next page keeps the rows and `more`, so moving onto
 			// the last row again retries.
 			m.logf(true, "%s", errText("peek "+label, msg.err))
+			m.hasAfterPage = false
 			break
 		}
 		m.messages.more = len(msg.items) > 0
 		if msg.from > 0 {
 			m.messages.items = append(m.messages.items, msg.items...)
 			m.logf(false, "peek %s from %d → %d", label, msg.from, len(msg.items))
+			if m.hasAfterPage {
+				m.hasAfterPage = false
+				m.messages.move(m.afterPage)
+				m.mainScroll = 0
+			}
 			break
 		}
 		m.clearLines()
@@ -360,6 +385,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.messages.move(0)
 		m.mainScroll = 0
 		m.logf(false, "peek %s → %d", label, len(msg.items))
+
+	case planDoneMsg:
+		m, cmd = m.planDone(msg)
+
+	case repairDoneMsg:
+		m, cmd = m.repairDone(msg)
+
+	case spinner.TickMsg:
+		// A tick after the busy popup closed ends the tick chain.
+		if m.stack.Top() == CtxBusy {
+			m.spin, cmd = m.spin.Update(msg)
+		}
 
 	case tea.KeyPressMsg:
 		m, cmd = m.handleKey(msg)
@@ -370,9 +407,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // handleKey routes a key to the top context only.
 func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
-	if key.Matches(msg, keys.ForceQuit) {
+	if key.Matches(msg, keys.ForceQuit) && !(m.stack.Top() == CtxBusy && m.busy.changes) {
 		return m, tea.Quit
 	}
+	switch m.stack.Top() {
+	case CtxBusy:
+		// A call is running. Keys wait; a Repair or Finish Cleanup must
+		// finish even on ctrl-c, so its outcome (CleanupPending included)
+		// is never lost.
+		return m, nil
+	case CtxConfirm:
+		return m.handleConfirmKey(msg)
+	}
+	m.status = statusLine{}
 	if m.stack.Top() == CtxHelp {
 		return m.handleHelpKey(msg)
 	}
@@ -473,6 +520,10 @@ func (m Model) handlePanelKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 			cmd := m.peek(*m.openNS, *m.openEntity, m.subQueue)
 			return m, cmd
 		}
+	case (cur == CtxMessages || cur == CtxMain) && key.Matches(msg, keys.Resubmit):
+		return m.startRepair(confirmRepair)
+	case (cur == CtxMessages || cur == CtxMain) && key.Matches(msg, keys.FinishCleanup):
+		return m.startRepair(confirmCleanup)
 	case key.Matches(msg, keys.Open):
 		return m.open(cur)
 	}

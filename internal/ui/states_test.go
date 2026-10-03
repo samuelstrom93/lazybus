@@ -15,7 +15,7 @@ import (
 )
 
 // keys presses each key in turn, running the commands inline. Tokens are
-// single characters except "enter" and "esc".
+// single characters except "enter", "esc" and "tab".
 func keysIn(t *testing.T, m Model, keys ...string) Model {
 	t.Helper()
 	for _, k := range keys {
@@ -25,7 +25,7 @@ func keysIn(t *testing.T, m Model, keys ...string) Model {
 }
 
 // startWith returns a 120×30 model on be with the startup cascade applied.
-func startWith(t *testing.T, be bus.Browser) Model {
+func startWith(t *testing.T, be bus.Backend) Model {
 	t.Helper()
 	m := New(be, testOptions())
 	m = run(t, m, tea.WindowSizeMsg{Width: 120, Height: 30})
