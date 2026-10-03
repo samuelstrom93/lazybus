@@ -2,7 +2,7 @@
 
 A lazygit-style terminal UI for **Azure Service Bus**, built for the on-call moment: open the dead-letter queue, look at the first message, fix it, put it back.
 
-**Status:** pre-release, v0.1 in progress. This build is the skeleton (slice S0): the UI runs against built-in demo data only. Connecting to a real namespace comes in the next slice. See [`docs/spec.md`](docs/spec.md) for the plan and [`CONTEXT.md`](CONTEXT.md) for the vocabulary.
+**Status:** pre-release, v0.1 in progress. This build browses (slice S1a): it lists the queues and topic subscriptions of a namespace and peeks their dead-letter queues. Peek never locks a message and never changes its DeliveryCount. Resubmit comes in the next slice. See [`docs/spec.md`](docs/spec.md) for the plan and [`CONTEXT.md`](CONTEXT.md) for the vocabulary.
 
 ## Try it
 
@@ -11,6 +11,31 @@ go run ./cmd/lazybus --demo
 ```
 
 Press `?` for the keybindings, `q` to quit.
+
+## Usage
+
+```sh
+lazybus --namespace sb-prod-weu.servicebus.windows.net   # az login credential
+lazybus --connection-string 'Endpoint=sb://…;SharedAccessKeyName=…;SharedAccessKey=…'
+lazybus --emulator                                       # local emulator, ports 5672 / 5300
+lazybus --demo                                           # built-in demo data, no Azure
+```
+
+| Flag | Meaning |
+|---|---|
+| `--namespace <fqdn>` | Open this namespace with the Azure CLI credential (`az login`). A bare name gets `.servicebus.windows.net` appended. |
+| `--connection-string <cs>` | Open the namespace of a SAS connection string. Also read from `LAZYBUS_CONNECTION_STRING`; the flag wins. |
+| `--emulator` | Open the local Service Bus emulator on `localhost` with its development connection string. |
+| `--emulator-amqp-port <n>` | Emulator AMQP port (default 5672). |
+| `--emulator-admin-port <n>` | Emulator admin HTTP port (default 5300). Also used for a `--connection-string` with `UseDevelopmentEmulator=true`. |
+| `--read-only` | Disable every state-changing key. |
+| `--demo` | Run against built-in demo data. |
+
+The sources combine: each one adds a namespace to the Namespaces panel. Discovering namespaces across subscriptions from `az login` comes in a later slice.
+
+On the emulator the DLQ counts show `?`: its admin API does not report runtime counts.
+
+The Messages panel shows 50 messages at a time; moving onto the last row loads the next 50. Every broker call times out after 30 s; errors show in the panel and the log.
 
 ## Development
 
@@ -43,13 +68,16 @@ go run ./tools/gallery -out <dir>
 cd emulator && cp .env.example .env && docker compose up -d
 ```
 
-Connecting lazybus to it lands in slice S1a:
+Seed it with dead-lettered messages (JSON and plain-text bodies with typed application properties in `orders/$DLQ` and `order-events/billing/$DLQ`, plus the subscription-less topic `empty-topic`), then open it:
 
 ```sh
+go run ./tools/seed          # drains the seeded DLQs first; -reset=false appends
 go run ./cmd/lazybus --emulator --emulator-amqp-port 5682 --emulator-admin-port 5310
 ```
 
-Emulator end-to-end tests are not part of the hooks. Run them by hand against the running emulator:
+The seeder refuses connection strings without `UseDevelopmentEmulator=true`. Runtime entities such as `empty-topic` vanish when the emulator restarts; rerun the seeder.
+
+Emulator end-to-end tests are not part of the hooks. Run them by hand against the running emulator (they seed it first; ports override with `LAZYBUS_EMULATOR_AMQP_PORT` / `LAZYBUS_EMULATOR_ADMIN_PORT`):
 
 ```sh
 go test -tags emulator ./...
