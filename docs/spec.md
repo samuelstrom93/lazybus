@@ -100,6 +100,7 @@ Rule: same letter = analogous action in every context; lowercase = common action
 | | `E` | edit body in `$EDITOR` (`$VISUAL`, then `$EDITOR`, then `vi`) |
 | | `e` | add a Property Edit (empty key) |
 | | `x` | discard Pending Edits for this message (confirm if any) |
+| | `c` | Finish Cleanup on a CleanupPending row (§6) — confirm popup |
 | Main pane: Body | `E` | edit body in `$EDITOR` |
 | Main pane: Properties | `e` | edit selected property (popup prefilled) |
 | | `a` | add property |
@@ -122,7 +123,7 @@ On `r`:
 1. **Pre-check without a lock:** peek 1 message from sequence N on the DLQ. If the returned sequence number ≠ N → **NotFound** ("already gone"), zero messages touched.
 2. Confirm popup lists: source `entity/$DLQ seq N` → target, body (unchanged / edited, N lines, invalid-JSON flag), each Property Edit, Subject/ContentType changes, `markers removed: DeadLetterReason, DeadLetterErrorDescription`, MessageId (kept / new, see §6.1), the scan cost ("locks up to K messages ahead of it briefly; their DeliveryCount may increase by 1"), and target warnings (§6.1). `[y/n]`.
 3. Execute in one call, lock held only here:
-   1. One receiver per DLQ, no prefetch (Go SDK: credits = batch size per `ReceiveMessages`; leftover credits are released by the SDK), kept open across consecutive repairs (a link holds no lock). Receive in peek-lock, small batches, until sequence N is found. **Keep the locks on non-matching messages until the target is found or the scan limit is reached, then abandon all of them at once — including the rest of the batch after the match** — await every abandon, log abandon errors (never swallow them) (BusX #196; same as SBE, §12.2). Abandoning before the next receive puts the message back at the head and the scan never advances (S−1 spike). The locks live only for the scan and are released before the call returns. Scan limit K = the row's index in the peeked list + one page, and the scan also stops before `LockedUntil` of the first held message minus the safety margin; exceeding either → **NotFound**. Sequence numbers are unique and immutable, so no MessageId check.
+   1. One receiver per DLQ, no prefetch (Go SDK: credits = batch size per `ReceiveMessages`; leftover credits are released by the SDK), kept open across consecutive repairs (a link holds no lock). Receive in peek-lock, batches of 10, until sequence N is found. **Keep the locks on non-matching messages until the target is found or the scan limit is reached, then abandon all of them at once — including the rest of the batch after the match** — await every abandon, log abandon errors (never swallow them) (BusX #196; same as SBE, §12.2). Abandoning before the next receive puts the message back at the head and the scan never advances (S−1 spike). The locks live only for the scan and are released before the call returns. Scan limit K = the row's index in the peeked list + one page, and the scan also stops before `LockedUntil` of the first held message minus the safety margin (10 s, used for every lock check in §6); exceeding either → **NotFound**. Sequence numbers are unique and immutable, so no MessageId check.
    2. Build the outgoing message: body (edited or original bytes), application properties = original − markers + Property Edits, Subject/ContentType (edited or original), MessageId (§6.1), and copy CorrelationId, SessionId, PartitionKey, To, ReplyTo, ReplyToSessionId, TimeToLive. Do not copy broker-owned fields. Strip only the application-property keys `DeadLetterReason` and `DeadLetterErrorDescription` (`DeadLetterSource` is a broker annotation and cannot be set). Copy application property values as-is to keep their types. SessionId must be copied: a sessionful target rejects a message without one (`amqp:not-allowed`, definite).
    3. Check the lock locally (`LockedUntil` of the received message minus a safety margin; never of a peeked one). Expired → abandon → **LockLost** (nothing changed).
    4. Send to the target.
@@ -134,6 +135,8 @@ On `r`:
    - **NotFound**: row and its Pending Edits removed; cursor stays at that index.
    - **LockLost / SendFailed**: row kept with its Pending Edits; the user can retry.
    - **CleanupPending / SendUncertain**: row kept, marked red/amber with the outcome; Pending Edits kept.
+   - On a **SendUncertain** row `r` is allowed again; its confirm popup adds a red line "the previous attempt may have delivered a copy — check the target first". Never retried automatically.
+   - On a **CleanupPending** row `r` is blocked (status bar: "copy already in target — press c to finish cleanup"). `c` runs **Finish Cleanup**: pre-check, confirm popup (`entity/$DLQ seq N` will be removed; nothing is sent), the same by-sequence scan as step 3.1, then complete the match. Outcomes: Cleaned (row removed, cursor as Resubmitted), NotFound, LockLost. `--read-only` disables `c`. Added to the keymap for Messages and Main pane.
 
 Target: the entity the user opened, not `DeadLetterSource` (usually empty). Queue DLQ → that queue. Subscription DLQ → its parent topic (§12.1).
 
@@ -146,7 +149,7 @@ Target: the entity the user opened, not `DeadLetterSource` (usually empty). Queu
 
 ## 7. Auth and connection
 
-- Default: `AzureCLICredential` (`az login`). Discovery lists namespaces across readable subscriptions; failures per subscription are shown in the log, not fatal.
+- Default: `AzureCLICredential` (`az login`; azure-cli is installed on framen and Samuel logs in once with `az login --use-device-code`). Discovery lists namespaces across readable subscriptions; failures per subscription are shown in the log, not fatal.
 - `--connection-string <cs>` or `LAZYBUS_CONNECTION_STRING`: one namespace entry from SAS.
 - `--emulator`: shortcut for the local Service Bus emulator connection string (`UseDevelopmentEmulator=true`, `localhost`). Ports: `--emulator-amqp-port` (default 5672) and `--emulator-admin-port` (default 5300); lazybus' own compose in `emulator/` uses 5682 / 5310. The admin client needs an HTTP-only `azcore` transport (the SDK always uses https). Entity listing, properties and rules work; **runtime counts do not** (the emulator omits `CountDetails`; subscription runtime calls panic in SDK v1.10.0). With `--emulator`, never call the runtime-properties APIs; counts show `?`. Wrap all admin calls in `recover()`. `Get*` returns `(nil, nil)` for a missing entity. (S−1 spike.)
 - `--namespace <fqdn>`: skip discovery, open that namespace with the az credential.
@@ -174,7 +177,8 @@ tools/seed/             emulator seeder (go run ./tools/seed)
 - `.githooks/pre-push` (main + tags): `go test ./...` (unit + goldens), `staticcheck` if installed, `go build ./...`. Emulator E2E excluded (`go test -tags emulator ./...` by hand; documented in README).
 - `scripts/install-hooks.sh` sets `core.hooksPath`.
 - Golden screens at 120×30 for every state listed in the slice acceptance; `go test ./internal/ui -update` regenerates. Inspect changed goldens before committing.
-- After each slice: render all goldens into one HTML page under `~/artifacts/scratch/<date>-lazybus-<slice>/index.html` (same style as the BusX slice 1 gallery) and send it with `to-macbook`.
+- After each slice: render all goldens into one HTML page under `~/artifacts/scratch/<date>-lazybus-<slice>/index.html` (same style as the BusX slice 1 gallery) and send it with `to-macbook`; if the MacBook is offline, print the URL and continue (all gallery links go in the final report).
+- `staticcheck` is installed on framen and runs in pre-push.
 - Conventional Commits, direct to main behind the gate.
 
 ## 10. Slices
@@ -187,7 +191,7 @@ Each slice ends green on the gate, with goldens inspected and the gallery sent.
 - **S2 — resubmit.** DLQ Repair with zero edits: pre-check, confirm popup, the §6 algorithm, all outcomes (Resubmitted, NotFound, LockLost, SendFailed, SendUncertain, CleanupPending) with their row handling, jump-to-next, guards incl. duplicate detection and topic warning, `--read-only`. Unit tests on the fake for every outcome; emulator E2E: seed → resubmit → DLQ count −1, target got the message without markers. **After S2 lazybus is usable on-call.**
 - **S1b — navigation.** ARM discovery across subscriptions (lazy per subscription; failures to the log), Active tab, `/` filter, `:` jump, `s` sort, `y`/`Y` OSC 52, `R`.
 - **S3 — edits.** First: Property Edit popup with types and validation, add/remove, Subject/ContentType, pending-edit markers, confirm diff, `x`. Then: body via `$EDITOR` (`tea.ExecProcess`; for a JSON content type, invalid JSON is kept as the pending edit but flagged in the Body tab and the confirm popup, and `E` re-opens it). Emulator E2E: edit prop + body → target message carries the edits.
-- **S4 — release prep.** README (what/why, install, keys, safety model incl. the DeliveryCount cost of the by-sequence scan, screenshot or VHS GIF), `goreleaser` config for linux/darwin amd64/arm64, `go install` path works, `CHANGELOG.md`. **Stop before tagging or publishing a release; Samuel approves v0.1.0.**
+- **S4 — release prep.** README (what/why, install, keys, safety model incl. the DeliveryCount cost of the by-sequence scan, screenshot or VHS GIF), `goreleaser` config for linux/darwin amd64/arm64 (GitHub release archives + `go install`; no Homebrew tap in v0.1), checked with `goreleaser check` and `goreleaser release --snapshot --clean` only, `go install` path works, `CHANGELOG.md`, README GIF made with `vhs` against `--demo`. Real-namespace E2E (`go test -tags azure ./...`) against a Standard test namespace Samuel provides (not prod), verifying the S−1 gaps: DLQ-abandon DeliveryCount effect, `DeadLetterSource`, auth errors, runtime counts, partitioned-entity peek order; README and confirm wording follow the result. **Stop before tagging or publishing a release; Samuel approves v0.1.0.**
 
 Order: S−1 → S0 → S1a → S2 → S1b → S3 → S4.
 
