@@ -8,10 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"strings"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/admin"
 	"github.com/Azure/go-amqp"
 
 	"github.com/samuelstrom93/lazybus/internal/bus/azure"
@@ -143,21 +145,27 @@ func Run(ctx context.Context, cfg Config) error {
 		logw = io.Discard
 	}
 	logf := func(format string, args ...any) { fmt.Fprintf(logw, format+"\n", args...) }
-	if !azure.IsEmulatorConnectionString(cfg.ConnectionString) {
-		return errors.New("seed: refusing a connection string without UseDevelopmentEmulator=true (emulator only)")
+	if err := checkEmulator(cfg.ConnectionString); err != nil {
+		return err
 	}
 
 	ac, err := azure.EmulatorAdminClient(cfg.ConnectionString, cfg.AdminPort)
 	if err != nil {
 		return fmt.Errorf("seed: admin client: %w", err)
 	}
-	topic, err := ac.GetTopic(ctx, EmptyTopic, nil)
-	if err != nil {
-		return fmt.Errorf("seed: get topic %s: %w", EmptyTopic, err)
+	var topic *admin.GetTopicResponse
+	if err := azure.Safe("seed: get topic "+EmptyTopic, func() (err error) {
+		topic, err = ac.GetTopic(ctx, EmptyTopic, nil)
+		return err
+	}); err != nil {
+		return err
 	}
 	if topic == nil { // Get* returns (nil, nil) for a missing entity (S−1)
-		if _, err := ac.CreateTopic(ctx, EmptyTopic, nil); err != nil {
-			return fmt.Errorf("seed: create topic %s: %w", EmptyTopic, err)
+		if err := azure.Safe("seed: create topic "+EmptyTopic, func() error {
+			_, err := ac.CreateTopic(ctx, EmptyTopic, nil)
+			return err
+		}); err != nil {
+			return err
 		}
 		logf("created topic %s", EmptyTopic)
 	} else {
@@ -199,6 +207,23 @@ func Run(ctx context.Context, cfg Config) error {
 			return err
 		}
 		logf("dead-lettered %d into %s/$DLQ", len(tg.msgs), tg.t.description)
+	}
+	return nil
+}
+
+// checkEmulator refuses anything but the local emulator: the connection
+// string must say UseDevelopmentEmulator=true and point at a loopback host.
+// The seeder drains queues; it must never reach a real namespace.
+func checkEmulator(cs string) error {
+	if !azure.IsEmulatorConnectionString(cs) {
+		return errors.New("seed: refusing a connection string without UseDevelopmentEmulator=true (emulator only)")
+	}
+	host, err := azure.ConnectionStringHost(cs)
+	if err != nil {
+		return fmt.Errorf("seed: %w", err)
+	}
+	if ip := net.ParseIP(host); !strings.EqualFold(host, "localhost") && (ip == nil || !ip.IsLoopback()) {
+		return fmt.Errorf("seed: refusing host %q: only localhost or a loopback address (emulator only)", host)
 	}
 	return nil
 }
@@ -264,6 +289,11 @@ func deadLetter(ctx context.Context, c *azservicebus.Client, t target, msgs []Me
 	return nil
 }
 
+// maxEmptyReceives is how many receives in a row may come back empty while
+// a peek still sees messages before drain gives up (the emulator stalls
+// when it throttles, S−1).
+const maxEmptyReceives = 2
+
 // drain deletes every message of t (or its DLQ) with receive-and-delete
 // until a peek finds it empty.
 func drain(ctx context.Context, c *azservicebus.Client, t target, dlq bool) (int, error) {
@@ -278,7 +308,7 @@ func drain(ctx context.Context, c *azservicebus.Client, t target, dlq bool) (int
 		return 0, fmt.Errorf("seed: drain receiver %s: %w", name, err)
 	}
 	defer r.Close(context.Background())
-	n := 0
+	n, empty := 0, 0
 	for {
 		from := int64(0)
 		left, err := r.PeekMessages(ctx, 1, &azservicebus.PeekMessagesOptions{FromSequenceNumber: &from})
@@ -297,6 +327,14 @@ func drain(ctx context.Context, c *azservicebus.Client, t target, dlq bool) (int
 		if err := ctx.Err(); err != nil {
 			return n, fmt.Errorf("seed: drain %s: %w", name, err)
 		}
+		if len(got) == 0 {
+			empty++
+			if empty >= maxEmptyReceives {
+				return n, fmt.Errorf("seed: drain %s: peek still sees messages but %d receives in a row got none (emulator throttling? retry in a minute)", name, empty)
+			}
+			continue
+		}
+		empty = 0
 		n += len(got)
 	}
 }
