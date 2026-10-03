@@ -24,6 +24,9 @@ const (
 	Queue        = "orders"
 	Topic        = "order-events"
 	Subscription = "billing"
+	// DedupQueue has duplicate detection (window PT5M) for the S2 new
+	// MessageId default.
+	DedupQueue = "orders-dedup"
 	// EmptyTopic is a topic without subscriptions, for the S2 guard. The
 	// emulator's config can't hold one and runtime entities vanish on
 	// restart, so every run creates it if it is missing.
@@ -63,6 +66,15 @@ func QueueMessages() []Message { return messages("orders", nil) }
 // shipping subscription's rule does not match them.
 func SubscriptionMessages() []Message {
 	return messages("billing", map[string]any{"eventType": "OrderCreated"})
+}
+
+// DedupMessages is the message seeded into orders-dedup/$DLQ. Its
+// MessageId is new on every call: a rerun inside the detection window
+// would otherwise have the send dropped as a duplicate.
+func DedupMessages() []Message {
+	m := messages("dedup", nil)[:1]
+	m[0].MessageID = fmt.Sprintf("seed-dedup-%d", time.Now().UnixNano())
+	return m
 }
 
 // CreatedAt is the DateTime property of every seeded message.
@@ -136,9 +148,9 @@ func (t target) receiver(c *azservicebus.Client, opts *azservicebus.ReceiverOpti
 }
 
 // Run seeds the emulator: it (re)creates EmptyTopic, drains the seeded
-// entities, sends QueueMessages to orders and SubscriptionMessages to
-// order-events, and dead-letters them from orders and billing with their
-// reason and description.
+// entities, sends QueueMessages to orders, SubscriptionMessages to
+// order-events and DedupMessages to orders-dedup, and dead-letters them
+// from orders, billing and orders-dedup with their reason and description.
 func Run(ctx context.Context, cfg Config) error {
 	logw := cfg.Log
 	if logw == nil {
@@ -184,6 +196,7 @@ func Run(ctx context.Context, cfg Config) error {
 	}{
 		{target{name: Queue, sendTo: Queue, description: Queue}, QueueMessages()},
 		{target{name: Topic, sub: Subscription, sendTo: Topic, description: Topic + "/" + Subscription}, SubscriptionMessages()},
+		{target{name: DedupQueue, sendTo: DedupQueue, description: DedupQueue}, DedupMessages()},
 	}
 	for _, tg := range targets {
 		n, err := drain(ctx, client, tg.t, false)

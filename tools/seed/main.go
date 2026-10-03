@@ -1,6 +1,7 @@
 // Command seed fills the local Service Bus emulator with dead-lettered
 // messages: JSON and non-JSON bodies with typed application properties in
-// the DLQs of queue orders and subscription order-events/billing, and
+// the DLQs of queue orders and subscription order-events/billing, one
+// message in the DLQ of the duplicate-detecting queue orders-dedup, and
 // creates the topic empty-topic (no subscriptions) if it is missing.
 //
 //	go run ./tools/seed                  # lazybus emulator on 5682 / 5310
