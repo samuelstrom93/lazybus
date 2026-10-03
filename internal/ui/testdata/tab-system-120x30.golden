@@ -1,0 +1,30 @@
+[90m┌[m 1 Namespaces [90m────────────────────┐[m[90m┌[m [90mBody[m[90m │ [m[90mProperties[m[90m │ [m[1mSystem[m [90m──────────────────────────────────────────────────────┐[m
+[90m│[m▸ sb-prod-weu                     [90m│[m[90m│[m[90m MessageId         [m inv-1002                                                      [90m│[m
+[90m│[m  sb-test-weu                     [90m│[m[90m│[m[90m CorrelationId     [m corr-1002                                                     [90m│[m
+[90m├[m 2 Entities [90m──────────────────────┤[m[90m│[m[90m Subject ✎         [m OrderPlaced                                                   [90m│[m
+[90m│[m▸ invoices                  [33mDLQ  3[m[90m│[m[90m│[m[90m ContentType ✎     [m application/json                                              [90m│[m
+[90m│[m  order-events/billing      [33mDLQ 12[m[90m│[m[90m│[m[90m SessionId         [m [90m—[m                                                             [90m│[m
+[90m│[m  order-events/shipping     [90mDLQ  0[m[90m│[m[90m│[m[90m PartitionKey      [m [90m—[m                                                             [90m│[m
+[90m│[m  orders                    [33mDLQ 37[m[90m│[m[90m│[m[90m To                [m [90m—[m                                                             [90m│[m
+[1;32m├[m [1;32m3 Messages[m  [1;32mDLQ[m[90m│[m[90mActive[m [1;32m──────────┤[m[90m│[m[90m ReplyTo           [m [90m—[m                                                             [90m│[m
+[1;32m│[m[1;44m▸ [m[1;44m2 [m[1;44m13:00 [m[1;44mSchemaMismatch[m[1;44m inv-1002[m[1;44m [m[1;32m│[m[90m│[m[90m TTL               [m 14d                                                           [90m│[m
+[1;32m│[m  3 [90m14:00 [mMaxDeliveryCo…[90m inv-1003[m [1;32m│[m[90m│[m[90m DeliveryCount     [m 1                                                             [90m│[m
+[1;32m│[m  4 [90m15:00 [mDownstreamTim…[90m inv-1004[m [1;32m│[m[90m│[m[90m EnqueuedTime      [m 2026-09-19 13:00:00 UTC                                       [90m│[m
+[1;32m│[m                                  [1;32m│[m[90m│[m[90m SequenceNumber    [m 2                                                             [90m│[m
+[1;32m│[m                                  [1;32m│[m[90m│[m[90m DeadLetterSource  [m [90m—[m                                                             [90m│[m
+[1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
+[1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
+[1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
+[1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
+[1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
+[1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
+[1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
+[1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
+[1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
+[1;32m│[m                                  [1;32m│[m[90m├[m Log [90m─────────────────────────────────────────────────────────────────────────────┤[m
+[1;32m│[m                                  [1;32m│[m[90m│[m[90m 16:00 [mlist namespaces → 2                                                        [90m│[m
+[1;32m│[m                                  [1;32m│[m[90m│[m[90m 16:00 [mlist entities sb-prod-weu → 4                                              [90m│[m
+[1;32m│[m                                  [1;32m│[m[90m│[m[90m 16:00 [mpeek invoices/$DLQ → 3                                                     [90m│[m
+[1;32m│[m                                  [1;32m│[m[90m│[m                                                                                  [90m│[m
+[1;32m└──────────────────────────────────┘[m[90m└──────────────────────────────────────────────────────────────────────────────────┘[m
+ [36menter[m focus main pane  [36mtab[m DLQ / Active  [36m[ ][m tab  [36m?[m keybindings  [36mq[m quit                                                
