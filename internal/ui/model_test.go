@@ -86,8 +86,12 @@ func TestPopupOwnsKeys(t *testing.T) {
 	}
 
 	m = run(t, m, press("esc"))
+	if m.stack.Top() != CtxHelp || m.help.filter != "" {
+		t.Fatalf("first esc should clear the filter: top %v filter %q", m.stack.Top(), m.help.filter)
+	}
+	m = run(t, m, press("esc"))
 	if !m.stack.AtRoot() || m.stack.Top() != CtxNamespaces {
-		t.Fatalf("esc did not pop the popup: top %v", m.stack.Top())
+		t.Fatalf("esc on an empty filter did not pop the popup: top %v", m.stack.Top())
 	}
 }
 

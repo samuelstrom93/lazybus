@@ -108,9 +108,8 @@ type Model struct {
 	tab        mainTab
 	mainScroll int
 
-	log    []logEntry
-	help   helpState
-	status string
+	log  []logEntry
+	help helpState
 }
 
 // New returns the root model for backend be.
@@ -267,7 +266,6 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	if key.Matches(msg, keys.ForceQuit) {
 		return m, tea.Quit
 	}
-	m.status = ""
 	if m.stack.Top() == CtxHelp {
 		return m.handleHelpKey(msg)
 	}
@@ -277,6 +275,12 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 func (m Model) handleHelpKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, keys.HelpClose):
+		// esc clears a non-empty filter first; esc on an empty one (or
+		// enter) closes the menu.
+		if msg.String() == "esc" && m.help.filter != "" {
+			m.help = helpState{}
+			break
+		}
 		m.stack.Pop()
 	case key.Matches(msg, keys.HelpUp):
 		m.help.offset = max(0, m.help.offset-1)
@@ -364,7 +368,8 @@ func (m Model) handlePanelKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 				m.subQueue = bus.DeadLetter
 			}
 			m.messages.items = nil
-			return m, m.peek(*m.openNS, *m.openEntity, m.subQueue)
+			cmd := m.peek(*m.openNS, *m.openEntity, m.subQueue)
+			return m, cmd
 		}
 	case key.Matches(msg, keys.Open):
 		return m.open(cur)
@@ -386,7 +391,8 @@ func (m Model) open(cur ContextID) (Model, tea.Cmd) {
 		m.entities.items = nil
 		m.messages = list[bus.Message]{req: m.messages.req + 1}
 		m.focus(CtxEntities)
-		return m, m.loadEntities(ns, false)
+		cmd := m.loadEntities(ns, false)
+		return m, cmd
 	case CtxEntities:
 		ent, ok := m.entities.selected()
 		if !ok || m.openNS == nil {
@@ -396,7 +402,8 @@ func (m Model) open(cur ContextID) (Model, tea.Cmd) {
 		m.subQueue = bus.DeadLetter
 		m.messages.items = nil
 		m.focus(CtxMessages)
-		return m, m.peek(*m.openNS, ent, m.subQueue)
+		cmd := m.peek(*m.openNS, ent, m.subQueue)
+		return m, cmd
 	case CtxMessages:
 		m.focus(CtxMain)
 	}
