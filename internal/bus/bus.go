@@ -165,6 +165,7 @@ const (
 	ErrCanceled               // the caller canceled (superseded load)
 	ErrConnection             // could not reach the namespace
 	ErrThrottled              // the namespace is busy
+	ErrRefused                // a DLQ Repair guard refused the request (§6.1)
 )
 
 func (k ErrorKind) String() string {
@@ -183,6 +184,8 @@ func (k ErrorKind) String() string {
 		return "connection"
 	case ErrThrottled:
 		return "throttled"
+	case ErrRefused:
+		return "refused"
 	}
 	return "error"
 }
