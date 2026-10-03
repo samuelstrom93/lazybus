@@ -17,7 +17,6 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/Azure/go-amqp"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/samuelstrom93/lazybus/internal/bus"
@@ -25,10 +24,6 @@ import (
 	"github.com/samuelstrom93/lazybus/internal/seed"
 	"github.com/samuelstrom93/lazybus/internal/ui"
 )
-
-// opTimeout bounds each broker operation; the emulator can stall for
-// seconds when it throttles (S−1).
-const opTimeout = 30 * time.Second
 
 func port(t *testing.T, env string, def int) int {
 	t.Helper()
@@ -138,27 +133,6 @@ func checkDLQ(t *testing.T, b *azure.Backend, ns bus.Namespace, ent bus.Entity, 
 			}
 		}
 	}
-}
-
-// expect is the bus type and value a seeded property value reads back as.
-func expect(v any) (bus.PropertyType, any) {
-	switch v := v.(type) {
-	case string:
-		return bus.TypeString, v
-	case int32:
-		return bus.TypeInt, v
-	case int64:
-		return bus.TypeLong, v
-	case float64:
-		return bus.TypeDouble, v
-	case bool:
-		return bus.TypeBool, v
-	case amqp.UUID:
-		return bus.TypeGUID, v.String()
-	case time.Time:
-		return bus.TypeDateTime, v
-	}
-	panic("unexpected seed property type")
 }
 
 func drive(t *testing.T, m tea.Model, msg tea.Msg) tea.Model {
