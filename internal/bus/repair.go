@@ -150,6 +150,9 @@ type RepairRequest struct {
 	// generate one. PlanRepair proposes one so the confirm popup and the
 	// log show the same id.
 	NewMessageID string
+	// Edits are the message's Pending Edits; the copy carries them (§6
+	// step 3.2). Ignored by Finish Cleanup.
+	Edits Edits
 }
 
 // Repair tuning (spec §6 step 3).
@@ -306,10 +309,10 @@ type Driver interface {
 	// DeadLetterReceiver opens a new peek-lock receiver on e's DLQ.
 	DeadLetterReceiver(ctx context.Context, ns Namespace, e Entity) (DeadLetterReceiver, error)
 	// Send builds the copy of original (§6 step 3.2: markers stripped,
-	// property types kept, listed fields copied, messageID set) and sends
-	// it to t. definite reports a definite rejection (nothing was
-	// delivered); otherwise a send error is ambiguous.
-	Send(ctx context.Context, ns Namespace, t Target, original Locked, messageID string) (definite bool, err error)
+	// property types kept, listed fields copied, messageID set, edits
+	// applied) and sends it to t. definite reports a definite rejection
+	// (nothing was delivered); otherwise a send error is ambiguous.
+	Send(ctx context.Context, ns Namespace, t Target, original Locked, messageID string, edits Edits) (definite bool, err error)
 }
 
 // --- service -----------------------------------------------------------------
@@ -342,10 +345,14 @@ func refused(op, format string, args ...any) error {
 }
 
 // guard enforces §6.1 before anything is locked: source is a DLQ, the
-// target exists on the same namespace, a topic target has subscriptions.
+// edits are valid (no Dead-letter Marker among them), the target exists on
+// the same namespace, a topic target has subscriptions.
 func (s *Service) guard(ctx context.Context, op string, req RepairRequest) (Target, TargetInfo, error) {
 	if req.SubQueue != DeadLetter {
 		return Target{}, TargetInfo{}, refused(op, "repair only from a dead-letter queue")
+	}
+	if err := req.Edits.Validate(); err != nil {
+		return Target{}, TargetInfo{}, refused(op, "%v", err)
 	}
 	t, err := TargetOf(req.Entity)
 	if err != nil {
@@ -508,7 +515,10 @@ func (s *Service) repair(ctx context.Context, rcv DeadLetterReceiver, req Repair
 	if res.NewMessageID != res.OldMessageID {
 		ids += " → " + res.NewMessageID
 	}
-	definite, err := s.d.Send(ctx, req.Namespace, t, match, res.NewMessageID)
+	if n := req.Edits.Count(); n > 0 {
+		ids += fmt.Sprintf(", %d edit%s", n, plural(n))
+	}
+	definite, err := s.d.Send(ctx, req.Namespace, t, match, res.NewMessageID, req.Edits)
 	if err != nil {
 		res.Err = err
 		if definite {

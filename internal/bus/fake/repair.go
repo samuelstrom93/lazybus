@@ -256,7 +256,7 @@ func (r *receiver) Complete(ctx context.Context, m bus.Locked) error {
 // Send builds the copy per spec §6 step 3.2 and delivers it: to a queue,
 // or to every subscription of a topic whose filter matches. A duplicate
 // MessageId inside the detection window is accepted and dropped.
-func (d driver) Send(ctx context.Context, ns bus.Namespace, t bus.Target, original bus.Locked, messageID string) (bool, error) {
+func (d driver) Send(ctx context.Context, ns bus.Namespace, t bus.Target, original bus.Locked, messageID string, edits bus.Edits) (bool, error) {
 	b := d.b
 	l := original.(*locked)
 	f := b.fault(OpSend, l.seq)
@@ -279,7 +279,7 @@ func (d driver) Send(ctx context.Context, ns bus.Namespace, t bus.Target, origin
 	if src == nil {
 		return false, fmt.Errorf("fake: original seq %d not found", l.seq)
 	}
-	out := outgoing(src.msg, messageID)
+	out := outgoing(src.msg, messageID, edits)
 
 	var dd *dedup
 	var dests []*entity
@@ -321,11 +321,12 @@ func (d driver) Send(ctx context.Context, ns bus.Namespace, t bus.Target, origin
 
 // outgoing is the copy of m that a repair sends: body, application
 // properties (types kept, markers never among them), Subject, ContentType,
-// the new MessageId and the copied fields; no broker-owned fields.
-func outgoing(m bus.Message, messageID string) bus.Message {
-	return bus.Message{
+// the new MessageId and the copied fields, with edits applied; no
+// broker-owned fields.
+func outgoing(m bus.Message, messageID string, edits bus.Edits) bus.Message {
+	out := bus.Message{
 		Body:             slices.Clone(m.Body),
-		Properties:       slices.DeleteFunc(slices.Clone(m.Properties), func(p bus.Property) bool { return bus.IsMarker(p.Key) }),
+		Properties:       edits.ApplyProperties(m.Properties),
 		MessageID:        messageID,
 		CorrelationID:    m.CorrelationID,
 		Subject:          m.Subject,
@@ -337,4 +338,14 @@ func outgoing(m bus.Message, messageID string) bus.Message {
 		ReplyToSessionID: m.ReplyToSessionID,
 		TimeToLive:       m.TimeToLive,
 	}
+	if edits.BodyEdited {
+		out.Body = slices.Clone(edits.Body)
+	}
+	if edits.Subject != nil {
+		out.Subject = *edits.Subject
+	}
+	if edits.ContentType != nil {
+		out.ContentType = *edits.ContentType
+	}
+	return out
 }

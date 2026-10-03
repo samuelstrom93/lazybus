@@ -239,7 +239,10 @@ func TestOutgoingCopy(t *testing.T) {
 			bus.MarkerDeadLetterReason: "r", bus.MarkerDeadLetterErrorDescription: "d",
 		},
 	}
-	out := outgoing(in, "new-id")
+	out, err := outgoing(in, "new-id", bus.Edits{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := map[string]any{"s": "x", "i": int32(1), "l": int64(2), "d": 0.5, "b": true, "g": uuid, "t": at}
 	if !reflect.DeepEqual(out.ApplicationProperties, want) {
 		t.Fatalf("properties = %#v (markers stripped, types kept)", out.ApplicationProperties)
@@ -253,8 +256,37 @@ func TestOutgoingCopy(t *testing.T) {
 	if out.TimeToLive == in.TimeToLive {
 		t.Fatal("TimeToLive pointer shared with the received message")
 	}
-	if out := outgoing(&azservicebus.ReceivedMessage{ApplicationProperties: map[string]any{bus.MarkerDeadLetterReason: "r"}}, "x"); out.ApplicationProperties != nil {
+	if out, _ := outgoing(&azservicebus.ReceivedMessage{ApplicationProperties: map[string]any{bus.MarkerDeadLetterReason: "r"}}, "x", bus.Edits{}); out.ApplicationProperties != nil {
 		t.Fatalf("only markers → %v, want no properties", out.ApplicationProperties)
+	}
+
+	// Pending Edits: typed values in the Go types the SDK encodes as the
+	// matching AMQP types; a Guid (a string in bus) becomes amqp.UUID.
+	subject, empty := "OrderFixed", ""
+	edits := bus.Edits{
+		Properties: []bus.PropertyEdit{
+			{Key: "i", Type: bus.TypeLong, Value: int64(9)},
+			{Key: "s", Remove: true},
+			{Key: "g2", Type: bus.TypeGUID, Value: "6f1c2b9e-4d2a-4c1e-9b7a-000000000002"},
+			{Key: "t2", Type: bus.TypeDateTime, Value: at},
+		},
+		Subject: &subject, ContentType: &empty,
+		Body: []byte(`{"a":2}`), BodyEdited: true,
+	}
+	out, err = outgoing(in, "new-id", edits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g2 := amqp.UUID{0x6f, 0x1c, 0x2b, 0x9e, 0x4d, 0x2a, 0x4c, 0x1e, 0x9b, 0x7a, 0, 0, 0, 0, 0, 2}
+	want = map[string]any{"i": int64(9), "l": int64(2), "d": 0.5, "b": true, "g": uuid, "t": at, "g2": g2, "t2": at}
+	if !reflect.DeepEqual(out.ApplicationProperties, want) {
+		t.Fatalf("edited properties = %#v", out.ApplicationProperties)
+	}
+	if string(out.Body) != `{"a":2}` || *out.Subject != "OrderFixed" || out.ContentType != nil || *out.CorrelationID != "corr" {
+		t.Fatalf("edited outgoing = %+v", out)
+	}
+	if string(in.Body) != `{"a":1}` || len(in.ApplicationProperties) != 9 {
+		t.Fatal("outgoing changed the received message")
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus"
 	"github.com/Azure/go-amqp"
+	"github.com/google/uuid"
 
 	"github.com/samuelstrom93/lazybus/internal/bus"
 )
@@ -188,7 +189,7 @@ func (h *dlqReceiver) Close(ctx context.Context) error {
 
 // Send sends the copy of original to t and classifies a failure (§6 step
 // 3.4).
-func (d driver) Send(ctx context.Context, ns bus.Namespace, t bus.Target, original bus.Locked, messageID string) (bool, error) {
+func (d driver) Send(ctx context.Context, ns bus.Namespace, t bus.Target, original bus.Locked, messageID string, edits bus.Edits) (bool, error) {
 	op := "send to " + t.Name
 	c, err := d.b.conn(ns)
 	if err != nil {
@@ -198,8 +199,12 @@ func (d driver) Send(ctx context.Context, ns bus.Namespace, t bus.Target, origin
 	if err != nil {
 		return true, mapErr(op, err)
 	}
+	msg, err := outgoing(original.(*received).m, messageID, edits)
+	if err != nil {
+		return true, mapErr(op, err)
+	}
 	err = Safe(op, func() error {
-		return sendDefiniteErr(s.SendMessage(ctx, outgoing(original.(*received).m, messageID), nil))
+		return sendDefiniteErr(s.SendMessage(ctx, msg, nil))
 	})
 	if err == nil {
 		return false, nil
@@ -246,9 +251,10 @@ func sendDefinite(err error) bool {
 // body, application properties without the Dead-letter Markers (values
 // copied as-is, so their types stay), Subject and ContentType, messageID,
 // and CorrelationID, SessionID, PartitionKey, To, ReplyTo,
-// ReplyToSessionID, TimeToLive. Broker-owned fields can't be set on a
-// Message at all.
-func outgoing(m *azservicebus.ReceivedMessage, messageID string) *azservicebus.Message {
+// ReplyToSessionID, TimeToLive; then the Pending Edits: Property Edits
+// (typed, see amqpValue), Subject, ContentType and body. Broker-owned
+// fields can't be set on a Message at all.
+func outgoing(m *azservicebus.ReceivedMessage, messageID string, edits bus.Edits) (*azservicebus.Message, error) {
 	var props map[string]any
 	for k, v := range m.ApplicationProperties {
 		if bus.IsMarker(k) {
@@ -258,6 +264,23 @@ func outgoing(m *azservicebus.ReceivedMessage, messageID string) *azservicebus.M
 			props = make(map[string]any, len(m.ApplicationProperties))
 		}
 		props[k] = v
+	}
+	for _, pe := range edits.Properties {
+		if pe.Remove {
+			delete(props, pe.Key)
+			continue
+		}
+		v, err := amqpValue(pe)
+		if err != nil {
+			return nil, err
+		}
+		if props == nil {
+			props = map[string]any{}
+		}
+		props[pe.Key] = v
+	}
+	if len(props) == 0 {
+		props = nil
 	}
 	out := &azservicebus.Message{
 		ApplicationProperties: props,
@@ -276,7 +299,43 @@ func outgoing(m *azservicebus.ReceivedMessage, messageID string) *azservicebus.M
 		ttl := *m.TimeToLive
 		out.TimeToLive = &ttl
 	}
-	return out
+	if edits.BodyEdited {
+		out.Body = edits.Body
+		if out.Body == nil {
+			out.Body = []byte{}
+		}
+	}
+	if edits.Subject != nil {
+		out.Subject = optional(*edits.Subject)
+	}
+	if edits.ContentType != nil {
+		out.ContentType = optional(*edits.ContentType)
+	}
+	return out, nil
+}
+
+// amqpValue is the value of a Property Edit as the SDK must send it to
+// get the AMQP type of its PropertyType: int32 → int, int64 → long,
+// float64 → double, bool → boolean, string → string, time.Time →
+// timestamp, and a Guid (a string in bus) → amqp.UUID → uuid.
+func amqpValue(pe bus.PropertyEdit) (any, error) {
+	if pe.Type == bus.TypeGUID {
+		s, _ := pe.Value.(string)
+		u, err := uuid.Parse(s)
+		if err != nil {
+			return nil, &bus.Error{Kind: bus.ErrRefused, Msg: fmt.Sprintf("property %s: %q is not a GUID", pe.Key, s)}
+		}
+		return amqp.UUID(u), nil
+	}
+	return pe.Value, nil
+}
+
+// optional is nil for an empty string: an edit to "" unsets the field.
+func optional(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 // sender returns the cached sender for a queue or topic.

@@ -492,6 +492,11 @@ func TestRepairGuards(t *testing.T) {
 		{"active source", func() bus.RepairRequest { r := req(queue("orders"), 2, 0); r.SubQueue = bus.Active; return r }(), "dead-letter"},
 		{"zero-subscription topic", req(sub("empty-topic/gone"), 2, 0), "no subscriptions"},
 		{"missing target", req(queue("nope"), 2, 0), "does not exist"},
+		{"marker edit", func() bus.RepairRequest {
+			r := req(queue("orders"), 2, 0)
+			r.Edits.Properties = []bus.PropertyEdit{{Key: bus.MarkerDeadLetterReason, Remove: true}}
+			return r
+		}(), "dead-letter markers"},
 	}
 	for _, tc := range cases {
 		for name, call := range map[string]func() error{
@@ -510,6 +515,55 @@ func TestRepairGuards(t *testing.T) {
 	if _, err := b.FinishCleanup(ctx, cases[0].r); bus.KindOf(err) != bus.ErrRefused {
 		t.Fatalf("finish cleanup on Active: %v", err)
 	}
+}
+
+func TestRepairWithEdits(t *testing.T) {
+	b := New()
+	orders := queue("orders")
+	orig, _ := find(dlq(b, orders), 2) // SchemaMismatch shape: all seven property types
+	activeBefore := len(active(b, orders))
+	subject, contentType := "OrderFixed", "text/plain"
+	r := req(orders, 2, 0)
+	r.Edits = bus.Edits{
+		Properties: []bus.PropertyEdit{
+			{Key: "orderId", Type: bus.TypeInt, Value: int32(7)},
+			{Key: "isRetry", Remove: true},
+			{Key: "region", Type: bus.TypeGUID, Value: "6f1c2b9e-4d2a-4c1e-9b7a-000000000009"},
+		},
+		Subject: &subject, ContentType: &contentType,
+		Body: []byte("fixed"), BodyEdited: true,
+	}
+	res := repair(t, b, r)
+	// The send's log line counts the edits: 3 Property Edits, Subject,
+	// ContentType, body.
+	if res.Outcome != bus.Resubmitted || !hasLine(res.Log, "(MessageId ord-4002, 6 edits) → ok") {
+		t.Fatalf("outcome %v (%s), log %+v", res.Outcome, res.Detail, res.Log)
+	}
+	got := active(b, orders)
+	if len(got) != activeBefore+1 {
+		t.Fatalf("target active %d → %d", activeBefore, len(got))
+	}
+	cp := got[len(got)-1]
+	want := r.Edits.ApplyProperties(orig.Properties)
+	if !reflect.DeepEqual(cp.Properties, want) {
+		t.Fatalf("properties:\n got %+v\nwant %+v", cp.Properties, want)
+	}
+	if pe := cp.Properties[1]; pe.Key != "orderId" || pe.Type != bus.TypeInt {
+		t.Fatalf("changed key not in place with its new type: %+v", pe)
+	}
+	if string(cp.Body) != "fixed" || cp.Subject != "OrderFixed" || cp.ContentType != "text/plain" ||
+		cp.CorrelationID != orig.CorrelationID || cp.MessageID != orig.MessageID {
+		t.Fatalf("copy = %+v", cp)
+	}
+}
+
+func hasLine(log []bus.LogLine, text string) bool {
+	for _, l := range log {
+		if strings.Contains(l.Text, text) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestRepairReceiveErrorAbandonsHeld(t *testing.T) {
