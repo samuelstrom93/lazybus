@@ -42,20 +42,20 @@ The Messages panel shows 50 messages at a time; moving onto the last row loads t
 | Key | Where | Action |
 |---|---|---|
 | `r` | Messages, main pane (DLQ tab) | Resubmit the selected message: checks it is still there, then opens a confirm popup. |
-| `y` / `enter` | confirm popup | Confirm. |
+| `y` | confirm popup | Confirm. Only `y` confirms; `enter` does nothing here. |
 | `n` / `esc` | confirm popup | Cancel. Every other key is ignored: nothing happens until you confirm. |
 | `m` | resubmit popup | Toggle the copy's MessageId between the original and a new one. |
 | `c` | Messages, main pane | Finish Cleanup on a CleanupPending row (confirm popup; nothing is sent). |
 
-After a successful resubmit the cursor stays on the same row, which now holds the next message, so `r y r y …` works down the list. `--read-only` disables `r` and `c`. The Active tab is read-only. While a resubmit or cleanup runs, keys wait and `ctrl-c` does not quit, so its outcome is never lost.
+After a successful resubmit the cursor stays on the same row, which now holds the next message, so `r y r y …` works down the list. `--read-only` disables `r` and `c`. The Active tab is read-only. While a resubmit or cleanup runs, keys wait, and `ctrl-c` and a closed terminal (SIGHUP) do not quit, so its outcome is never lost.
 
 ### Safety model
 
 Peek never locks a message. A resubmit is a move: send a copy, then delete the original. It holds locks only inside that one call:
 
-1. **Pre-check.** Peek the message by its sequence number, without a lock. If it is gone, the row is removed and nothing is touched.
+1. **Pre-check.** Peek the message by its sequence number, without a lock. If it is gone, the row is removed and nothing is touched. A message whose AMQP body is not a single data section (an AMQP value or sequence body) or whose message-id is not a string is refused, because the copy would lose data.
 2. **Confirm.** The popup lists the source and target (a queue's DLQ goes back to that queue; a subscription's DLQ goes to its parent topic), the body, the dead-letter markers that are removed, the MessageId, the scan cost and target warnings: a topic delivers only to subscriptions whose rules match (no match means the copy is dropped), and a topic with no subscriptions is refused.
-3. **By-sequence scan.** Service Bus cannot receive one message by sequence number, so lazybus receives the DLQ in peek-lock until it finds it. Messages ahead of it stay locked until the scan ends, then all are abandoned; **their DeliveryCount may increase by 1.** The scan locks at most the row's position plus 50 messages and stops well before the first lock expires.
+3. **By-sequence scan.** Service Bus cannot receive one message by sequence number, so lazybus opens a peek-lock receiver for this one call (closed before the call returns) and receives the DLQ until it finds the message. Messages ahead of it stay locked until the scan ends, then all are abandoned; **their DeliveryCount may increase by 1.** The scan locks at most the row's position plus 50 messages and stops well before the first lock expires.
 4. **Send, then complete.** The copy keeps the body, application properties (with their types) and the copied system fields; `DeadLetterReason` and `DeadLetterErrorDescription` are removed. On a target with duplicate detection the copy gets a new MessageId by default, because a copy with the original id can be dropped as a duplicate and the original would still be deleted.
 
 Every outcome is shown in the status bar and every broker call that changes state goes to the log:
@@ -63,10 +63,10 @@ Every outcome is shown in the status bar and every broker call that changes stat
 | Outcome | Meaning | Row |
 |---|---|---|
 | Resubmitted | The copy is in the target and the original is gone. | Removed. |
-| NotFound | The message was already gone or out of scan range; nothing sent. | Removed. |
-| LockLost | The lock ran out before the send; nothing changed. | Kept; `r` retries. |
+| NotFound | The message was already gone (pre-check), or the scan stopped before reaching it; nothing sent. | Removed when gone; kept when the scan stopped, since it may still be in the DLQ. |
+| LockLost | The lock (or the call's time) ran out before the send; nothing changed. | Kept; `r` retries. |
 | SendFailed | The target rejected the copy; nothing changed. | Kept; `r` retries. |
-| SendUncertain | The send ended without a clear answer: the copy may or may not be in the target. Never retried automatically. | Amber. `r` is allowed after you check the target. |
+| SendUncertain | The send ended without a clear answer: the copy may or may not be in the target. Never retried automatically. | Amber. `r` is allowed after you check the target; the retry reuses the same MessageId, so a target with duplicate detection drops a second copy. |
 | CleanupPending | The copy is in the target but deleting the original failed. Never reported as success. | Red. `r` is blocked; `c` removes the original. |
 
 ## Development
