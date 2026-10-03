@@ -4,13 +4,17 @@ package azure_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/samuelstrom93/lazybus/internal/bus"
 	"github.com/samuelstrom93/lazybus/internal/bus/azure"
 	"github.com/samuelstrom93/lazybus/internal/seed"
+	"github.com/samuelstrom93/lazybus/internal/ui"
 )
 
 // repairTimeout bounds one repair: pre-check, guards, scan, send, complete.
@@ -148,6 +152,39 @@ func TestEmulatorRepair(t *testing.T) {
 			t.Fatalf("orders has %d active messages, want the copy", len(got))
 		}
 		checkCopy(t, got[0], seed.QueueMessages()[0], first.MessageID)
+	})
+
+	t.Run("ui r y", func(t *testing.T) {
+		before := peekAll(t, b, ns, orders, bus.DeadLetter)
+		ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
+		ents, err := b.ListEntities(ctx, ns)
+		cancel()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m tea.Model = ui.New(b, ui.Options{Location: time.UTC, CallTimeout: opTimeout})
+		m = drive(t, m, tea.WindowSizeMsg{Width: 120, Height: 30})
+		m = drive(t, m, m.Init()())
+		m = drive(t, m, key("2"))
+		for _, e := range ents {
+			if e.Path == orders.Path && e.Kind == orders.Kind {
+				break
+			}
+			m = drive(t, m, key("j"))
+		}
+		m = drive(t, m, key("enter"))
+		m = drive(t, m, key("r"))
+		if s := screen(m); !strings.Contains(s, "Resubmit") || !strings.Contains(s, "queue orders") {
+			t.Fatalf("no confirm popup:\n%s", s)
+		}
+		m = drive(t, m, key("y"))
+		want := fmt.Sprintf("Resubmitted orders/$DLQ seq %d → queue orders", before[0].SequenceNumber)
+		if s := screen(m); !strings.Contains(s, want) {
+			t.Fatalf("status lacks %q:\n%s", want, s)
+		}
+		if after := peekAll(t, b, ns, orders, bus.DeadLetter); len(after) != len(before)-1 {
+			t.Fatalf("orders/$DLQ: %d → %d", len(before), len(after))
+		}
 	})
 
 	t.Run("subscription to topic", func(t *testing.T) {

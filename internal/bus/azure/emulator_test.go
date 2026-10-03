@@ -164,8 +164,21 @@ func expect(v any) (bus.PropertyType, any) {
 func drive(t *testing.T, m tea.Model, msg tea.Msg) tea.Model {
 	t.Helper()
 	m, cmd := m.Update(msg)
+	return runCmds(m, cmd)
+}
+
+// runCmds runs cmd and what follows inline; a batch runs depth first, in
+// order (the broker call before the spinner tick).
+func runCmds(m tea.Model, cmd tea.Cmd) tea.Model {
 	for cmd != nil {
-		m, cmd = m.Update(cmd())
+		msg := cmd()
+		if batch, ok := msg.(tea.BatchMsg); ok {
+			for _, c := range batch {
+				m = runCmds(m, c)
+			}
+			return m
+		}
+		m, cmd = m.Update(msg)
 	}
 	return m
 }
