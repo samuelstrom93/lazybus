@@ -24,14 +24,6 @@ func keysIn(t *testing.T, m Model, keys ...string) Model {
 	return m
 }
 
-func split(s string) []string {
-	var out []string
-	for _, r := range s {
-		out = append(out, string(r))
-	}
-	return out
-}
-
 // startWith returns a 120×30 model on be with the startup cascade applied.
 func startWith(t *testing.T, be bus.Browser) Model {
 	t.Helper()
