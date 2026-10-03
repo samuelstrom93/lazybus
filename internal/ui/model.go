@@ -53,7 +53,7 @@ type list[T any] struct {
 	loading bool
 	err     error
 	req     int  // id of the newest load; older responses are dropped
-	more    bool // the last page was full: another page may follow
+	more    bool // the last page was not empty: another page may follow
 
 	cancel context.CancelFunc // cancels the newest load
 }
@@ -229,12 +229,26 @@ func (m *Model) loadEntities(ns bus.Namespace, cascade bool) tea.Cmd {
 
 // peek loads the first page of ent's sub-queue, replacing the list.
 func (m *Model) peek(ns bus.Namespace, ent bus.Entity, sub bus.SubQueue) tea.Cmd {
-	m.messages.reset()
+	m.resetMessages()
 	return m.peekFrom(ns, ent, sub, 0)
 }
 
+// resetMessages empties the message list and drops the cached main pane
+// lines, which belong to the old list.
+func (m *Model) resetMessages() {
+	m.messages.reset()
+	m.clearLines()
+}
+
+func (m *Model) clearLines() {
+	if m.lines != nil {
+		*m.lines = linesCache{}
+	}
+}
+
 // loadMore loads the page after the last message when the cursor is on
-// the last row and the last page was full.
+// the last row and the last page was not empty. Only an empty page ends
+// paging: a short page can be followed by messages enqueued since.
 func (m *Model) loadMore() tea.Cmd {
 	l := &m.messages
 	if !l.more || l.loading || len(l.items) == 0 || l.cursor != len(l.items)-1 || m.openNS == nil || m.openEntity == nil {
@@ -334,12 +348,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.logf(true, "%s", errText("peek "+label, msg.err))
 			break
 		}
-		m.messages.more = len(msg.items) == bus.PageSize
+		m.messages.more = len(msg.items) > 0
 		if msg.from > 0 {
 			m.messages.items = append(m.messages.items, msg.items...)
 			m.logf(false, "peek %s from %d → %d", label, msg.from, len(msg.items))
 			break
 		}
+		m.clearLines()
 		m.messages.items = msg.items
 		m.messages.offset = 0
 		m.messages.move(0)
@@ -476,7 +491,7 @@ func (m Model) open(cur ContextID) (Model, tea.Cmd) {
 		m.openNS = &ns
 		m.openEntity = nil
 		m.entities.items = nil
-		m.messages.reset()
+		m.resetMessages()
 		m.focus(CtxEntities)
 		cmd := m.loadEntities(ns, false)
 		return m, cmd

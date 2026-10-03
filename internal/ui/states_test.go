@@ -85,6 +85,11 @@ func TestStateGoldens(t *testing.T) {
 			m := startWith(t, fake.New(fake.WithDeadLetters("sb-prod-weu", "orders", 120)))
 			return keysIn(t, m, "2", "j", "j", "j", "enter", "G", "j")
 		}},
+		{"tab-body-raw", func(t *testing.T) Model {
+			// The last row of invoices: the next-page load (empty) runs
+			// synchronously here, not racing a teatest capture.
+			return keysIn(t, loaded(t), "3", "j", "j")
+		}},
 		{"body-long-line", func(t *testing.T) Model {
 			// order-events/billing message 5: one unbroken non-JSON line.
 			return keysIn(t, loaded(t), "2", "j", "enter", "j", "j", "j", "j")
@@ -113,13 +118,16 @@ func TestPagingAppendsAndStops(t *testing.T) {
 	if got := m.messages.items[50].SequenceNumber; got != 52 {
 		t.Fatalf("page 2 starts at seq %d, want 52", got)
 	}
-	m = keysIn(t, m, "G") // row 100 → last 20
-	m = keysIn(t, m, "G") // row 120, page was short: no more loads
+	m = keysIn(t, m, "G") // row 100 → last 20: a short page does not end paging
+	if len(m.messages.items) != 120 || !m.messages.more {
+		t.Fatalf("short page: %d items, more %v", len(m.messages.items), m.messages.more)
+	}
+	m = keysIn(t, m, "G") // row 120 → empty page: no more loads
 	if len(m.messages.items) != 120 || m.messages.more {
 		t.Fatalf("end: %d items, more %v", len(m.messages.items), m.messages.more)
 	}
 	if _, cmd := m.Update(press("j")); cmd != nil {
-		t.Fatal("j on the last row loaded again after a short page")
+		t.Fatal("j on the last row loaded again after an empty page")
 	}
 }
 
@@ -219,5 +227,18 @@ func TestBodyLinesCached(t *testing.T) {
 	m = keysIn(t, m, "]")
 	if props := m.mainLines(w); &props[0] == &first[0] {
 		t.Fatal("cache returned body lines on the Properties tab")
+	}
+}
+
+// TestLinesCacheClearedOnReload reopens the entity: the new list's first
+// message has the same key (sequence number, tab, width) as the cached
+// one, but its lines must be rendered from the new list.
+func TestLinesCacheClearedOnReload(t *testing.T) {
+	m := loaded(t)
+	w := m.layout().mainW - 2
+	before := m.mainLines(w)
+	m = keysIn(t, m, "2", "enter")
+	if after := m.mainLines(w); &after[0] == &before[0] {
+		t.Fatal("cache kept after the message list was replaced")
 	}
 }

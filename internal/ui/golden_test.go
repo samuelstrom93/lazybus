@@ -41,7 +41,6 @@ func TestGoldens(t *testing.T) {
 		{name: "focus-messages", w: 120, h: 30, keys: "3"},
 		{name: "focus-main", w: 120, h: 30, keys: "0"},
 		{name: "tab-body", w: 120, h: 30, keys: "3j"},
-		{name: "tab-body-raw", w: 120, h: 30, keys: "3jj"},
 		{name: "tab-properties", w: 120, h: 30, keys: "3]"},
 		{name: "tab-system", w: 120, h: 30, keys: "3]]"},
 		{name: "help-open", w: 120, h: 30, keys: "3?"},
