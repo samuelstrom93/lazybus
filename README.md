@@ -2,7 +2,7 @@
 
 A lazygit-style terminal UI for **Azure Service Bus**, built for the on-call moment: open the dead-letter queue, look at the first message, fix it, put it back.
 
-**Status:** pre-release, v0.1 in progress. This build browses (slice S1a): it lists the queues and topic subscriptions of a namespace and peeks their dead-letter queues. Peek never locks a message and never changes its DeliveryCount. Resubmit comes in the next slice. See [`docs/spec.md`](docs/spec.md) for the plan and [`CONTEXT.md`](CONTEXT.md) for the vocabulary.
+**Status:** pre-release, v0.1 in progress. This build browses and resubmits (slices S1a and S2): it lists the queues and topic subscriptions of a namespace, peeks their dead-letter queues, and moves a dead-lettered message back to its queue or topic unchanged (DLQ Repair). Editing a message before resubmitting comes in a later slice. See [`docs/spec.md`](docs/spec.md) for the plan and [`CONTEXT.md`](CONTEXT.md) for the vocabulary.
 
 ## Try it
 
@@ -35,7 +35,39 @@ The sources combine: each one adds a namespace to the Namespaces panel. Discover
 
 On the emulator the DLQ counts show `?`: its admin API does not report runtime counts.
 
-The Messages panel shows 50 messages at a time; moving onto the last row loads the next 50. Every broker call times out after 30 s; errors show in the panel and the log.
+The Messages panel shows 50 messages at a time; moving onto the last row loads the next 50. Every broker call times out after 30 s (a resubmit and its pre-check, which are several calls each, after 2 min); errors show in the panel and the log.
+
+## Resubmit (DLQ Repair)
+
+| Key | Where | Action |
+|---|---|---|
+| `r` | Messages, main pane (DLQ tab) | Resubmit the selected message: checks it is still there, then opens a confirm popup. |
+| `y` / `enter` | confirm popup | Confirm. |
+| `n` / `esc` | confirm popup | Cancel. Every other key is ignored: nothing happens until you confirm. |
+| `m` | resubmit popup | Toggle the copy's MessageId between the original and a new one. |
+| `c` | Messages, main pane | Finish Cleanup on a CleanupPending row (confirm popup; nothing is sent). |
+
+After a successful resubmit the cursor stays on the same row, which now holds the next message, so `r y r y …` works down the list. `--read-only` disables `r` and `c`. The Active tab is read-only. While a resubmit or cleanup runs, keys wait and `ctrl-c` does not quit, so its outcome is never lost.
+
+### Safety model
+
+Peek never locks a message. A resubmit is a move: send a copy, then delete the original. It holds locks only inside that one call:
+
+1. **Pre-check.** Peek the message by its sequence number, without a lock. If it is gone, the row is removed and nothing is touched.
+2. **Confirm.** The popup lists the source and target (a queue's DLQ goes back to that queue; a subscription's DLQ goes to its parent topic), the body, the dead-letter markers that are removed, the MessageId, the scan cost and target warnings: a topic delivers only to subscriptions whose rules match (no match means the copy is dropped), and a topic with no subscriptions is refused.
+3. **By-sequence scan.** Service Bus cannot receive one message by sequence number, so lazybus receives the DLQ in peek-lock until it finds it. Messages ahead of it stay locked until the scan ends, then all are abandoned; **their DeliveryCount may increase by 1.** The scan locks at most the row's position plus 50 messages and stops well before the first lock expires.
+4. **Send, then complete.** The copy keeps the body, application properties (with their types) and the copied system fields; `DeadLetterReason` and `DeadLetterErrorDescription` are removed. On a target with duplicate detection the copy gets a new MessageId by default, because a copy with the original id can be dropped as a duplicate and the original would still be deleted.
+
+Every outcome is shown in the status bar and every broker call that changes state goes to the log:
+
+| Outcome | Meaning | Row |
+|---|---|---|
+| Resubmitted | The copy is in the target and the original is gone. | Removed. |
+| NotFound | The message was already gone or out of scan range; nothing sent. | Removed. |
+| LockLost | The lock ran out before the send; nothing changed. | Kept; `r` retries. |
+| SendFailed | The target rejected the copy; nothing changed. | Kept; `r` retries. |
+| SendUncertain | The send ended without a clear answer: the copy may or may not be in the target. Never retried automatically. | Amber. `r` is allowed after you check the target. |
+| CleanupPending | The copy is in the target but deleting the original failed. Never reported as success. | Red. `r` is blocked; `c` removes the original. |
 
 ## Development
 
@@ -68,7 +100,7 @@ go run ./tools/gallery -out <dir>
 cd emulator && cp .env.example .env && docker compose up -d
 ```
 
-Seed it with dead-lettered messages (JSON and plain-text bodies with typed application properties in `orders/$DLQ` and `order-events/billing/$DLQ`, plus the subscription-less topic `empty-topic`), then open it:
+Seed it with dead-lettered messages (JSON and plain-text bodies with typed application properties in `orders/$DLQ` and `order-events/billing/$DLQ`, one message in `orders-dedup/$DLQ` (a queue with duplicate detection), plus the subscription-less topic `empty-topic`), then open it:
 
 ```sh
 go run ./tools/seed          # drains the seeded DLQs first; -reset=false appends
