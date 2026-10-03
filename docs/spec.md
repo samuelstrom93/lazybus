@@ -2,7 +2,7 @@
 
 A lazygit-style terminal UI for **Azure Service Bus only**. Built for the on-call moment: open the dead-letter queue, look at the first message, fix it, put it back.
 
-Status: ready for the build session. Section 12 is asked to Samuel in **one round** before slice S−1; everything else is decided. Reviewed by oracle (Fable) 2026-10-03.
+Status: ready for the build session. Section 12 answered from ServiceBusExplorer's source; conflicts with §2 confirmed with Samuel. Reviewed by oracle (Fable) 2026-10-03.
 
 ## 1. Why it exists (the wedge)
 
@@ -135,7 +135,7 @@ On `r`:
    - **LockLost / SendFailed**: row kept with its Pending Edits; the user can retry.
    - **CleanupPending / SendUncertain**: row kept, marked red/amber with the outcome; Pending Edits kept.
 
-Target: the dead-letter message's source entity. Queue DLQ → that queue. Subscription DLQ → see open question 1.
+Target: the dead-letter message's source entity. Queue DLQ → that queue. Subscription DLQ → its parent topic (§12.1).
 
 ### 6.1 Guards (Curation, enforced in the service layer, not the UI)
 
@@ -195,11 +195,16 @@ Order: S−1 → S0 → S1a → S2 → S1b → S3 → S4.
 
 Send/compose, schedule, import/export, purge, delete, bulk/multi-select, sessions-aware receive, receive mode / any held lock, Windows, saved config/keybinding remap, themes, transactions (Go SDK lacks them; revisit if it adds them or CleanupPending shows up in practice), device-code auth.
 
-## 12. Open questions (ask Samuel in one round, with a recommendation each, before S−1)
+## 12. Open questions — answered from ServiceBusExplorer
 
-1. **Subscription DLQ target.** Service Bus cannot send to one subscription; resubmitting to the topic delivers to every subscription whose rules match. Options: (a) send to the topic and show "fans out to N subscriptions; delivered only where rules match" in the confirm, (b) refuse subscription-DLQ repair in v0.1, (c) per-subscription routing via a rule (out of scope). Recommendation: (a).
-2. **Scan cost.** Finding a DLQ message by sequence number locks the messages ahead of it briefly and bumps their DeliveryCount by 1 (they stay in the DLQ, which has no max-delivery limit). Acceptable, with the cost shown in the confirm popup and README? Recommendation: yes.
-3. **MessageId on duplicate-detecting targets.** New MessageId by default (keeps the message from being silently dropped), `m` to keep the original. Recommendation: yes.
+Samuel's rule (2026-10-03): do what Paolo Salvatori's ServiceBusExplorer (SBE) does, unless it conflicts with §2. Source read: SBE `master` @ `b07ef0d` (2026-09-29), static reading. All SBE DLQ resubmit paths (queue + subscription, "Repair and Resubmit" and batch "Resubmit") end in `MessageForm.btnSubmit_Click` → `DeadLetterMessageHandler.MoveMessages`; legacy `Microsoft.ServiceBus.Messaging` code only (the `Azure.Messaging.ServiceBus` code has no resubmit).
+
+1. **Subscription DLQ target.** SBE: the user picks a queue or topic in "Select a target Queue or Topic"; for a subscription source the parent topic is preselected and subscriptions are never offered as targets, so the copy fans out to every subscription whose rules match ([MessageForm.cs#L372-L388](https://github.com/paolosalvatori/ServiceBusExplorer/blob/b07ef0d66c0ea193ae690030b7be70f0b9766675/src/ServiceBusExplorer/Forms/MessageForm.cs#L372-L388), [#L628-L632](https://github.com/paolosalvatori/ServiceBusExplorer/blob/b07ef0d66c0ea193ae690030b7be70f0b9766675/src/ServiceBusExplorer/Forms/MessageForm.cs#L628-L632), [SelectEntityForm.cs#L160-L216](https://github.com/paolosalvatori/ServiceBusExplorer/blob/b07ef0d66c0ea193ae690030b7be70f0b9766675/src/ServiceBusExplorer/Forms/SelectEntityForm.cs#L160-L216)). The original is completed only when "Remove message from DLQ" is ticked, which is **off by default** — default is copy-and-leave ([MessageForm.Designer.cs#L421-L429](https://github.com/paolosalvatori/ServiceBusExplorer/blob/b07ef0d66c0ea193ae690030b7be70f0b9766675/src/ServiceBusExplorer/Forms/MessageForm.Designer.cs#L421-L429), [MessageForm.cs#L514-L565](https://github.com/paolosalvatori/ServiceBusExplorer/blob/b07ef0d66c0ea193ae690030b7be70f0b9766675/src/ServiceBusExplorer/Forms/MessageForm.cs#L514-L565)).
+   **lazybus:** option (a) — send to the parent topic; confirm shows "fans out to N subscriptions; delivered only where rules match". The original is always completed (DLQ Repair = move); SBE's copy-and-leave default is not adopted (conflicts with §1/§2 — confirm with Samuel).
+2. **Scan cost.** SBE: no receive-by-sequence; it receives the DLQ in PeekLock and scans until the sequence number matches, sends, then completes the match (abandon + rethrow on error). Non-matching messages are **held locked until the scan ends** and abandoned together in `finally`; the scan stops on a null receive or at `LockDuration − 3 s`, no message-count limit ([DeadLetterMessageHandler.cs#L188-L296](https://github.com/paolosalvatori/ServiceBusExplorer/blob/b07ef0d66c0ea193ae690030b7be70f0b9766675/src/Common/Helpers/DeadLetterMessageHandler.cs#L188-L296), [#L347-L359](https://github.com/paolosalvatori/ServiceBusExplorer/blob/b07ef0d66c0ea193ae690030b7be70f0b9766675/src/Common/Helpers/DeadLetterMessageHandler.cs#L347-L359)). Every scanned message gets DeliveryCount +1 (Service Bus behaviour on peek-lock receive). No lock is held while the user edits (the grid is peeked).
+   **lazybus:** same by-sequence PeekLock scan and the same DeliveryCount +1 cost, shown in the confirm popup and README. Non-matches are abandoned **immediately** (§6 step 3.1, BusX #196) instead of held to the end, and the scan is limited to K — SBE's hold-until-end is not adopted (conflicts with §2 — confirm with Samuel).
+3. **MessageId.** SBE: keeps the original MessageId by default; "Generate new MessageId" (off by default) sets a new GUID ([ServiceBusHelper.cs#L2427](https://github.com/paolosalvatori/ServiceBusExplorer/blob/b07ef0d66c0ea193ae690030b7be70f0b9766675/src/Common/Helpers/ServiceBusHelper.cs#L2427), [MessageForm.Designer.cs#L411-L420](https://github.com/paolosalvatori/ServiceBusExplorer/blob/b07ef0d66c0ea193ae690030b7be70f0b9766675/src/ServiceBusExplorer/Forms/MessageForm.Designer.cs#L411-L420)). No duplicate-detection handling: with "Remove from DLQ" ticked, a same-id copy dropped by the target's detection window still completes the original, so the message is lost. SBE strips `DeadLetterReason`, `DeadLetterErrorDescription`, `NServiceBus.Transport.Recovery` from edited properties ([Constants.cs#L91](https://github.com/paolosalvatori/ServiceBusExplorer/blob/b07ef0d66c0ea193ae690030b7be70f0b9766675/src/Common/Helpers/Constants.cs#L91)); copies Label, ContentType, CorrelationId, SessionId, To, ReplyTo, ReplyToSessionId, TimeToLive and all application properties ([ServiceBusHelper.cs#L2407-L2469](https://github.com/paolosalvatori/ServiceBusExplorer/blob/b07ef0d66c0ea193ae690030b7be70f0b9766675/src/Common/Helpers/ServiceBusHelper.cs#L2407-L2469)).
+   **lazybus:** keep the original MessageId by default, as SBE; `m` toggles a new one. Exception, pending Samuel: on a target with `RequiresDuplicateDetection`, default to a new MessageId (§6.1), because keeping it can silently drop the copy and then delete the original.
 
 Decided without asking: `--namespace` first and ARM discovery of all subscriptions in S1b; page size 50 with manual refresh; repo `samuelstrom93/lazybus`, binary `lazybus`.
 
