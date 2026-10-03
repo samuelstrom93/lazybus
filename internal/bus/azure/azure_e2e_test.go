@@ -444,8 +444,12 @@ func TestAzure(t *testing.T) {
 	t.Run("edits round-trip", func(t *testing.T) {
 		q := queue(qMain)
 		e.drainAll(t, q)
-		e.seedDLQ(t, q, seed.QueueMessages())
+		msgs := seed.QueueMessages()
+		e.seedDLQ(t, q, msgs)
 		dlq := peekAll(t, e.b, e.ns, q.entity(), bus.DeadLetter)
+		if len(dlq) != len(msgs) || dlq[2].MessageID != msgs[2].MessageID {
+			t.Fatalf("%s/$DLQ: got %d messages, want %d with %s third", q, len(dlq), len(msgs), msgs[2].MessageID)
+		}
 		target := dlq[2] // the text/plain seed message
 		subject, contentType := "OrderFixed", "application/json"
 		r := repairReq(e.ns, q.entity(), target.SequenceNumber)
@@ -578,6 +582,7 @@ func TestAzure(t *testing.T) {
 		// MaxDeliveryCount 1: one abandon dead-letters it.
 		e.send(t, qMDC, []seed.Message{{MessageID: "e2e-mdc", Body: []byte("x")}})
 		r := e.receiver(t, mdc, nil)
+		defer r.Close(context.Background())
 		ms, err := r.ReceiveMessages(ctx, 1, nil)
 		if err != nil || len(ms) != 1 {
 			t.Fatalf("receive %s: %d, %v", mdc, len(ms), err)
