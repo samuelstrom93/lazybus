@@ -62,8 +62,8 @@ func TestHostileTextKeepsLayout(t *testing.T) {
 }
 
 func TestSanitize(t *testing.T) {
-	got := sanitize("a\r\nb\nc\td\x1b[31me\x7f\u009bf\xff")
-	if want := "a⏎b⏎c d[31mef�"; got != want {
+	got := sanitize("a\r\nb\nc\td\x1b[31me\x1b]8;;http://x\x07\x7f\u009bf\xff")
+	if want := "a⏎b⏎c def�"; got != want {
 		t.Fatalf("sanitize = %q, want %q", got, want)
 	}
 }

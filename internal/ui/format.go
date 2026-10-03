@@ -48,6 +48,11 @@ func sanitize(s string) string {
 		return s
 	}
 	s = strings.ToValidUTF8(s, "\uFFFD")
+	if strings.IndexByte(s, 0x1b) >= 0 {
+		// Drop whole escape sequences (CSI, OSC, DCS, …), not just ESC,
+		// so "\x1b[31m" leaves nothing behind.
+		s = ansi.Strip(s)
+	}
 	s = strings.ReplaceAll(s, "\r\n", "\n")
 	var b strings.Builder
 	for _, r := range s {
