@@ -210,7 +210,10 @@ func checkUI(t *testing.T, b *azure.Backend, ents []bus.Entity, queue bus.Entity
 	}
 	m = drive(t, m, key("enter"))
 	body := screen(m)
-	for _, want := range []string{"peek orders/$DLQ → 4", `"orderId": 1001,`, "SchemaMismat… seed-ord…"} {
+	// No row text: the Messages columns truncate by sequence-number width,
+	// which grows with every emulator run. Row data is checked untruncated
+	// in the main pane below.
+	for _, want := range []string{"peek orders/$DLQ → 4", `"orderId": 1001,`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("Body tab lacks %q:\n%s", want, body)
 		}
@@ -224,12 +227,18 @@ func checkUI(t *testing.T, b *azure.Backend, ents []bus.Entity, queue bus.Entity
 		// prints them in Options.Location (UTC here), with offset.
 		"createdAt", "DateTime", "2026-09-18T22:15:00Z",
 		"orderId", "Long", "1001", "attempt", "Int", "amount", "Double", "isRetry", "Bool", "tenant", "String",
-		"Dead-letter markers  ✕ removed on resubmit", "DeadLetterReason", "Required property 'customer.id' is missing.",
+		"Dead-letter markers  ✕ removed on resubmit", "DeadLetterReason", "SchemaMismatch", "Required property 'customer.id' is missing.",
 	} {
 		if !strings.Contains(props, want) {
 			t.Fatalf("Properties tab lacks %q:\n%s", want, props)
 		}
 	}
+
+	m = drive(t, m, key("]"))
+	if sys := screen(m); !strings.Contains(sys, "MessageId          seed-orders-1001") {
+		t.Fatalf("System tab lacks the first message's MessageId:\n%s", sys)
+	}
+	m = drive(t, m, key("["))
 
 	m = drive(t, m, key("3"))
 	m = drive(t, m, key("j"))
