@@ -35,7 +35,21 @@ Render all goldens into one HTML page:
 go run ./tools/gallery -out <dir>
 ```
 
-Emulator end-to-end tests are not part of the hooks. Run them by hand against a running Service Bus emulator:
+### Local Service Bus emulator
+
+`emulator/` holds a Docker Compose setup for the Azure Service Bus emulator with lazybus' test entities. It maps the emulator to non-default host ports so it can run next to another emulator: AMQP on **5682**, admin/health HTTP on **5310**.
+
+```sh
+cd emulator && cp .env.example .env && docker compose up -d
+```
+
+Connecting lazybus to it lands in slice S1a:
+
+```sh
+go run ./cmd/lazybus --emulator --emulator-amqp-port 5682 --emulator-admin-port 5310
+```
+
+Emulator end-to-end tests are not part of the hooks. Run them by hand against the running emulator:
 
 ```sh
 go test -tags emulator ./...
