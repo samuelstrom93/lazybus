@@ -290,8 +290,8 @@ func deadLetter(ctx context.Context, c *azservicebus.Client, t target, msgs []Me
 }
 
 // maxEmptyReceives is how many receives in a row may come back empty while
-// a peek still sees messages before drain gives up (the emulator stalls
-// when it throttles, S−1).
+// a peek still sees messages before drain gives up, instead of looping
+// until the overall deadline.
 const maxEmptyReceives = 2
 
 // drain deletes every message of t (or its DLQ) with receive-and-delete
@@ -330,7 +330,7 @@ func drain(ctx context.Context, c *azservicebus.Client, t target, dlq bool) (int
 		if len(got) == 0 {
 			empty++
 			if empty >= maxEmptyReceives {
-				return n, fmt.Errorf("seed: drain %s: peek still sees messages but %d receives in a row got none (emulator throttling? retry in a minute)", name, empty)
+				return n, fmt.Errorf("seed: drain %s: peek still sees messages but %d receives in a row got none", name, empty)
 			}
 			continue
 		}
