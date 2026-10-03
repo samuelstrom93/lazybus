@@ -5,6 +5,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -23,7 +24,12 @@ type Options struct {
 	Location *time.Location
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
+	// CallTimeout bounds every broker call; zero means DefaultCallTimeout.
+	CallTimeout time.Duration
 }
+
+// DefaultCallTimeout is the per-call deadline for broker calls.
+const DefaultCallTimeout = 30 * time.Second
 
 // mainTab is a tab of the main pane.
 type mainTab int
@@ -46,7 +52,34 @@ type list[T any] struct {
 	offset  int
 	loading bool
 	err     error
-	req     int // id of the newest load; older responses are dropped
+	req     int  // id of the newest load; older responses are dropped
+	more    bool // the last page was full: another page may follow
+
+	cancel context.CancelFunc // cancels the newest load
+}
+
+// begin starts a new load: it cancels the one in flight (its response
+// will be dropped by req anyway) and returns a context with the per-call
+// deadline. The caller's command must call the returned cancel when done.
+func (l *list[T]) begin(timeout time.Duration) (context.Context, context.CancelFunc, int) {
+	if l.cancel != nil {
+		l.cancel()
+	}
+	l.req++
+	l.loading = true
+	l.err = nil
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	l.cancel = cancel
+	return ctx, cancel, l.req
+}
+
+// reset cancels any load in flight and empties the list. Responses to
+// earlier loads are dropped.
+func (l *list[T]) reset() {
+	if l.cancel != nil {
+		l.cancel()
+	}
+	*l = list[T]{req: l.req + 1}
 }
 
 func (l *list[T]) selected() (T, bool) {
@@ -110,6 +143,11 @@ type Model struct {
 
 	log  []logEntry
 	help helpState
+
+	// lines caches the main pane content of the selected message, so a
+	// large body is not re-formatted on every keystroke. A pointer: the
+	// Model is copied by value on every Update.
+	lines *linesCache
 }
 
 // New returns the root model for backend be.
@@ -120,7 +158,11 @@ func New(be bus.Browser, opts Options) Model {
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
+	if opts.CallTimeout <= 0 {
+		opts.CallTimeout = DefaultCallTimeout
+	}
 	return Model{
+		lines:      &linesCache{},
 		be:         be,
 		opts:       opts,
 		stack:      NewContextStack(CtxNamespaces),
@@ -147,46 +189,86 @@ type (
 		ns    bus.Namespace
 		ent   bus.Entity
 		sub   bus.SubQueue
+		from  int64 // first sequence number asked for; > 0 for a next page
 		items []bus.Message
 		err   error
 	}
 )
 
+// call runs one broker call. A panic in the backend becomes an error, so a
+// broken backend never takes the UI down.
+func call[T any](f func() (T, error)) (v T, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("internal error: %v", r)
+		}
+	}()
+	return f()
+}
+
 // Init starts namespace discovery.
 func (m Model) Init() tea.Cmd {
-	be := m.be
+	be, timeout := m.be, m.opts.CallTimeout
 	return func() tea.Msg {
-		items, err := be.Namespaces(context.Background())
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		items, err := call(func() ([]bus.Namespace, error) { return be.Namespaces(ctx) })
 		return namespacesLoadedMsg{items: items, err: err}
 	}
 }
 
 func (m *Model) loadEntities(ns bus.Namespace, cascade bool) tea.Cmd {
-	m.entities.req++
-	m.entities.loading = true
-	m.entities.err = nil
-	req, be := m.entities.req, m.be
+	ctx, cancel, req := m.entities.begin(m.opts.CallTimeout)
+	be := m.be
 	return func() tea.Msg {
-		items, err := be.ListEntities(context.Background(), ns)
+		defer cancel()
+		items, err := call(func() ([]bus.Entity, error) { return be.ListEntities(ctx, ns) })
 		return entitiesLoadedMsg{req: req, ns: ns, items: items, err: err, cascade: cascade}
 	}
 }
 
+// peek loads the first page of ent's sub-queue, replacing the list.
 func (m *Model) peek(ns bus.Namespace, ent bus.Entity, sub bus.SubQueue) tea.Cmd {
-	m.messages.req++
-	m.messages.loading = true
-	m.messages.err = nil
-	req, be := m.messages.req, m.be
+	m.messages.reset()
+	return m.peekFrom(ns, ent, sub, 0)
+}
+
+// loadMore loads the page after the last message when the cursor is on
+// the last row and the last page was full.
+func (m *Model) loadMore() tea.Cmd {
+	l := &m.messages
+	if !l.more || l.loading || len(l.items) == 0 || l.cursor != len(l.items)-1 || m.openNS == nil || m.openEntity == nil {
+		return nil
+	}
+	return m.peekFrom(*m.openNS, *m.openEntity, m.subQueue, l.items[len(l.items)-1].SequenceNumber+1)
+}
+
+func (m *Model) peekFrom(ns bus.Namespace, ent bus.Entity, sub bus.SubQueue, from int64) tea.Cmd {
+	ctx, cancel, req := m.messages.begin(m.opts.CallTimeout)
+	be := m.be
 	return func() tea.Msg {
-		items, err := be.Peek(context.Background(), bus.PeekRequest{
-			Namespace: ns, Entity: ent, SubQueue: sub, Max: bus.PageSize,
+		defer cancel()
+		items, err := call(func() ([]bus.Message, error) {
+			return be.Peek(ctx, bus.PeekRequest{
+				Namespace: ns, Entity: ent, SubQueue: sub, FromSequence: from, Max: bus.PageSize,
+			})
 		})
-		return messagesLoadedMsg{req: req, ns: ns, ent: ent, sub: sub, items: items, err: err}
+		return messagesLoadedMsg{req: req, ns: ns, ent: ent, sub: sub, from: from, items: items, err: err}
 	}
 }
 
 func (m *Model) logf(isErr bool, format string, args ...any) {
 	m.log = append(m.log, logEntry{at: m.opts.Now(), text: fmt.Sprintf(format, args...), err: isErr})
+}
+
+// errText is the log line for a failed call: a *bus.Error already names
+// its operation.
+func errText(op string, err error) string {
+	var be *bus.Error
+	if errors.As(err, &be) && be.Op != "" {
+		return be.Error()
+	}
+	return op + " failed: " + err.Error()
 }
 
 func entityLabel(e bus.Entity, sub bus.SubQueue) string {
@@ -207,7 +289,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.namespaces.loading = false
 		m.namespaces.err = msg.err
 		if msg.err != nil {
-			m.logf(true, "list namespaces failed: %v", msg.err)
+			m.logf(true, "%s", errText("list namespaces", msg.err))
 			break
 		}
 		m.namespaces.items = msg.items
@@ -223,9 +305,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			break
 		}
 		m.entities.loading = false
+		m.entities.cancel = nil
 		m.entities.err = msg.err
 		if msg.err != nil {
-			m.logf(true, "list entities %s failed: %v", msg.ns.Name, msg.err)
+			m.logf(true, "%s", errText("list entities "+msg.ns.Name, msg.err))
 			break
 		}
 		m.entities.items = msg.items
@@ -242,10 +325,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			break
 		}
 		m.messages.loading = false
+		m.messages.cancel = nil
 		m.messages.err = msg.err
 		label := entityLabel(msg.ent, msg.sub)
 		if msg.err != nil {
-			m.logf(true, "peek %s failed: %v", label, msg.err)
+			// A failed next page keeps the rows and `more`, so moving onto
+			// the last row again retries.
+			m.logf(true, "%s", errText("peek "+label, msg.err))
+			break
+		}
+		m.messages.more = len(msg.items) == bus.PageSize
+		if msg.from > 0 {
+			m.messages.items = append(m.messages.items, msg.items...)
+			m.logf(false, "peek %s from %d → %d", label, msg.from, len(msg.items))
 			break
 		}
 		m.messages.items = msg.items
@@ -309,6 +401,14 @@ func (m *Model) focus(c ContextID) {
 
 func (m Model) handlePanelKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	cur := m.stack.Top()
+	if m.isMove(msg) {
+		m.move(cur, msg)
+		if cur == CtxMessages {
+			cmd := m.loadMore()
+			return m, cmd
+		}
+		return m, nil
+	}
 	switch {
 	case key.Matches(msg, keys.Quit):
 		if m.stack.AtRoot() {
@@ -344,18 +444,6 @@ func (m Model) handlePanelKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case key.Matches(msg, keys.NextTab):
 		m.tab = (m.tab + 1) % tabCount
 		m.mainScroll = 0
-	case key.Matches(msg, keys.Down):
-		m.moveBy(cur, 1)
-	case key.Matches(msg, keys.Up):
-		m.moveBy(cur, -1)
-	case key.Matches(msg, keys.HalfDown):
-		m.moveBy(cur, max(1, m.pageRows(cur)/2))
-	case key.Matches(msg, keys.HalfUp):
-		m.moveBy(cur, -max(1, m.pageRows(cur)/2))
-	case key.Matches(msg, keys.Top):
-		m.moveTo(cur, 0)
-	case key.Matches(msg, keys.Bottom):
-		m.moveTo(cur, 1<<30)
 	case key.Matches(msg, keys.Back):
 		if cur == CtxMain {
 			m.focus(m.lastSide)
@@ -367,7 +455,6 @@ func (m Model) handlePanelKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 			} else {
 				m.subQueue = bus.DeadLetter
 			}
-			m.messages.items = nil
 			cmd := m.peek(*m.openNS, *m.openEntity, m.subQueue)
 			return m, cmd
 		}
@@ -389,7 +476,7 @@ func (m Model) open(cur ContextID) (Model, tea.Cmd) {
 		m.openNS = &ns
 		m.openEntity = nil
 		m.entities.items = nil
-		m.messages = list[bus.Message]{req: m.messages.req + 1}
+		m.messages.reset()
 		m.focus(CtxEntities)
 		cmd := m.loadEntities(ns, false)
 		return m, cmd
@@ -400,7 +487,6 @@ func (m Model) open(cur ContextID) (Model, tea.Cmd) {
 		}
 		m.openEntity = &ent
 		m.subQueue = bus.DeadLetter
-		m.messages.items = nil
 		m.focus(CtxMessages)
 		cmd := m.peek(*m.openNS, ent, m.subQueue)
 		return m, cmd
@@ -408,6 +494,29 @@ func (m Model) open(cur ContextID) (Model, tea.Cmd) {
 		m.focus(CtxMain)
 	}
 	return m, nil
+}
+
+// isMove reports whether msg is a cursor movement key.
+func (m Model) isMove(msg tea.KeyPressMsg) bool {
+	return key.Matches(msg, keys.Down, keys.Up, keys.HalfDown, keys.HalfUp, keys.Top, keys.Bottom)
+}
+
+// move applies a movement key to context c.
+func (m *Model) move(c ContextID, msg tea.KeyPressMsg) {
+	switch {
+	case key.Matches(msg, keys.Down):
+		m.moveBy(c, 1)
+	case key.Matches(msg, keys.Up):
+		m.moveBy(c, -1)
+	case key.Matches(msg, keys.HalfDown):
+		m.moveBy(c, max(1, m.pageRows(c)/2))
+	case key.Matches(msg, keys.HalfUp):
+		m.moveBy(c, -max(1, m.pageRows(c)/2))
+	case key.Matches(msg, keys.Top):
+		m.moveTo(c, 0)
+	case key.Matches(msg, keys.Bottom):
+		m.moveTo(c, 1<<30)
+	}
 }
 
 func (m *Model) moveBy(c ContextID, d int) {
@@ -492,10 +601,9 @@ func (m Model) focusedSide() ContextID {
 	return m.lastSide
 }
 
+// selectedMessage is the message under the cursor. While a next page
+// loads, the rows (and the selection) stay.
 func (m Model) selectedMessage() (bus.Message, bool) {
-	if m.messages.loading {
-		return bus.Message{}, false
-	}
 	return m.messages.selected()
 }
 

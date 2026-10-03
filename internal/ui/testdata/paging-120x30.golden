@@ -1,0 +1,30 @@
+[90m┌[m 1 Namespaces [90m────────────────────┐[m[90m┌[m [1mBody[m[90m │ [m[90mProperties[m[90m │ [m[90mSystem[m [90m──────────────────────────────────────────────────────┐[m
+[90m│[m▸ sb-prod-weu                     [90m│[m[90m│[m {                                                                                [90m│[m
+[90m│[m  sb-test-weu                     [90m│[m[90m│[m   "orderId": 4052,                                                               [90m│[m
+[90m├[m 2 Entities [90m──────────────────────┤[m[90m│[m   "status": "pending",                                                           [90m│[m
+[90m│[m  invoices                 [33mDLQ   3[m[90m│[m[90m│[m   "customer": null,                                                              [90m│[m
+[90m│[m  order-events/billing     [33mDLQ  12[m[90m│[m[90m│[m   "items": [                                                                     [90m│[m
+[90m│[m  order-events/shipping    [90mDLQ   0[m[90m│[m[90m│[m     {                                                                            [90m│[m
+[90m│[m▸ orders                   [33mDLQ 120[m[90m│[m[90m│[m       "sku": "A-100",                                                            [90m│[m
+[1;32m├[m [1;32m3 Messages[m  [1;32mDLQ[m[90m│[m[90mActive[m [1;32m──────────┤[m[90m│[m       "qty": 2                                                                   [90m│[m
+[1;32m│[m   34 [90m09-20 [mDownstreamTi…[90m ord-4034[m[1;32m│[m[90m│[m     },                                                                           [90m│[m
+[1;32m│[m   35 [90m09-20 [mSchemaMismat…[90m ord-4035[m[1;32m│[m[90m│[m     {                                                                            [90m│[m
+[1;32m│[m   36 [90m09-20 [mPoisonMessage[90m ord-4036[m[1;32m│[m[90m│[m       "sku": "B-220",                                                            [90m│[m
+[1;32m│[m   37 [90m09-20 [mSchemaMismat…[90m ord-4037[m[1;32m│[m[90m│[m       "qty": 1                                                                   [90m│[m
+[1;32m│[m   38 [90m09-20 [mMaxDeliveryC…[90m ord-4038[m[1;32m│[m[90m│[m     }                                                                            [90m│[m
+[1;32m│[m   39 [90m09-20 [mDownstreamTi…[90m ord-4039[m[1;32m│[m[90m│[m   ]                                                                              [90m│[m
+[1;32m│[m   40 [90m09-20 [mSchemaMismat…[90m ord-4040[m[1;32m│[m[90m│[m }                                                                                [90m│[m
+[1;32m│[m   41 [90m09-20 [mPoisonMessage[90m ord-4041[m[1;32m│[m[90m│[m                                                                                  [90m│[m
+[1;32m│[m   42 [90m09-20 [mSchemaMismat…[90m ord-4042[m[1;32m│[m[90m│[m                                                                                  [90m│[m
+[1;32m│[m   43 [90m09-20 [mMaxDeliveryC…[90m ord-4043[m[1;32m│[m[90m│[m                                                                                  [90m│[m
+[1;32m│[m   44 [90m09-21 [mDownstreamTi…[90m ord-4044[m[1;32m│[m[90m│[m                                                                                  [90m│[m
+[1;32m│[m   45 [90m09-21 [mSchemaMismat…[90m ord-4045[m[1;32m│[m[90m│[m                                                                                  [90m│[m
+[1;32m│[m   46 [90m09-21 [mPoisonMessage[90m ord-4046[m[1;32m│[m[90m│[m                                                                                  [90m│[m
+[1;32m│[m   47 [90m09-21 [mSchemaMismat…[90m ord-4047[m[1;32m│[m[90m│[m                                                                                  [90m│[m
+[1;32m│[m   48 [90m09-21 [mMaxDeliveryC…[90m ord-4048[m[1;32m│[m[90m├[m Log [90m─────────────────────────────────────────────────────────────────────────────┤[m
+[1;32m│[m   49 [90m09-21 [mDownstreamTi…[90m ord-4049[m[1;32m│[m[90m│[m[90m 16:00 [mlist entities sb-prod-weu → 4                                              [90m│[m
+[1;32m│[m   50 [90m09-21 [mSchemaMismat…[90m ord-4050[m[1;32m│[m[90m│[m[90m 16:00 [mpeek invoices/$DLQ → 3                                                     [90m│[m
+[1;32m│[m   51 [90m09-21 [mPoisonMessage[90m ord-4051[m[1;32m│[m[90m│[m[90m 16:00 [mpeek orders/$DLQ → 50                                                      [90m│[m
+[1;32m│[m[1;44m▸ [m[1;44m 52 [m[1;44m09-21 [m[1;44mSchemaMismat…[m[1;44m ord-4052[m[1;32m│[m[90m│[m[90m 16:00 [mpeek orders/$DLQ from 52 → 50                                              [90m│[m
+[1;32m└──────────────────────────────────┘[m[90m└──────────────────────────────────────────────────────────────────────────────────┘[m
+ [36menter[m focus main pane  [36mtab[m DLQ / Active  [36m[ ][m tab  [36m?[m keybindings  [36mq[m quit                                                

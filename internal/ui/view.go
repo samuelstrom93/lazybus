@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -139,8 +140,12 @@ func (m Model) messagesTitle() []seg {
 		dlq, act = stDim, active
 	}
 	t := []seg{{"3 Messages", m.titleStyle(CtxMessages)}, {"  ", stPlain}, {"DLQ", dlq}, {"│", stDim}, {"Active", act}}
-	if m.messages.loading {
+	switch {
+	case m.messages.loading:
 		t = append(t, seg{" loading…", stDim})
+	case m.messages.err != nil && len(m.messages.items) > 0:
+		// A failed next page: the rows stay, the title says so.
+		t = append(t, seg{" error", stErr})
 	}
 	return t
 }
@@ -171,13 +176,23 @@ func listRows[T any](l list[T], focused bool, width, n int, status []seg, render
 func listStatus[T any](l list[T], empty string) []seg {
 	switch {
 	case l.err != nil:
-		return []seg{{"error: " + l.err.Error(), stErr}}
+		return []seg{{"error: " + shortErr(l.err), stErr}}
 	case l.loading:
 		return []seg{{"loading…", stDim}}
 	case empty != "":
 		return []seg{{empty, stDim}}
 	}
 	return nil
+}
+
+// shortErr is the error text for a panel: a *bus.Error without its
+// operation (the panel already says what failed).
+func shortErr(err error) string {
+	var be *bus.Error
+	if errors.As(err, &be) && be.Msg != "" {
+		return be.Msg
+	}
+	return err.Error()
 }
 
 func (m Model) namespaceRows(width, n int) []string {
@@ -193,20 +208,26 @@ func (m Model) entityRows(width, n int) []string {
 	}
 	digits := 1
 	for _, e := range m.entities.items {
-		digits = max(digits, len(strconv.FormatInt(e.DeadLetterCount, 10)))
+		if e.CountsKnown {
+			digits = max(digits, len(strconv.FormatInt(e.DeadLetterCount, 10)))
+		}
 	}
 	countW := len("DLQ ") + digits
 	pathW := max(1, width-2-1-countW)
 	return listRows(m.entities, m.stack.Root() == CtxEntities, width, n,
 		listStatus(m.entities, empty),
 		func(e bus.Entity) []seg {
-			count := stWarn
-			if e.DeadLetterCount == 0 {
+			// Unknown counts (emulator) show "?", never a made-up 0.
+			count, text := stWarn, "?"
+			if e.CountsKnown {
+				text = strconv.FormatInt(e.DeadLetterCount, 10)
+			}
+			if !e.CountsKnown || e.DeadLetterCount == 0 {
 				count = stDim
 			}
 			return []seg{
 				{fitPlain(e.Path, pathW) + " ", stPlain},
-				{"DLQ " + padLeft(strconv.FormatInt(e.DeadLetterCount, 10), digits), count},
+				{"DLQ " + padLeft(text, digits), count},
 			}
 		})
 }
@@ -317,17 +338,65 @@ func fitStyled(s string, width int) string {
 	return s + strings.Repeat(" ", max(0, width-ansi.StringWidth(s)))
 }
 
+// linesCache holds the main pane lines for one (message, tab, width).
+type linesCache struct {
+	key   linesKey
+	lines []string
+}
+
+type linesKey struct {
+	ns, path string
+	kind     bus.EntityKind
+	sub      bus.SubQueue
+	seq      int64
+	tab      mainTab
+	width    int
+}
+
 // mainLines is the full content of the main pane for the current tab, one
-// styled line per screen row, each at most width cells.
+// styled line per screen row, each at most width cells. Lines for a
+// message are cached per (message, tab, width): View and every Update ask
+// for them, and formatting a large body each time would lag the keys.
 func (m Model) mainLines(width int) []string {
 	msg, ok := m.selectedMessage()
 	if !ok {
-		status := listStatus(m.messages, "")
-		if status == nil {
-			status = []seg{{"no message selected", stDim}}
-		}
-		return []string{row(append([]seg{{" ", stPlain}}, status...), width, false)}
+		return m.statusLines(width)
 	}
+	var key linesKey
+	if m.openNS != nil && m.openEntity != nil {
+		key = linesKey{m.openNS.FQDN, m.openEntity.Path, m.openEntity.Kind, m.subQueue, msg.SequenceNumber, m.tab, width}
+		if m.lines != nil && m.lines.lines != nil && m.lines.key == key {
+			return m.lines.lines
+		}
+	}
+	lines := m.messageLines(msg, width)
+	if m.lines != nil && m.openNS != nil && m.openEntity != nil {
+		*m.lines = linesCache{key: key, lines: lines}
+	}
+	return lines
+}
+
+// statusLines fill the main pane when no message is selected: the newest
+// error (wrapped, in full) or the loading/empty state.
+func (m Model) statusLines(width int) []string {
+	for _, err := range []error{m.messages.err, m.entities.err, m.namespaces.err} {
+		if err == nil {
+			continue
+		}
+		var out []string
+		for _, l := range wrapLines("error: "+sanitize(err.Error()), width-2) {
+			out = append(out, row([]seg{{" " + l, stErr}}, width, false))
+		}
+		return out
+	}
+	status := listStatus(m.messages, "")
+	if status == nil {
+		status = []seg{{"no message selected", stDim}}
+	}
+	return []string{row(append([]seg{{" ", stPlain}}, status...), width, false)}
+}
+
+func (m Model) messageLines(msg bus.Message, width int) []string {
 	switch m.tab {
 	case tabProperties:
 		return m.propertyLines(msg, width)
