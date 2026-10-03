@@ -140,6 +140,11 @@ type Message struct {
 	DeadLetterReason           string
 	DeadLetterErrorDescription string
 	DeadLetterSource           string
+
+	// Unsupported says why a DLQ Repair's copy would lose data: an AMQP
+	// body that is not exactly one data section, or a message-id that is
+	// not a string. Empty when the message can be copied.
+	Unsupported string
 }
 
 // PeekRequest asks for up to Max messages (PageSize when zero) starting at

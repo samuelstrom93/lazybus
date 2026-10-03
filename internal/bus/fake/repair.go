@@ -73,6 +73,21 @@ func (b *Backend) Messages(ns, path string, kind bus.EntityKind, sub bus.SubQueu
 	return out
 }
 
+// SetUnsupported marks DLQ message seq as one whose AMQP body or
+// message-id a repair can't copy (bus.Message.Unsupported), as the Azure
+// driver reports a value body or a non-string message-id.
+func (b *Backend) SetUnsupported(ns, path string, kind bus.EntityKind, seq int64, why string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if e := b.entity(ns, path, kind); e != nil {
+		for _, s := range e.deadLetter {
+			if s.msg.SequenceNumber == seq {
+				s.msg.Unsupported = why
+			}
+		}
+	}
+}
+
 // errLockLost is what abandon and complete return for an expired or
 // foreign lock (the SDK's locklost).
 var errLockLost = &bus.Error{Kind: bus.ErrUnknown, Msg: "lock lost: the lock expired or was released"}
@@ -130,9 +145,11 @@ func (d driver) DeadLetterReceiver(ctx context.Context, ns bus.Namespace, ent bu
 }
 
 type receiver struct {
-	b     *Backend
-	e     *entity
-	label string
+	b      *Backend
+	e      *entity
+	label  string
+	broken bool // a receive failed: the link is gone, like the SDK's (guarded by b.mu)
+	closed bool // guarded by b.mu
 }
 
 type locked struct {
@@ -146,7 +163,22 @@ func (l *locked) SequenceNumber() int64  { return l.seq }
 func (l *locked) MessageID() string      { return l.id }
 func (l *locked) LockedUntil() time.Time { return l.until }
 
-func (r *receiver) Release() { r.e.scan.Unlock() }
+// Close ends the receiver; a second Close is a no-op.
+func (r *receiver) Close(context.Context) error {
+	r.b.mu.Lock()
+	done := r.closed
+	r.closed = true
+	r.b.mu.Unlock()
+	if !done {
+		r.e.scan.Unlock()
+	}
+	return nil
+}
+
+// errDetached is what a receiver's calls return after one of its receives
+// failed on the link: the worst case, where the link is gone and settles
+// on it fail.
+var errDetached = &bus.Error{Kind: bus.ErrUnknown, Msg: "link detached: the receiver's link is closed"}
 
 // Receive locks up to max available DLQ messages in sequence order. Each
 // lock adds one to DeliveryCount. Unlike the SDK it returns at once with
@@ -154,10 +186,18 @@ func (r *receiver) Release() { r.e.scan.Unlock() }
 func (r *receiver) Receive(ctx context.Context, max int) ([]bus.Locked, error) {
 	b := r.b
 	if err := b.before(ctx, OpReceive); err != nil {
+		if ctx.Err() == nil { // a link failure, not the caller's timeout
+			b.mu.Lock()
+			r.broken = true
+			b.mu.Unlock()
+		}
 		return nil, err
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if r.broken || r.closed {
+		return nil, errDetached
+	}
 	now := b.now()
 	var out []bus.Locked
 	for _, s := range r.e.deadLetter {
@@ -189,6 +229,9 @@ func (r *receiver) settle(ctx context.Context, op Op, m bus.Locked) error {
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if r.broken || r.closed {
+		return errDetached
+	}
 	i := slices.IndexFunc(r.e.deadLetter, func(s *stored) bool { return s.msg.SequenceNumber == l.seq })
 	if i < 0 || r.e.deadLetter[i].token != l.token || !b.now().Before(r.e.deadLetter[i].lockedUntil) {
 		return errLockLost

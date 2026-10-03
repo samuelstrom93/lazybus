@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus"
@@ -81,43 +81,33 @@ func (d driver) TargetInfo(ctx context.Context, ns bus.Namespace, t bus.Target) 
 	return info, err
 }
 
-// scanner is the one peek-lock receiver of a DLQ, kept open across repairs
-// (a link holds no lock). use gives one repair at a time exclusive use:
-// the SDK refuses concurrent ReceiveMessages calls.
-type scanner struct {
-	use sync.Mutex
-	r   *azservicebus.Receiver // nil until opened, and after a failure
-}
-
 func (d driver) DeadLetterReceiver(ctx context.Context, ns bus.Namespace, e bus.Entity) (bus.DeadLetterReceiver, error) {
 	c, err := d.b.conn(ns)
 	if err != nil {
 		return nil, err
 	}
-	key := receiverKey{e.Path, e.Kind, bus.DeadLetter}
-	c.mu.Lock()
-	s := c.scanners[key]
-	if s == nil {
-		s = &scanner{}
-		c.scanners[key] = s
+	label := e.Path + "/$DLQ"
+	var r *azservicebus.Receiver
+	// Peek-lock (the default receive mode). The Go SDK has no prefetch:
+	// each ReceiveMessages issues credits for exactly its batch (S−1).
+	err = Safe("receive "+label, func() error {
+		var err error
+		r, err = c.openReceiver(receiverKey{e.Path, e.Kind, bus.DeadLetter})
+		return err
+	})
+	if err != nil {
+		return nil, err
 	}
-	c.mu.Unlock()
-	s.use.Lock()
-	if s.r == nil {
-		// Peek-lock (the default receive mode). The Go SDK has no prefetch:
-		// each ReceiveMessages issues credits for exactly its batch and
-		// releases leftovers (S−1).
-		if s.r, err = c.openReceiver(key); err != nil {
-			s.use.Unlock()
-			return nil, mapErr("receive "+e.Path+"/$DLQ", err)
-		}
-	}
-	return &scanHandle{s: s, label: e.Path + "/$DLQ"}, nil
+	return &dlqReceiver{r: r, label: label}, nil
 }
 
-type scanHandle struct {
-	s     *scanner
-	label string
+// dlqReceiver is the peek-lock receiver of one repair call. r never
+// changes for its lifetime: every settle runs on the receiver that
+// received the message, even after a receive error.
+type dlqReceiver struct {
+	r         *azservicebus.Receiver
+	label     string
+	abandoned atomic.Bool // an abandon was sent: Close waits releaseGrace
 }
 
 // received is a message received in peek-lock.
@@ -142,17 +132,15 @@ func (r *received) LockedUntil() time.Time {
 	return *r.m.LockedUntil
 }
 
-func (h *scanHandle) Release() { h.s.use.Unlock() }
-
-func (h *scanHandle) Receive(ctx context.Context, max int) ([]bus.Locked, error) {
-	op := "receive " + h.label
-	msgs, err := h.s.r.ReceiveMessages(ctx, max, nil)
+func (h *dlqReceiver) Receive(ctx context.Context, max int) ([]bus.Locked, error) {
+	var msgs []*azservicebus.ReceivedMessage
+	err := Safe("receive "+h.label, func() error {
+		var err error
+		msgs, err = h.r.ReceiveMessages(ctx, max, nil)
+		return err
+	})
 	if err != nil {
-		mapped := mapErr(op, err)
-		if k := bus.KindOf(mapped); k != bus.ErrCanceled && k != bus.ErrTimeout {
-			h.drop()
-		}
-		return nil, mapped
+		return nil, err
 	}
 	out := make([]bus.Locked, len(msgs))
 	for i, m := range msgs {
@@ -161,20 +149,41 @@ func (h *scanHandle) Receive(ctx context.Context, max int) ([]bus.Locked, error)
 	return out, nil
 }
 
-// drop closes the receiver after a failure; the next repair opens a fresh
-// link. The caller holds s.use.
-func (h *scanHandle) drop() {
-	r := h.s.r
-	h.s.r = nil
-	go func() { _ = r.Close(context.Background()) }()
+func (h *dlqReceiver) Abandon(ctx context.Context, m bus.Locked) error {
+	h.abandoned.Store(true)
+	return Safe(fmt.Sprintf("abandon %s seq %d", h.label, m.SequenceNumber()), func() error {
+		return h.r.AbandonMessage(ctx, m.(*received).m, nil)
+	})
 }
 
-func (h *scanHandle) Abandon(ctx context.Context, m bus.Locked) error {
-	return mapErr(fmt.Sprintf("abandon %s seq %d", h.label, m.SequenceNumber()), h.s.r.AbandonMessage(ctx, m.(*received).m, nil))
+func (h *dlqReceiver) Complete(ctx context.Context, m bus.Locked) error {
+	return Safe(fmt.Sprintf("complete %s seq %d", h.label, m.SequenceNumber()), func() error {
+		return h.r.CompleteMessage(ctx, m.(*received).m, nil)
+	})
 }
 
-func (h *scanHandle) Complete(ctx context.Context, m bus.Locked) error {
-	return mapErr(fmt.Sprintf("complete %s seq %d", h.label, m.SequenceNumber()), h.s.r.CompleteMessage(ctx, m.(*received).m, nil))
+// releaseGrace is how long Close waits before closing the link. An
+// abandoned message comes straight back over the link's leftover credits;
+// the SDK's releaser releases it, but Close stops the releaser, and a
+// message caught in between stays locked until its lock expires (seen on
+// the emulator: closing right after the abandons stranded one of two
+// abandoned messages; 100 ms later, none). Best effort: the wait is a
+// guess from the emulator, not yet measured on Azure, and only paid by a
+// call that abandoned something.
+const releaseGrace = 500 * time.Millisecond
+
+// Close closes the link, so no leftover credit can receive (and lock) a
+// message after the call (spec §6 step 3.1).
+func (h *dlqReceiver) Close(ctx context.Context) error {
+	if h.abandoned.Load() {
+		t := time.NewTimer(releaseGrace)
+		select {
+		case <-t.C:
+		case <-ctx.Done():
+			t.Stop()
+		}
+	}
+	return Safe("close receiver "+h.label, func() error { return h.r.Close(ctx) })
 }
 
 // Send sends the copy of original to t and classifies a failure (§6 step

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus"
@@ -31,6 +32,7 @@ func toMessage(m *azservicebus.ReceivedMessage) bus.Message {
 		DeadLetterReason:           str(m.DeadLetterReason),
 		DeadLetterErrorDescription: str(m.DeadLetterErrorDescription),
 		DeadLetterSource:           str(m.DeadLetterSource),
+		Unsupported:                unsupported(m.RawAMQPMessage),
 	}
 	if m.SequenceNumber != nil {
 		out.SequenceNumber = *m.SequenceNumber
@@ -49,6 +51,38 @@ func toMessage(m *azservicebus.ReceivedMessage) bus.Message {
 	}
 	sort.Slice(out.Properties, func(i, j int) bool { return out.Properties[i].Key < out.Properties[j].Key })
 	return out
+}
+
+// unsupported says why a repair's copy of raw would lose data: the SDK
+// sends the copy as one data section with a string message-id, so any
+// other body or message-id type can't be carried over (spec §6 step 1).
+func unsupported(raw *azservicebus.AMQPAnnotatedMessage) string {
+	if raw == nil {
+		return ""
+	}
+	var why []string
+	switch b := raw.Body; {
+	case b.Value != nil:
+		why = append(why, "AMQP value body")
+	case len(b.Sequence) > 0:
+		why = append(why, "AMQP sequence body")
+	case len(b.Data) != 1:
+		why = append(why, fmt.Sprintf("%d data sections", len(b.Data)))
+	}
+	if raw.Properties != nil && raw.Properties.MessageID != nil {
+		switch id := raw.Properties.MessageID.(type) {
+		case string:
+		case uint64:
+			why = append(why, "message-id is ulong")
+		case amqp.UUID:
+			why = append(why, "message-id is uuid")
+		case []byte:
+			why = append(why, "message-id is binary")
+		default:
+			why = append(why, fmt.Sprintf("message-id is %T", id))
+		}
+	}
+	return strings.Join(why, ", ")
 }
 
 // toProperty maps an AMQP application property value to a bus.Property.

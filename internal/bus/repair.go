@@ -67,6 +67,19 @@ func (o Outcome) String() string {
 	return "Unknown"
 }
 
+// NotFoundCause tells the two NotFound cases apart (spec §6 step 4).
+type NotFoundCause int
+
+const (
+	// NotFoundGone: the pre-check did not find the message; it is no
+	// longer in the DLQ and nothing was locked.
+	NotFoundGone NotFoundCause = iota
+	// NotFoundScan: the pre-check saw it, but the scan did not reach it
+	// within the scan limit or the lock deadline; it may still be in the
+	// DLQ.
+	NotFoundScan
+)
+
 // TargetKind tells queue and topic targets apart.
 type TargetKind int
 
@@ -198,6 +211,8 @@ type RepairResult struct {
 	// Detail is a short reason for the outcome ("already gone", the send
 	// error, …).
 	Detail string
+	// NotFound says which NotFound this is; only set with Outcome NotFound.
+	NotFound NotFoundCause
 	// Locked is the number of messages the scan locked, the match included.
 	Locked int
 	// AbandonErrors lists every abandon that failed; never swallowed.
@@ -268,15 +283,19 @@ type Locked interface {
 	LockedUntil() time.Time
 }
 
-// DeadLetterReceiver is exclusive use of the one peek-lock receiver of a
-// DLQ. The link stays open across repairs; Release ends the use.
+// DeadLetterReceiver is the peek-lock receiver of one repair or Finish
+// Cleanup call. It is opened for the call and closed before the call
+// returns: an open link's leftover credits would make the SDK receive (and
+// lock) messages after the call (spec §6 step 3.1). Every settle of a
+// message runs on the receiver that received it.
 type DeadLetterReceiver interface {
 	// Receive receives up to max messages in peek-lock without prefetch.
 	// It may block until ctx ends when the DLQ has nothing to deliver.
 	Receive(ctx context.Context, max int) ([]Locked, error)
 	Abandon(ctx context.Context, m Locked) error
 	Complete(ctx context.Context, m Locked) error
-	Release()
+	// Close closes the link; called once, after every settle.
+	Close(ctx context.Context) error
 }
 
 // Driver is the broker access a Service needs. Azure and the fake
@@ -284,6 +303,7 @@ type DeadLetterReceiver interface {
 type Driver interface {
 	Peeker
 	TargetInfo(ctx context.Context, ns Namespace, t Target) (TargetInfo, error)
+	// DeadLetterReceiver opens a new peek-lock receiver on e's DLQ.
 	DeadLetterReceiver(ctx context.Context, ns Namespace, e Entity) (DeadLetterReceiver, error)
 	// Send builds the copy of original (§6 step 3.2: markers stripped,
 	// property types kept, listed fields copied, messageID set) and sends
@@ -392,6 +412,9 @@ func (s *Service) PlanRepair(ctx context.Context, req RepairRequest) (RepairPlan
 			"%s has duplicate detection: a copy with the original MessageId may be dropped as a duplicate", t.Name))
 	}
 	p.Message, p.Found, err = s.precheck(ctx, req)
+	if err == nil && p.Found {
+		err = bodyGuard(op, p.Message)
+	}
 	return p, err
 }
 
@@ -418,7 +441,9 @@ func plural(n int) string {
 	return "s"
 }
 
-// Repair implements Repairer: spec §6 step 3.
+// Repair implements Repairer: spec §6 step 3. Calls for one DLQ must not
+// overlap: two scans would lock each other's messages (the UI runs one
+// state-changing call at a time).
 func (s *Service) Repair(ctx context.Context, req RepairRequest) (RepairResult, error) {
 	src := sourceLabel(req.Entity)
 	op := fmt.Sprintf("resubmit %s seq %d", src, req.SequenceNumber)
@@ -428,26 +453,30 @@ func (s *Service) Repair(ctx context.Context, req RepairRequest) (RepairResult, 
 	if err != nil {
 		return res, err
 	}
-	if _, found, err := s.precheck(ctx, req); err != nil {
+	if msg, found, err := s.precheck(ctx, req); err != nil {
 		return res, err
 	} else if !found {
 		res.Outcome, res.Detail = NotFound, "already gone (nothing locked)"
 		return res, nil
-	}
-
-	rcv, err := s.d.DeadLetterReceiver(ctx, req.Namespace, req.Entity)
-	if err != nil {
+	} else if err := bodyGuard(op, msg); err != nil {
 		return res, err
 	}
-	defer rcv.Release()
+	err = s.withReceiver(ctx, req, &res, func(rcv DeadLetterReceiver) error {
+		return s.repair(ctx, rcv, req, t, info, &res)
+	})
+	return res, err
+}
 
-	match, stop, err := s.scan(ctx, rcv, req, &res)
+// repair is §6 steps 3.1 to 3.5 on the call's receiver.
+func (s *Service) repair(ctx context.Context, rcv DeadLetterReceiver, req RepairRequest, t Target, info TargetInfo, res *RepairResult) error {
+	src := res.Source
+	match, stop, err := s.scan(ctx, rcv, req, res)
 	if err != nil {
-		return res, err
+		return err
 	}
 	if match == nil {
-		res.Outcome, res.Detail = NotFound, stop
-		return res, nil
+		res.Outcome, res.NotFound, res.Detail = NotFound, NotFoundScan, stop
+		return nil
 	}
 
 	// §6 step 3.2: the copy's MessageId.
@@ -462,9 +491,16 @@ func (s *Service) Repair(ctx context.Context, req RepairRequest) (RepairResult, 
 
 	// §6 step 3.3: local lock check on the received message.
 	if !s.lockValid(match) {
-		s.abandon(ctx, rcv, &res, []Locked{match})
+		s.abandon(ctx, rcv, res, []Locked{match})
 		res.Outcome, res.Detail = LockLost, "lock on the message expires too soon to send (nothing changed)"
-		return res, nil
+		return nil
+	}
+	// §6 step 3.4: a call whose time is up sends nothing (a send on a
+	// dead context would only come back ambiguous).
+	if ctx.Err() != nil {
+		s.abandon(ctx, rcv, res, []Locked{match})
+		res.Outcome, res.Detail = LockLost, "the call ran out of time before the send (nothing sent)"
+		return nil
 	}
 
 	// §6 step 3.4: send.
@@ -482,19 +518,19 @@ func (s *Service) Repair(ctx context.Context, req RepairRequest) (RepairResult, 
 			res.logf(true, "send %s seq %d → %s %s (%s) → uncertain: %s", src, req.SequenceNumber, t.Kind, t.Name, ids, errMsg(err))
 			res.Outcome, res.Detail = SendUncertain, errMsg(err)
 		}
-		s.abandon(ctx, rcv, &res, []Locked{match})
-		return res, nil
+		s.abandon(ctx, rcv, res, []Locked{match})
+		return nil
 	}
 	res.logf(false, "send %s seq %d → %s %s (%s) → ok", src, req.SequenceNumber, t.Kind, t.Name, ids)
 
 	// §6 step 3.5: complete the original.
-	if err := s.complete(ctx, rcv, &res, match); err != nil {
+	if err := s.complete(ctx, rcv, res, match); err != nil {
 		res.Err = err
 		res.Outcome, res.Detail = CleanupPending, errMsg(err)
-		return res, nil
+		return nil
 	}
 	res.Outcome = Resubmitted
-	return res, nil
+	return nil
 }
 
 // FinishCleanup implements Repairer: the same scan as Repair, then
@@ -515,33 +551,74 @@ func (s *Service) FinishCleanup(ctx context.Context, req RepairRequest) (RepairR
 		res.Outcome, res.Detail = NotFound, "already gone (nothing locked)"
 		return res, nil
 	}
+	err := s.withReceiver(ctx, req, &res, func(rcv DeadLetterReceiver) error {
+		match, stop, err := s.scan(ctx, rcv, req, &res)
+		if err != nil {
+			return err
+		}
+		if match == nil {
+			res.Outcome, res.NotFound, res.Detail = NotFound, NotFoundScan, stop
+			return nil
+		}
+		res.OldMessageID = match.MessageID()
+		if !s.lockValid(match) {
+			s.abandon(ctx, rcv, &res, []Locked{match})
+			res.Outcome, res.Detail = LockLost, "lock on the message expires too soon (nothing changed)"
+			return nil
+		}
+		if ctx.Err() != nil {
+			s.abandon(ctx, rcv, &res, []Locked{match})
+			res.Outcome, res.Detail = LockLost, "the call ran out of time before the complete (nothing changed)"
+			return nil
+		}
+		if err := s.complete(ctx, rcv, &res, match); err != nil {
+			// The original may or may not be gone; the row stays
+			// CleanupPending and another c finds out (NotFound if it is gone).
+			res.Err = err
+			return &Error{Kind: KindOf(err), Op: op, Msg: "complete failed: " + errMsg(err), Err: err}
+		}
+		res.Outcome = Cleaned
+		return nil
+	})
+	return res, err
+}
+
+// withReceiver opens the call's peek-lock receiver, runs f on it and closes
+// it before returning, whatever f did (spec §6 step 3.1).
+func (s *Service) withReceiver(ctx context.Context, req RepairRequest, res *RepairResult, f func(DeadLetterReceiver) error) error {
 	rcv, err := s.d.DeadLetterReceiver(ctx, req.Namespace, req.Entity)
 	if err != nil {
-		return res, err
+		return err
 	}
-	defer rcv.Release()
-	match, stop, err := s.scan(ctx, rcv, req, &res)
-	if err != nil {
-		return res, err
+	defer func() {
+		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), settleTimeout)
+		defer cancel()
+		if err := safely(func() error { return rcv.Close(cctx) }); err != nil {
+			res.logf(true, "close receiver %s → error: %s", res.Source, errMsg(err))
+		}
+	}()
+	return f(rcv)
+}
+
+// safely runs f and turns a panic into an error, so a broken settle or
+// close never takes the process down while other locks are held.
+func safely(f func() error) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("internal error: %v", r)
+		}
+	}()
+	return f()
+}
+
+// bodyGuard refuses a message the copy can't carry unchanged (spec §6
+// step 1): a body other than exactly one data section, or a message-id
+// that is not a string.
+func bodyGuard(op string, m Message) error {
+	if m.Unsupported == "" {
+		return nil
 	}
-	if match == nil {
-		res.Outcome, res.Detail = NotFound, stop
-		return res, nil
-	}
-	res.OldMessageID = match.MessageID()
-	if !s.lockValid(match) {
-		s.abandon(ctx, rcv, &res, []Locked{match})
-		res.Outcome, res.Detail = LockLost, "lock on the message expires too soon (nothing changed)"
-		return res, nil
-	}
-	if err := s.complete(ctx, rcv, &res, match); err != nil {
-		// The original may or may not be gone; the row stays
-		// CleanupPending and another c finds out (NotFound if it is gone).
-		res.Err = err
-		return res, &Error{Kind: KindOf(err), Op: op, Msg: "complete failed: " + errMsg(err), Err: err}
-	}
-	res.Outcome = Cleaned
-	return res, nil
+	return refused(op, "unsupported AMQP body/message-id; not repaired (%s)", m.Unsupported)
 }
 
 // lockDeadline is the time a lock stops being trusted: LockedUntil minus
@@ -634,7 +711,7 @@ func (s *Service) abandon(ctx context.Context, rcv DeadLetterReceiver, res *Repa
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errs[i] = rcv.Abandon(actx, m)
+			errs[i] = safely(func() error { return rcv.Abandon(actx, m) })
 		}()
 	}
 	wg.Wait()
@@ -663,7 +740,7 @@ func (s *Service) abandon(ctx context.Context, rcv DeadLetterReceiver, res *Repa
 func (s *Service) complete(ctx context.Context, rcv DeadLetterReceiver, res *RepairResult, m Locked) error {
 	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), settleTimeout)
 	defer cancel()
-	if err := rcv.Complete(cctx, m); err != nil {
+	if err := safely(func() error { return rcv.Complete(cctx, m) }); err != nil {
 		res.logf(true, "complete %s seq %d → error: %s", res.Source, m.SequenceNumber(), errMsg(err))
 		s.abandon(ctx, rcv, res, []Locked{m})
 		return err

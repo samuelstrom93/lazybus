@@ -59,8 +59,8 @@ func New() *Backend {
 }
 
 // conn is one namespace: a data-plane client, an admin client, the
-// receivers opened for peeking, and the DLQ receivers and senders of DLQ
-// Repair.
+// receivers opened for peeking, and the senders of DLQ Repair. A repair's
+// peek-lock receiver lives only for its call.
 type conn struct {
 	ns       bus.Namespace
 	client   *azservicebus.Client
@@ -69,7 +69,6 @@ type conn struct {
 
 	mu        sync.Mutex
 	receivers map[receiverKey]*azservicebus.Receiver
-	scanners  map[receiverKey]*scanner
 	senders   map[string]*azservicebus.Sender
 }
 
@@ -77,7 +76,6 @@ func newConn(ns bus.Namespace, emulator bool) *conn {
 	return &conn{
 		ns: ns, emulator: emulator,
 		receivers: map[receiverKey]*azservicebus.Receiver{},
-		scanners:  map[receiverKey]*scanner{},
 		senders:   map[string]*azservicebus.Sender{},
 	}
 }
@@ -195,15 +193,6 @@ func (b *Backend) Close(ctx context.Context) error {
 		for k, r := range c.receivers {
 			errs = append(errs, r.Close(ctx))
 			delete(c.receivers, k)
-		}
-		for k, s := range c.scanners {
-			if s.use.TryLock() { // a repair in flight keeps its link
-				if s.r != nil {
-					errs = append(errs, s.r.Close(ctx))
-				}
-				s.use.Unlock()
-			}
-			delete(c.scanners, k)
 		}
 		for k, s := range c.senders {
 			errs = append(errs, s.Close(ctx))

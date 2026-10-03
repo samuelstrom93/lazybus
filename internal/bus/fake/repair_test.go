@@ -205,7 +205,7 @@ func TestRepairScanLimit(t *testing.T) {
 	orders := queue("orders")
 	// Row index 0 but seq 80 (stale list): K = 50 messages, then NotFound.
 	res := repair(t, b, req(orders, 80, 0))
-	if res.Outcome != bus.NotFound || !strings.Contains(res.Detail, "first 50 messages") {
+	if res.Outcome != bus.NotFound || res.NotFound != bus.NotFoundScan || !strings.Contains(res.Detail, "first 50 messages") {
 		t.Fatalf("outcome %v (%s)", res.Outcome, res.Detail)
 	}
 	received, abandoned := checkScanOrder(t, b.Events(), 80)
@@ -244,8 +244,8 @@ func TestRepairScanStopsBeforeFirstLockExpires(t *testing.T) {
 	b.SetFault(OpReceive, Fault{Hook: func() { c.add(3 * time.Second) }})
 	orders := queue("orders")
 	res := repair(t, b, req(orders, 35, 33))
-	if res.Outcome != bus.NotFound || !strings.Contains(res.Detail, "lock") {
-		t.Fatalf("outcome %v (%s)", res.Outcome, res.Detail)
+	if res.Outcome != bus.NotFound || res.NotFound != bus.NotFoundScan || !strings.Contains(res.Detail, "lock") {
+		t.Fatalf("outcome %v %v (%s)", res.Outcome, res.NotFound, res.Detail)
 	}
 	received, abandoned := checkScanOrder(t, b.Events(), 35)
 	if len(received) != 30 || len(abandoned) != 30 || len(res.AbandonErrors) != 0 {
@@ -382,8 +382,8 @@ func TestFinishCleanupLockLost(t *testing.T) {
 func TestRepairNotFoundByPrecheck(t *testing.T) {
 	b := New()
 	res := repair(t, b, req(queue("orders"), 1, 0))
-	if res.Outcome != bus.NotFound || len(b.Events()) != 0 {
-		t.Fatalf("outcome %v events %v", res.Outcome, b.Events())
+	if res.Outcome != bus.NotFound || res.NotFound != bus.NotFoundGone || len(b.Events()) != 0 {
+		t.Fatalf("outcome %v %v events %v", res.Outcome, res.NotFound, b.Events())
 	}
 	plan, err := b.PlanRepair(context.Background(), req(queue("orders"), 1, 0))
 	if err != nil || plan.Found {
@@ -513,23 +513,98 @@ func TestRepairGuards(t *testing.T) {
 }
 
 func TestRepairReceiveErrorAbandonsHeld(t *testing.T) {
-	b := New()
+	c := &clock{t: Epoch.Add(20 * time.Hour)}
+	b := New(WithClock(c.now))
 	orders := queue("orders")
 	calls := 0
 	boom := errors.New("link detached")
-	// The first batch succeeds, the second fails: the 10 held messages are
-	// still abandoned and the error comes back.
+	// The first batch succeeds, the second fails. In the worst case the
+	// failed receive takes the link down, so abandoning the 10 held
+	// messages on the same receiver fails: every failure is reported,
+	// nothing panics, and the receiver is still closed (the next call can
+	// scan).
 	b.SetFault(OpReceive, Fault{Hook: func() {
 		if calls++; calls == 1 {
 			b.SetFault(OpReceive, Fault{Err: boom}) // from the next call on
 		}
 	}})
-	_, err := b.Repair(context.Background(), req(orders, 20, 18))
+	res, err := b.Repair(context.Background(), req(orders, 20, 18))
 	if !errors.Is(err, boom) {
 		t.Fatalf("err %v", err)
 	}
-	_, abandoned := checkScanOrder(t, b.Events(), 20)
-	if len(abandoned) != 10 {
-		t.Fatalf("abandoned %v", abandoned)
+	if len(res.AbandonErrors) != 10 {
+		t.Fatalf("abandon errors %v", res.AbandonErrors)
+	}
+	for i, ae := range res.AbandonErrors {
+		if ae.SequenceNumber != int64(i+2) || !strings.Contains(ae.Err.Error(), "link detached") {
+			t.Errorf("abandon error %d: %+v", i, ae)
+		}
+	}
+	for _, e := range b.Events() {
+		if e.Op != OpReceive {
+			t.Fatalf("settled on a broken receiver: %v", b.Events())
+		}
+	}
+
+	b.SetFault(OpReceive, Fault{})
+	c.add(2 * time.Minute) // the stranded locks expire
+	if res, err := b.Repair(context.Background(), req(orders, 20, 18)); err != nil || res.Outcome != bus.Resubmitted {
+		t.Fatalf("next repair: %v %v", res.Outcome, err)
+	}
+}
+
+func TestRepairExpiredContextBeforeSendIsLockLost(t *testing.T) {
+	b := New()
+	orders := queue("orders")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// The call's time runs out while the scan's siblings are abandoned,
+	// after the match is locked and before the send.
+	b.SetFault(OpAbandon, Fault{Hook: cancel})
+	res, err := b.Repair(ctx, req(orders, 2, 0))
+	if err != nil || res.Outcome != bus.LockLost || !strings.Contains(res.Detail, "ran out of time") {
+		t.Fatalf("outcome %v err %v (%s)", res.Outcome, err, res.Detail)
+	}
+	for _, e := range b.Events() {
+		if e.Op == OpSend || e.Op == OpComplete {
+			t.Fatalf("sent or completed after the context expired: %v", b.Events())
+		}
+	}
+	if _, ok := find(dlq(b, orders), 2); !ok || len(active(b, orders)) != 120 {
+		t.Fatal("the original left the DLQ or a copy was sent")
+	}
+}
+
+func TestRepairRefusesUnsupportedBody(t *testing.T) {
+	b := New()
+	orders := queue("orders")
+	b.SetUnsupported(prod, "orders", bus.KindQueue, 2, "AMQP value body")
+	for name, call := range map[string]func() error{
+		"plan":   func() error { _, err := b.PlanRepair(context.Background(), req(orders, 2, 0)); return err },
+		"repair": func() error { _, err := b.Repair(context.Background(), req(orders, 2, 0)); return err },
+	} {
+		err := call()
+		if bus.KindOf(err) != bus.ErrRefused || !strings.Contains(err.Error(), "unsupported AMQP body/message-id; not repaired") {
+			t.Errorf("%s: err %v", name, err)
+		}
+	}
+	if len(b.Events()) != 0 {
+		t.Fatalf("a refused repair locked: %v", b.Events())
+	}
+	if res := repair(t, b, req(orders, 3, 1)); res.Outcome != bus.Resubmitted {
+		t.Fatalf("a supported neighbour: %v", res.Outcome)
+	}
+}
+
+func TestRepairSettlePanicIsReported(t *testing.T) {
+	b := New()
+	orders := queue("orders")
+	b.SetFault(OpAbandon, Fault{Hook: func() { panic("nil receiver") }})
+	res := repair(t, b, req(orders, 2, 0))
+	if res.Outcome != bus.Resubmitted || len(res.AbandonErrors) != 9 {
+		t.Fatalf("outcome %v abandon errors %v", res.Outcome, res.AbandonErrors)
+	}
+	if !strings.Contains(res.AbandonErrors[0].Err.Error(), "internal error: nil receiver") {
+		t.Fatalf("abandon error %v", res.AbandonErrors[0].Err)
 	}
 }

@@ -186,6 +186,44 @@ func TestToMessage(t *testing.T) {
 	}
 }
 
+func TestUnsupportedBody(t *testing.T) {
+	seq := int64(7)
+	// A value-body message as the SDK receives it: Body is nil, the value
+	// is only in the raw message, and a copy would send an empty body.
+	m := toMessage(&azservicebus.ReceivedMessage{
+		SequenceNumber: &seq,
+		RawAMQPMessage: &azservicebus.AMQPAnnotatedMessage{
+			Body:       azservicebus.AMQPAnnotatedMessageBody{Value: "hello"},
+			Properties: &azservicebus.AMQPAnnotatedMessageProperties{MessageID: "m-7"},
+		},
+	})
+	if m.Unsupported != "AMQP value body" {
+		t.Fatalf("value body: Unsupported = %q", m.Unsupported)
+	}
+	raw := func(body azservicebus.AMQPAnnotatedMessageBody, id any) *azservicebus.AMQPAnnotatedMessage {
+		return &azservicebus.AMQPAnnotatedMessage{Body: body, Properties: &azservicebus.AMQPAnnotatedMessageProperties{MessageID: id}}
+	}
+	one := azservicebus.AMQPAnnotatedMessageBody{Data: [][]byte{[]byte("x")}}
+	for _, tc := range []struct {
+		raw  *azservicebus.AMQPAnnotatedMessage
+		want string
+	}{
+		{raw(one, "m-1"), ""},
+		{raw(one, nil), ""},
+		{nil, ""},
+		{raw(azservicebus.AMQPAnnotatedMessageBody{Sequence: [][]any{{1, 2}}}, "m-1"), "AMQP sequence body"},
+		{raw(azservicebus.AMQPAnnotatedMessageBody{Data: [][]byte{[]byte("a"), []byte("b")}}, "m-1"), "2 data sections"},
+		{raw(azservicebus.AMQPAnnotatedMessageBody{}, "m-1"), "0 data sections"},
+		{raw(one, uint64(42)), "message-id is ulong"},
+		{raw(one, []byte{1}), "message-id is binary"},
+		{raw(azservicebus.AMQPAnnotatedMessageBody{Value: 1}, amqp.UUID{}), "AMQP value body, message-id is uuid"},
+	} {
+		if got := unsupported(tc.raw); got != tc.want {
+			t.Errorf("unsupported(%+v) = %q, want %q", tc.raw, got, tc.want)
+		}
+	}
+}
+
 func TestOutgoingCopy(t *testing.T) {
 	seq, at, ttl := int64(7), time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC), 30*time.Minute
 	str := func(s string) *string { return &s }
