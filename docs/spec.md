@@ -2,7 +2,7 @@
 
 A lazygit-style terminal UI for **Azure Service Bus only**. Built for the on-call moment: open the dead-letter queue, look at the first message, fix it, put it back.
 
-Status: ready for the build session. Section "Open questions" is asked to Samuel in **one round** before slice S0; everything else is decided.
+Status: ready for the build session. Section 12 is asked to Samuel in **one round** before slice S−1; everything else is decided. Reviewed by oracle (Fable) 2026-10-03.
 
 ## 1. Why it exists (the wedge)
 
@@ -58,12 +58,12 @@ Check each dependency's current major version and docs (Context7 / pkg.go.dev) b
 - Left column: three numbered side panels. The focused one grows (lazygit "expandFocusedSidePanel").
 - Right: main pane with tabs **Body / Properties / System**, always previewing the selected message. Below it a small **Log** (command log).
 - Bottom: options bar with the keys valid in the current context, plus mode flags (`READ-ONLY`, pending-edit count).
-- Must render cleanly at 120×30 and degrade (truncate with `…`, never wrap boxes) down to 80×24.
+- Must render cleanly at 120×30 and degrade down to 80×24: list rows and box borders truncate with `…` and never wrap; the Body tab **wraps** long lines (it is content, not a box).
 
 Panel contents:
 1. **Namespaces** — discovered via ARM for the `az` login (all subscriptions the user can read), plus any `--connection-string`/`--emulator` entry. Shows name; subscription in the main pane when focused.
 2. **Entities** — queues and topic subscriptions of the selected namespace (topics themselves hidden; they have no DLQ). Columns: path, DLQ count; active count in the main pane. Sorted by path; `s` toggles sort by DLQ count (desc).
-3. **Messages** — panel tabs **DLQ │ Active** (`[`/`]` when this panel is focused). Rows: sequence number, enqueued time (local), dead-letter reason (DLQ) or subject (Active), message id. Order = peek order (lowest sequence first). Page of 50; `L` loads the next page.
+3. **Messages** — panel tabs **DLQ │ Active** (`tab` when this panel is focused). Rows: sequence number, enqueued time (local), dead-letter reason (DLQ) or subject (Active), message id. Order = peek order (lowest sequence first). Page of 50; the next page loads automatically when the cursor reaches the last row (lazygit commits behaviour).
 
 Main pane tabs:
 - **Body** — pretty-printed JSON when it parses, raw text otherwise; scrollable (viewport). Pending body edit shown with a `(edited)` marker.
@@ -77,30 +77,40 @@ Rule: same letter = analogous action in every context; lowercase = common action
 | Scope | Key | Action |
 |---|---|---|
 | Global | `1` `2` `3` | focus side panel |
-| | `0` / `enter` on a message | focus main pane |
+| | `0` | focus main pane |
 | | `h` `l` / `←` `→` | previous / next panel |
 | | `j` `k` / `↓` `↑` | move |
 | | `g` `G` | top / bottom |
 | | `ctrl-d` `ctrl-u` | half page down / up |
-| | `[` `]` | previous / next tab of the focused panel |
+| | `[` `]` | previous / next **main-pane tab** (Body / Properties / System) — works from any side panel (lazydocker convention) |
 | | `/` | filter focused list (`esc` clears) |
 | | `:` | jump to entity by name (fuzzy, current namespace) |
 | | `R` | refresh focused panel |
-| | `y` / `Y` | copy body / copy MessageId (OSC 52) |
+| | `y` | copy the selected thing: body (Body tab), value (Properties), field (System) — OSC 52 |
+| | `Y` | copy MessageId |
 | | `?` | searchable keybindings menu |
 | | `esc` | back / close popup |
 | | `q` | quit (from root context) |
-| Messages (DLQ tab) / main pane | `r` | resubmit (DLQ Repair) — confirm popup |
-| | `e` | Property Edit popup (key, type, value) — in Properties tab prefilled from the selected row; in System tab edits Subject/ContentType |
-| | `a` | add property (Properties tab) |
-| | `d` | mark selected property for removal (Properties tab); toggles |
+| Namespaces | `enter` | open → focus Entities |
+| Entities | `enter` | open → focus Messages |
+| | `s` | toggle sort path / DLQ count |
+| Messages | `tab` | toggle DLQ / Active |
+| | `enter` | focus main pane |
+| | `r` | resubmit selected DLQ message (DLQ Repair) — confirm popup |
 | | `E` | edit body in `$EDITOR` (`$VISUAL`, then `$EDITOR`, then `vi`) |
-| | `x` | discard all pending edits for this message (confirm if any) |
-| Messages | `L` | load next page |
-| Entities | `s` | toggle sort path / DLQ count |
+| | `e` | add a Property Edit (empty key) |
+| | `x` | discard Pending Edits for this message (confirm if any) |
+| Main pane: Body | `E` | edit body in `$EDITOR` |
+| Main pane: Properties | `e` | edit selected property (popup prefilled) |
+| | `a` | add property |
+| | `d` | mark selected property for removal (toggle) |
+| Main pane: System | `e` | edit Subject / ContentType (only those rows) |
+| Main pane (any tab) | `r` `x` | same as in Messages |
 | Popups | `enter` / `y` | confirm |
 | | `esc` / `n` | cancel |
 | | `tab` | next field |
+
+Edit and resubmit keys only act on the DLQ tab; on Active they show "read-only: Active messages can't be repaired" in the status bar.
 
 Property Edit popup: fields Key, Type (selector: String, Int, Long, Double, Bool, Guid, DateTime — String default for new keys; existing keys keep their type), Value. Validation inline; invalid value keeps the popup open with the error.
 
@@ -109,15 +119,21 @@ Property Edit popup: fields Key, Type (selector: String, Int, Long, Double, Bool
 Pending edits live per message in memory (lost on quit; the help says so). Edits apply only to the DLQ tab; Active is read-only (needs locks, principle 1).
 
 On `r`:
-1. Confirm popup lists: source `entity/$DLQ seq N` → target, body (unchanged / edited, N lines), each Property Edit, Subject/ContentType changes, `markers removed: DeadLetterReason, DeadLetterErrorDescription`, and any warnings (§6.1). `[y/n]`.
-2. Execute in one call, lock held only here:
-   1. Receive from the DLQ in peek-lock, small batches, until the message with that sequence number is found. **Abandon every non-matching message immediately** (BusX bug #196: siblings left locked for a full lock duration). Give up after a bounded scan → **NotFound**.
-   2. Verify MessageId matches what the user looked at; else abandon → **NotFound** ("changed since you peeked").
-   3. Build the outgoing message: body (edited or original bytes), application properties = original − markers + Property Edits, Subject/ContentType (edited or original), and copy MessageId, CorrelationId, SessionId, PartitionKey, To, ReplyTo, ReplyToSessionId, TimeToLive. Do not copy broker-owned fields.
-   4. Send to the target. Failure → abandon → **SendFailed** (nothing changed).
-   5. Complete the original. Failure after a successful send → **CleanupPending**: the copy is in the target **and** the original is still in the DLQ. Reported in red with both locations; never reported as success.
-   6. Lock lost before send → **LockLost** (nothing changed).
-3. Outcome in status bar + log. On **Resubmitted**: the row disappears, the cursor moves to the next message and the main pane shows it, so `r y r y …` works through a queue.
+1. **Pre-check without a lock:** peek 1 message from sequence N on the DLQ. If the returned sequence number ≠ N → **NotFound** ("already gone"), zero messages touched.
+2. Confirm popup lists: source `entity/$DLQ seq N` → target, body (unchanged / edited, N lines, invalid-JSON flag), each Property Edit, Subject/ContentType changes, `markers removed: DeadLetterReason, DeadLetterErrorDescription`, MessageId (kept / new, see §6.1), the scan cost ("locks up to K messages ahead of it briefly; their DeliveryCount +1"), and target warnings (§6.1). `[y/n]`.
+3. Execute in one call, lock held only here:
+   1. One receiver per DLQ, **prefetch 0**, kept open across consecutive repairs (a link holds no lock). Receive in peek-lock, small batches, until sequence N is found. **Abandon every non-matching message immediately**, await every abandon, log abandon errors (never swallow them) (BusX #196). Scan limit K = the row's index in the peeked list + one page; exceeding it → **NotFound**. Sequence numbers are unique and immutable, so no MessageId check.
+   2. Build the outgoing message: body (edited or original bytes), application properties = original − markers + Property Edits, Subject/ContentType (edited or original), MessageId (§6.1), and copy CorrelationId, SessionId, PartitionKey, To, ReplyTo, ReplyToSessionId, TimeToLive. Do not copy broker-owned fields.
+   3. Check the lock locally (`LockedUntil` minus a safety margin). Expired → abandon → **LockLost** (nothing changed).
+   4. Send to the target.
+      - Definite rejection (auth, entity not found, size, validation) → abandon → **SendFailed** (nothing changed).
+      - Ambiguous (timeout, context deadline, link drop) → abandon → **SendUncertain**: the copy may or may not exist in the target. Amber, never retried automatically.
+   5. Complete the original. Failure after a successful send → **CleanupPending**: the copy is in the target **and** the original is still in the DLQ. Red, with both locations; never reported as success.
+4. Outcome in status bar + log. Row handling:
+   - **Resubmitted**: row and its Pending Edits removed; cursor moves to the next message and the main pane shows it, so `r y r y …` works through a queue.
+   - **NotFound**: row and its Pending Edits removed; cursor stays at that index.
+   - **LockLost / SendFailed**: row kept with its Pending Edits; the user can retry.
+   - **CleanupPending / SendUncertain**: row kept, marked red/amber with the outcome; Pending Edits kept.
 
 Target: the dead-letter message's source entity. Queue DLQ → that queue. Subscription DLQ → see open question 1.
 
@@ -125,7 +141,8 @@ Target: the dead-letter message's source entity. Queue DLQ → that queue. Subsc
 
 - Repair only from a dead-letter path.
 - Target must be a queue or a topic on the same namespace; a topic with zero subscriptions is rejected (the message would be dropped and the original deleted).
-- **Duplicate detection (verify first):** if the target has `RequiresDuplicateDetection` and the MessageId is unchanged, the broker may silently drop the copy within the detection window while we complete the original — the message is lost. Confirm the behaviour against the SDK/docs in S2; if real, the confirm popup warns and offers `n` new MessageId (default on).
+- **Duplicate detection:** a message with a MessageId already seen inside the target's detection window is accepted and then discarded (documented Service Bus behaviour). When the target has `RequiresDuplicateDetection`, the repair uses a **new MessageId** by default and logs old → new; the confirm popup shows it and `m` toggles back to keeping the original id. Verify the behaviour in the S−1 spike.
+- **Topic targets:** a topic delivers only to subscriptions whose rules match; if none match, the broker drops the copy and the original would still be completed. The confirm popup says so ("delivered only to subscriptions whose rules match; no match = dropped"). Showing the rules is v0.2.
 
 ## 7. Auth and connection
 
@@ -164,22 +181,27 @@ tools/seed/             emulator seeder (go run ./tools/seed)
 
 Each slice ends green on the gate, with goldens inspected and the gallery sent.
 
-- **S0 — skeleton.** Repo hygiene (README stub, LICENSE-MIT + LICENSE-APACHE, `.gitignore`, hooks, `CONTEXT.md` and ADRs already present). Root model, context stack, three side panels + main pane + log + options bar, focus keys, `?` menu, `q`, `--demo` with fake data. Goldens: initial, each panel focused, `?` open, 80×24.
-- **S1 — browse.** Auth (az CLI, connection string, emulator, `--namespace`), discovery, entities with DLQ counts (admin runtime-properties listing, one paged call per kind where the SDK allows), peek DLQ/Active with paging, Body/Properties/System tabs, `/` filter, `:` jump, `R`, `s` sort, `y`/`Y` OSC 52, loading and error states. `tools/seed` puts JSON + non-JSON messages with typed application properties into DLQs of a queue and a subscription on the emulator. Emulator E2E: discover → peek DLQ → correct properties shown.
-- **S2 — resubmit.** DLQ Repair with zero edits: confirm popup, the §6 algorithm, all outcomes (Resubmitted, NotFound, LockLost, SendFailed, CleanupPending), jump-to-next, guards incl. the duplicate-detection check, `--read-only`. Unit tests on the fake for every outcome; emulator E2E: seed → resubmit → DLQ count −1, target got the message without markers.
-- **S3 — edits.** Property Edit popup with types and validation, add/remove, Subject/ContentType, body via `$EDITOR` (`tea.ExecProcess`; for a JSON content type, invalid JSON is kept as the pending edit but flagged in the Body tab and the confirm popup, and the user can re-open with `E`), pending-edit markers, confirm popup diff, `x`. Emulator E2E: edit prop + body → target message carries the edits.
-- **S4 — release prep.** README (what/why, install, keys, safety model, screenshot or VHS GIF), `goreleaser` config for linux/darwin amd64/arm64, `go install` path works, `CHANGELOG.md`. **Stop before tagging or publishing a release; Samuel approves v0.1.0.**
+- **S−1 — emulator spike (≤ 1 hour, throwaway).** Against the emulator with the Go SDK: peek from sequence on a DLQ, receive + abandon, send, complete, duplicate-detection drop with the same MessageId, DLQ of a sessionful queue with a plain receiver, and the Go admin client on port 5300. Write the findings into `docs/spike-s-1.md`; adjust the spec where an assumption fails. Not merged as code.
+- **S0 — skeleton.** Repo hygiene (README stub, LICENSE-MIT + LICENSE-APACHE, `.gitignore`, hooks, go.mod). Root model, Context Stack, three side panels + main pane + log + options bar, focus keys, `[`/`]` tabs, `?` menu, `q`, `--demo` with fake data. Goldens: initial, each panel focused, each main tab, `?` open, 80×24.
+- **S1a — on-call browse.** `--connection-string`, `--namespace` (az CLI credential), `--emulator`; entities with DLQ counts; DLQ peek with auto-paging; Body (wrapping) / Properties / System tabs; loading and error states. `tools/seed` puts JSON + non-JSON messages with typed application properties into DLQs of a queue and a subscription on the emulator. Emulator E2E: peek DLQ → correct properties shown.
+- **S2 — resubmit.** DLQ Repair with zero edits: pre-check, confirm popup, the §6 algorithm, all outcomes (Resubmitted, NotFound, LockLost, SendFailed, SendUncertain, CleanupPending) with their row handling, jump-to-next, guards incl. duplicate detection and topic warning, `--read-only`. Unit tests on the fake for every outcome; emulator E2E: seed → resubmit → DLQ count −1, target got the message without markers. **After S2 lazybus is usable on-call.**
+- **S1b — navigation.** ARM discovery across subscriptions (lazy per subscription; failures to the log), Active tab, `/` filter, `:` jump, `s` sort, `y`/`Y` OSC 52, `R`.
+- **S3 — edits.** First: Property Edit popup with types and validation, add/remove, Subject/ContentType, pending-edit markers, confirm diff, `x`. Then: body via `$EDITOR` (`tea.ExecProcess`; for a JSON content type, invalid JSON is kept as the pending edit but flagged in the Body tab and the confirm popup, and `E` re-opens it). Emulator E2E: edit prop + body → target message carries the edits.
+- **S4 — release prep.** README (what/why, install, keys, safety model incl. the DeliveryCount cost of the by-sequence scan, screenshot or VHS GIF), `goreleaser` config for linux/darwin amd64/arm64, `go install` path works, `CHANGELOG.md`. **Stop before tagging or publishing a release; Samuel approves v0.1.0.**
+
+Order: S−1 → S0 → S1a → S2 → S1b → S3 → S4.
 
 ## 11. Out of scope for v0.1
 
 Send/compose, schedule, import/export, purge, delete, bulk/multi-select, sessions-aware receive, receive mode / any held lock, Windows, saved config/keybinding remap, themes, transactions (Go SDK lacks them; revisit if it adds them or CleanupPending shows up in practice), device-code auth.
 
-## 12. Open questions (ask Samuel in one round, with a recommendation each, before S0)
+## 12. Open questions (ask Samuel in one round, with a recommendation each, before S−1)
 
-1. **Subscription DLQ target.** Service Bus cannot send to one subscription; resubmitting to the topic fans out to every subscription whose filter matches. Options: (a) send to the topic and show “fans out to N subscriptions” in the confirm, (b) refuse subscription-DLQ repair in v0.1, (c) send to the topic with an application property the subscription filter can match (needs a rule — out of scope). Recommendation: (a).
-2. **Discovery scope.** All subscriptions from `az account list`, or only the current `az` subscription with a key to switch? Recommendation: all, loaded lazily per subscription.
-3. **Peek page size and refresh.** 50 per page and manual `R` only, or auto-refresh counts every N seconds? Recommendation: 50, manual.
-4. **Name/brand check.** GitHub user `lazybus` exists (empty). Keep `samuelstrom93/lazybus` and binary `lazybus`? Recommendation: yes.
+1. **Subscription DLQ target.** Service Bus cannot send to one subscription; resubmitting to the topic delivers to every subscription whose rules match. Options: (a) send to the topic and show "fans out to N subscriptions; delivered only where rules match" in the confirm, (b) refuse subscription-DLQ repair in v0.1, (c) per-subscription routing via a rule (out of scope). Recommendation: (a).
+2. **Scan cost.** Finding a DLQ message by sequence number locks the messages ahead of it briefly and bumps their DeliveryCount by 1 (they stay in the DLQ, which has no max-delivery limit). Acceptable, with the cost shown in the confirm popup and README? Recommendation: yes.
+3. **MessageId on duplicate-detecting targets.** New MessageId by default (keeps the message from being silently dropped), `m` to keep the original. Recommendation: yes.
+
+Decided without asking: `--namespace` first and ARM discovery of all subscriptions in S1b; page size 50 with manual refresh; repo `samuelstrom93/lazybus`, binary `lazybus`.
 
 ## 13. Carried-over knowledge from BusX
 

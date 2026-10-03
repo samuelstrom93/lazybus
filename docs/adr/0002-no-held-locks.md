@@ -11,4 +11,4 @@ lazybus is meant to be safe to point at production during on-call. A TUI that ho
 
 ## Consequences
 - Active-queue messages are read-only.
-- Finding a dead-letter message by sequence number means receiving in peek-lock and abandoning every non-matching message at once.
+- Finding a dead-letter message by sequence number means receiving in peek-lock and abandoning every non-matching message at once; their DeliveryCount goes up by one, which the confirm popup and README state.
