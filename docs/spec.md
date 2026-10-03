@@ -19,7 +19,7 @@ That is **DLQ Repair** (see `CONTEXT.md`). Everything in v0.1 serves it or the b
 
 - **Never hold a lock outside one operation.** Browsing is peek only. A lock exists only inside a DLQ Repair call and is released (complete/abandon) before the call returns. See ADR 0002.
 - **Peek is real peek.** Never emulate peek with peek-lock + abandon (it bumps `DeliveryCount`).
-- **Destructive = confirm.** Every action that changes broker state opens a confirm popup that defaults to cancel.
+- **Destructive = confirm.** Every action that changes broker state opens a confirm popup that defaults to cancel: only `y` confirms. While a state-changing call runs, ctrl-c and SIGHUP are ignored so its outcome is never lost mid-call.
 - **`--read-only`** disables every state-changing key; the UI shows `READ-ONLY` in the status bar.
 - **Transparency.** Every broker call that changes state is written to the command log with entity, sequence number and outcome.
 - **State is visible.** After every action the screen shows the new state and the outcome; nothing happens silently.
@@ -107,7 +107,7 @@ Rule: same letter = analogous action in every context; lowercase = common action
 | | `d` | mark selected property for removal (toggle) |
 | Main pane: System | `e` | edit Subject / ContentType (only those rows) |
 | Main pane (any tab) | `r` `x` | same as in Messages |
-| Popups | `enter` / `y` | confirm |
+| Popups | `y` | confirm a destructive popup (`enter` does nothing there — §2 defaults to cancel); `enter` confirms non-destructive popups (Property Edit, filter, jump) |
 | | `esc` / `n` | cancel |
 | | `tab` | next field |
 
@@ -121,21 +121,22 @@ Pending edits live per message in memory (lost on quit; the help says so). Edits
 
 On `r`:
 1. **Pre-check without a lock:** peek 1 message from sequence N on the DLQ. If the returned sequence number ≠ N → **NotFound** ("already gone"), zero messages touched.
+Guard before any lock: refuse repair of a message whose AMQP body is not exactly one data section (AmqpValue / AmqpSequence / multiple sections) or whose message-id is not a string — the copy would lose data (status: "unsupported AMQP body/message-id; not repaired").
 2. Confirm popup lists: source `entity/$DLQ seq N` → target, body (unchanged / edited, N lines, invalid-JSON flag), each Property Edit, Subject/ContentType changes, `markers removed: DeadLetterReason, DeadLetterErrorDescription`, MessageId (kept / new, see §6.1), the scan cost ("locks up to K messages ahead of it briefly; their DeliveryCount may increase by 1"), and target warnings (§6.1). `[y/n]`.
 3. Execute in one call, lock held only here:
-   1. One receiver per DLQ, no prefetch (Go SDK: credits = batch size per `ReceiveMessages`; leftover credits are released by the SDK), kept open across consecutive repairs (a link holds no lock). Receive in peek-lock, batches of 10, until sequence N is found. **Keep the locks on non-matching messages until the target is found or the scan limit is reached, then abandon all of them at once — including the rest of the batch after the match** — await every abandon, log abandon errors (never swallow them) (BusX #196; same as SBE, §12.2). Abandoning before the next receive puts the message back at the head and the scan never advances (S−1 spike). The locks live only for the scan and are released before the call returns. Scan limit K = the row's index in the peeked list + one page, and the scan also stops before `LockedUntil` of the first held message minus the safety margin (10 s, used for every lock check in §6); exceeding either → **NotFound**. Sequence numbers are unique and immutable, so no MessageId check.
+   1. One peek-lock receiver per repair call, no prefetch, **closed before the call returns** (S2 review: an open link's leftover credits make the SDK receive-and-release messages after the call, i.e. a lock outside the operation). Receive in peek-lock, batches of 10, until sequence N is found. **Keep the locks on non-matching messages until the target is found or the scan limit is reached, then abandon all of them at once — including the rest of the batch after the match** — await every abandon, log abandon errors (never swallow them) (BusX #196; same as SBE, §12.2). Abandoning before the next receive puts the message back at the head and the scan never advances (S−1 spike). The locks live only for the scan and are released before the call returns. Scan limit K = the row's index in the peeked list + one page, and the scan also stops before `LockedUntil` of the first held message minus the safety margin (10 s, used for every lock check in §6); exceeding either → **NotFound** (scan variant: the pre-check saw the message, so the row is kept with "not reached within the scan limit — may still be in the DLQ; R to refresh"). Sequence numbers are unique and immutable, so no MessageId check.
    2. Build the outgoing message: body (edited or original bytes), application properties = original − markers + Property Edits, Subject/ContentType (edited or original), MessageId (§6.1), and copy CorrelationId, SessionId, PartitionKey, To, ReplyTo, ReplyToSessionId, TimeToLive. Do not copy broker-owned fields. Strip only the application-property keys `DeadLetterReason` and `DeadLetterErrorDescription` (`DeadLetterSource` is a broker annotation and cannot be set). Copy application property values as-is to keep their types. SessionId must be copied: a sessionful target rejects a message without one (`amqp:not-allowed`, definite).
    3. Check the lock locally (`LockedUntil` of the received message minus a safety margin; never of a peeked one). Expired → abandon → **LockLost** (nothing changed).
-   4. Send to the target.
+   4. Send to the target (if the call's context has already expired: abandon → **LockLost**, nothing sent).
       - Definite rejection → abandon → **SendFailed** (nothing changed). Definite = `*amqp.Error` conditions not-found, not-allowed, unauthorized-access, link:message-size-exceeded, resource-limit-exceeded, com.microsoft:entity-disabled, com.microsoft:server-busy; `azservicebus.Error` codes unauthorized / not found; `ErrMessageTooLarge`. Everything else is ambiguous (S−1 spike).
       - Ambiguous (timeout, context deadline, link drop) → abandon → **SendUncertain**: the copy may or may not exist in the target. Amber, never retried automatically.
    5. Complete the original. Failure after a successful send → **CleanupPending**: the copy is in the target **and** the original is still in the DLQ. Red, with both locations; never reported as success.
 4. Outcome in status bar + log. Row handling:
    - **Resubmitted**: row and its Pending Edits removed; cursor moves to the next message and the main pane shows it, so `r y r y …` works through a queue.
-   - **NotFound**: row and its Pending Edits removed; cursor stays at that index.
+   - **NotFound** (pre-check): row and its Pending Edits removed; cursor stays at that index. NotFound from the scan keeps the row (step 3.1).
    - **LockLost / SendFailed**: row kept with its Pending Edits; the user can retry.
    - **CleanupPending / SendUncertain**: row kept, marked red/amber with the outcome; Pending Edits kept.
-   - On a **SendUncertain** row `r` is allowed again; its confirm popup adds a red line "the previous attempt may have delivered a copy — check the target first". Never retried automatically.
+   - On a **SendUncertain** row `r` is allowed again; its confirm popup adds a red line "the previous attempt may have delivered a copy — check the target first", and a retry reuses the previous attempt's MessageId so a duplicate-detecting target drops a second copy. Never retried automatically.
    - On a **CleanupPending** row `r` is blocked (status bar: "copy already in target — press c to finish cleanup"). `c` runs **Finish Cleanup**: pre-check, confirm popup (`entity/$DLQ seq N` will be removed; nothing is sent), the same by-sequence scan as step 3.1, then complete the match. Outcomes: Cleaned (row removed, cursor as Resubmitted), NotFound, LockLost. `--read-only` disables `c`. Added to the keymap for Messages and Main pane.
 
 Target: the entity the user opened, not `DeadLetterSource` (usually empty). Queue DLQ → that queue. Subscription DLQ → its parent topic (§12.1).
