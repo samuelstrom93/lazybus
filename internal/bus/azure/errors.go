@@ -15,10 +15,11 @@ import (
 	"github.com/samuelstrom93/lazybus/internal/bus"
 )
 
-// safe runs f, maps its error and turns an SDK panic into an error. The
-// admin client's subscription runtime calls panic against the emulator in
-// SDK v1.10.0 (S−1); a panic must never take the UI down.
-func safe(op string, f func() error) (err error) {
+// Safe runs f, maps its error to a *bus.Error and turns an SDK panic into
+// an error. The admin client's subscription runtime calls panic against
+// the emulator in SDK v1.10.0 (S−1); a panic must never take the UI down.
+// Every admin call goes through it, tools/seed's too.
+func Safe(op string, f func() error) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = &bus.Error{Kind: bus.ErrUnknown, Op: op, Msg: fmt.Sprintf("SDK panic: %v", r)}

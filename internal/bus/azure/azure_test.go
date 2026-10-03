@@ -50,6 +50,37 @@ func TestAddConnectionStrings(t *testing.T) {
 	if _, err := b.AddConnectionString("SharedAccessKey=x", 0); err == nil {
 		t.Fatal("connection string without Endpoint accepted")
 	}
+	if _, err := b.AddConnectionString("Endpoint=sb://localhost:5682;SharedAccessKeyName=k;SharedAccessKey=x;UseDevelopmentEmulator=yes", 5310); err == nil {
+		t.Fatal("UseDevelopmentEmulator=yes accepted (strconv.ParseBool rejects it, like the SDK)")
+	}
+	if !IsEmulatorConnectionString("Endpoint=sb://localhost:5682;SharedAccessKeyName=k;SharedAccessKey=x;UseDevelopmentEmulator=TRUE") {
+		t.Fatal("UseDevelopmentEmulator=TRUE not recognised")
+	}
+}
+
+// TestDropReceiverKeepsReplacement: a late failure of an old receiver must
+// not evict the receiver another call has cached since.
+func TestDropReceiverKeepsReplacement(t *testing.T) {
+	b := New()
+	defer b.Close(context.Background())
+	if _, err := b.AddConnectionString(EmulatorConnectionString("localhost", 5682), 5310); err != nil {
+		t.Fatal(err)
+	}
+	c := b.conns[0]
+	key := receiverKey{"orders", bus.KindQueue, bus.DeadLetter}
+	old, err := c.receiver(key) // receivers attach lazily: no network here
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.dropReceiver(key, old)
+	fresh, err := c.receiver(key)
+	if err != nil || fresh == old {
+		t.Fatalf("receiver not replaced after drop: %v", err)
+	}
+	c.dropReceiver(key, old) // stale failure arrives late
+	if got, _ := c.receiver(key); got != fresh {
+		t.Fatal("stale drop evicted the fresh receiver")
+	}
 }
 
 // TestAddNamespaceWithCLICredential checks the --namespace wiring without
@@ -113,7 +144,7 @@ func TestClassify(t *testing.T) {
 }
 
 func TestSafeRecoversPanic(t *testing.T) {
-	err := safe("list entities", func() error { panic("nil pointer") })
+	err := Safe("list entities", func() error { panic("nil pointer") })
 	if bus.KindOf(err) != bus.ErrUnknown || err.Error() != "list entities: SDK panic: nil pointer" {
 		t.Fatalf("err = %v", err)
 	}

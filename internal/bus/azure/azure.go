@@ -115,11 +115,18 @@ func EmulatorAdminClient(cs string, adminPort int) (*admin.Client, error) {
 	})
 }
 
-// IsEmulatorConnectionString reports whether cs has
+// IsEmulatorConnectionString reports whether cs parses and has
 // UseDevelopmentEmulator=true.
 func IsEmulatorConnectionString(cs string) bool {
 	cfg, err := parseConnectionString(cs)
 	return err == nil && cfg.emulator
+}
+
+// ConnectionStringHost returns the host name (without port) of cs's
+// Endpoint.
+func ConnectionStringHost(cs string) (string, error) {
+	cfg, err := parseConnectionString(cs)
+	return cfg.hostname, err
 }
 
 // AddNamespace adds a namespace by its fully qualified name, authenticated
@@ -211,7 +218,7 @@ func (b *Backend) ListEntities(ctx context.Context, ns bus.Namespace) ([]bus.Ent
 	}
 	op := "list entities " + ns.Name
 	var out []bus.Entity
-	err = safe(op, func() error {
+	err = Safe(op, func() error {
 		var err error
 		if c.emulator {
 			out, err = c.listWithoutCounts(ctx)
@@ -321,7 +328,7 @@ func (c *conn) eachTopic(ctx context.Context, list func(context.Context, string)
 	g.SetLimit(maxParallelTopics)
 	for i, t := range topics {
 		g.Go(func() error {
-			return safe("list subscriptions "+t, func() error {
+			return Safe("list subscriptions "+t, func() error {
 				var err error
 				results[i], err = list(gctx, t)
 				return err
@@ -356,7 +363,7 @@ func (b *Backend) Peek(ctx context.Context, req bus.PeekRequest) ([]bus.Message,
 	}
 	key := receiverKey{req.Entity.Path, req.Entity.Kind, req.SubQueue}
 	var out []bus.Message
-	err = safe(op, func() error {
+	err = Safe(op, func() error {
 		r, err := c.receiver(key)
 		if err != nil {
 			return err
@@ -364,7 +371,11 @@ func (b *Backend) Peek(ctx context.Context, req bus.PeekRequest) ([]bus.Message,
 		from := req.FromSequence
 		msgs, err := r.PeekMessages(ctx, limit, &azservicebus.PeekMessagesOptions{FromSequenceNumber: &from})
 		if err != nil {
-			c.dropReceiver(key)
+			// A canceled (superseded) or timed-out call says nothing about
+			// the link; another call may be using the receiver right now.
+			if k := bus.KindOf(mapErr(op, err)); k != bus.ErrCanceled && k != bus.ErrTimeout {
+				c.dropReceiver(key, r)
+			}
 			return err
 		}
 		out = make([]bus.Message, 0, len(msgs))
@@ -412,16 +423,16 @@ func (c *conn) receiver(key receiverKey) (*azservicebus.Receiver, error) {
 	return r, nil
 }
 
-// dropReceiver closes and forgets a receiver after a failed call, so the
-// next call starts on a fresh link.
-func (c *conn) dropReceiver(key receiverKey) {
+// dropReceiver closes and forgets receiver r after a failed call, so the
+// next call starts on a fresh link. If another call already replaced r in
+// the cache, the replacement stays.
+func (c *conn) dropReceiver(key receiverKey, r *azservicebus.Receiver) {
 	c.mu.Lock()
-	r, ok := c.receivers[key]
-	delete(c.receivers, key)
-	c.mu.Unlock()
-	if ok {
-		go func() { _ = r.Close(context.Background()) }()
+	if c.receivers[key] == r {
+		delete(c.receivers, key)
 	}
+	c.mu.Unlock()
+	go func() { _ = r.Close(context.Background()) }()
 }
 
 // --- connection strings and transport --------------------------------------
@@ -444,7 +455,12 @@ func parseConnectionString(cs string) (csConfig, error) {
 		case "endpoint":
 			endpoint = v
 		case "usedevelopmentemulator":
-			cfg.emulator = strings.EqualFold(v, "true")
+			// Same parsing as the SDK's connection-string parser.
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				return cfg, fmt.Errorf("connection string: bad UseDevelopmentEmulator %q", v)
+			}
+			cfg.emulator = b
 		}
 	}
 	if endpoint == "" {
