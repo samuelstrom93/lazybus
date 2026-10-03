@@ -175,3 +175,92 @@ Proposed classifier:
 
 - `LockLost` path (abandon/complete after lock expiry): not run (1-minute lock duration; time-boxed). Expect `azservicebus.Error` Code `locklost`.
 - Real-namespace checks: DLQ abandon DeliveryCount effect, `DeadLetterSource` population, `unauthorized` errors, runtime counts. None of these can be checked on the emulator.
+
+## S4 real-namespace verification
+
+Date 2026-10-03, framen. Namespace `sb-lazybus-test-81abd072.servicebus.windows.net` (Standard, westeurope, subscription `lazybus-dev`), az CLI credential with Azure Service Bus Data Owner, SDK `azservicebus v1.10.0`. Only entities named `lazybus-e2e-*` were created or touched (created by the test when missing, kept between runs). The checks live in `internal/bus/azure/azure_e2e_test.go` (`LAZYBUS_AZURE_NAMESPACE=… go test -tags azure ./...`); the close-wait comparison below came from a throwaway probe that set the wait to 0, 100 and 500 ms (not in the repo).
+
+Summary: everything the spec assumes holds on Azure, with one correction: **a DLQ abandon does not change DeliveryCount** on Azure either, so the scan cost is the locks, not a delivery. Partitioned paging needs no fix, and the 500 ms close wait is needed and enough.
+
+### a. DeliveryCount of scanned and abandoned DLQ siblings
+
+| Run | Before (peek) | After (peek) |
+|---|---|---|
+| 6 messages in `lazybus-e2e-q/$DLQ`, repair of the third: scan locked 6 (2 before the match, 3 after it), abandoned 5 | all `DeliveryCount=1` | all 5 siblings still `1` |
+| second repair on the same DLQ (4th message) | `1` | `1` |
+| siblings stranded by the close-wait-0 runs (locked until their 30 s lock expired) | `1` | `1` after expiry |
+| E2E: 4 seed messages, repair of the second, scan locked 4 | `1,1,1,1` | `1,1,1` |
+| E2E: SendFailed (Listen-only rule), the target abandoned too | `1,1,1` | `1,1,1` |
+
+Azure behaves like the emulator: receive in peek-lock + abandon on a **dead-letter queue** leaves `DeliveryCount` alone. (On an active queue it does count: `lazybus-e2e-mdc` with `MaxDeliveryCount=1` dead-lettered a message after one receive + abandon, and its DLQ copy shows `DeliveryCount=2`, the SDK's header + 1.) Not checked on Premium.
+
+Consequence: the confirm popup and README no longer say "their DeliveryCount may increase by 1". The popup now says "locks up to K messages ahead of it briefly; their DeliveryCount does not change"; the remaining cost of the scan is that those messages are locked (invisible to other DLQ receivers) for the length of the call. The fake backend no longer increments DeliveryCount on a DLQ receive.
+
+### b. DeadLetterSource
+
+| How the message got there | `DeadLetterSource` |
+|---|---|
+| receiver `DeadLetterMessage` on a queue (`lazybus-e2e-q`) | empty |
+| `MaxDeliveryCount` exceeded (`lazybus-e2e-mdc`, reason `MaxDeliveryCountExceeded`, description "Message could not be consumed after 1 delivery attempts.") | empty |
+| receiver `DeadLetterMessage` on a subscription (`lazybus-e2e-topic/lazybus-e2e-all`) | empty |
+| dead-lettered in `lazybus-e2e-dlfwd`, which has `ForwardDeadLetteredMessagesTo` = `lazybus-e2e-dlsink`: the message arrives in the sink's **active** queue | `lazybus-e2e-dlfwd` (reason and description kept) |
+| that forwarded message dead-lettered again in the sink | still `lazybus-e2e-dlfwd`; the new reason replaces the old one, and the old description stays when the new dead-letter sets none |
+
+So the guess holds: Azure sets `DeadLetterSource` only on auto-forwarded dead letters. A repair from `lazybus-e2e-dlsink/$DLQ` goes to `lazybus-e2e-dlsink` (the entity the user opened), and the copy carries no `DeadLetterSource` and no markers.
+
+Related: the DLQ of an entity with `ForwardDeadLetteredMessagesTo` can't be peeked: `amqp:not-allowed` "Cannot create a message receiver on an entity with auto-forwarding enabled" (lazybus shows it as a peek error; that DLQ is always empty anyway). The admin API wants `ForwardDeadLetteredMessagesTo` as an absolute URI (`https://<ns>/<queue>`); a bare name is a 400.
+
+### c. Auth errors
+
+| Credential | List entities (admin, HTTP) | Peek (AMQP) | Send |
+|---|---|---|---|
+| SAS connection string, right key name, random key | `HTTP 401` → unauthorized | `*azservicebus.Error` Code `unauthorized` ("InvalidSignature: The token has an invalid signature") → unauthorized | same, **definite**, after ~1 s |
+| SAS, unknown key name | `HTTP 401` | same as above | same, definite |
+| Entra (`--namespace`) with an invalid token | `HTTP 401` | Code `unauthorized` ("Generic: Generic") | same, definite |
+| Listen-only SAS rule on `lazybus-e2e-q` (created by the test with a random in-memory key) | `HTTP 401` (listing needs Manage) | works | Code `unauthorized` wrapping `amqp:unauthorized-access` "'Send' claim(s) are required…", **definite** |
+
+DLQ Repair with the Listen-only rule (target info read with the owner credential, everything else with the rule): **SendFailed**, the original abandoned back into the DLQ, nothing in the target, no abandon errors, DeliveryCount unchanged. The classifier needs no change: a token rejected at the claims-based-security step comes back as `*azservicebus.Error` Code `unauthorized`, a missing Send claim as the same code around the `amqp:unauthorized-access` error.
+
+Two things lazybus shows less well than it could (not changed in S4):
+
+- A connection string without Manage rights can peek and repair but can't list entities (`HTTP 401`), so lazybus opens it to an error.
+- The SendFailed detail for the missing Send claim reads `(unauthorized): *Error{Condition: amqp:unauthorized-access, Description: Unauthorized access. 'Send' claim(s) are required…`: `classify` matches the `*azservicebus.Error` code and prints its whole text, because that error does not unwrap to the `*amqp.Error`.
+
+### d. Partitioned queue: peek order and paging
+
+`lazybus-e2e-part` (`EnablePartitioning=true`, 16 partitions on Standard), 130 messages sent in one batch and dead-lettered.
+
+- Sequence numbers carry the partition in the top 16 bits (`seq >> 48` was 128–143) and an entity-wide counter in enqueue order in the low 48 bits.
+- Peek returns messages in **enqueue order across partitions**, not sorted by sequence number.
+- Paging as the Messages panel does it (next page from the last row's sequence number + 1) returned all 130 messages exactly once, in enqueue order, with pages of 50 and of 7. The broker evidently compares on the low 48 bits. No paging fix needed.
+- The pre-check (peek 1 from N) returned N itself.
+- Repair of peek row 60: Resubmitted, the scan locked 70 messages (61 up to the match plus the rest of its batch); a probe repair of row 38 locked 40. Peek-lock receive order matched peek order in these runs. If it ever does not, the scan stops at its limit with NotFound (scan) and the row stays; nothing is lost.
+
+### e. Close wait after abandons
+
+A message abandoned while the scan's link still has credits comes straight back on that link; the SDK releases it, but closing the link first strands it locked until its lock expires. Probe: `lazybus-e2e-q` (lock 30 s), repair of row 2, then at once a new receiver tries to receive every sibling within 5 s.
+
+| Wait before close | Runs | Messages, target row | Siblings abandoned | Still locked (stranded) |
+|---|---|---|---|---|
+| 0 ms | 3 | 6, row 2 | 15 | **3** (0, 2, 1 per run) |
+| 100 ms | 3 | 6, row 2 | 15 | **4** (1, 2, 1) |
+| 500 ms | 13 | 6, row 2 | 65 | 0 |
+| 0 ms | 4 | 30, row 25 | 116 | 0 (the last receive used all its credits) |
+| 500 ms | 4 | 30, row 25 | 116 | 0 |
+
+Stranded siblings became receivable again after their 30 s lock expired, with DeliveryCount unchanged. A repair took ~0.55–0.8 s without the wait and ~1.0–1.3 s with it. The emulator needed 100 ms; Azure needs more, so `releaseGrace` stays 500 ms. The E2E checks it on every run: after a repair, a fresh receiver gets every sibling within 5 s (1.3 s observed).
+
+### f. Repair end to end
+
+All on Azure, through `azure.Backend` (the code the UI calls):
+
+| Case | Result |
+|---|---|
+| Runtime counts | `ListEntities` returns counts for queues and subscriptions: `lazybus-e2e-q` DLQ 4 / active 0 before, DLQ 0 / active 1 after the repairs; subscription DLQ 3 / active 1 after one repair. |
+| Queue DLQ → queue | Resubmitted; copy in the queue with the original MessageId, body, Subject, ContentType, CorrelationId and all seven property types; markers gone. |
+| Subscription DLQ → topic | Plan: target topic, 2 subscriptions, fan-out warning. The copy reached `lazybus-e2e-all` (true filter) and not `lazybus-e2e-shipped` (`eventType = 'OrderShipped'`). |
+| Duplicate detection (`lazybus-e2e-dedup`, PT10M) | Plan defaults to a new MessageId; the copy arrived with it. Keeping the original id inside the window: send ok, original completed, **copy dropped, message lost** (same as the emulator; confirms §6.1). |
+| Edits | Long, Int, Double, Bool, String, Guid and DateTime edits, one removal, Subject, ContentType and a body edit all arrived with their types. |
+| SendFailed | See c. |
+
+The whole `TestAzure` run takes about 100–120 s.
