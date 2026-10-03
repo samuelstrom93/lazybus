@@ -49,7 +49,6 @@ type Backend struct {
 
 	// ARM discovery (discovery.go); nil when off.
 	discoveryCred azcore.TokenCredential
-	discoverySem  chan struct{}
 }
 
 var _ bus.Backend = (*Backend)(nil)

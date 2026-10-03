@@ -78,7 +78,7 @@ func TestBackendWiring(t *testing.T) {
 	nss, _ = be.Namespaces(ctx)
 	_, subErr = be.Subscriptions(ctx)
 	closeFn()
-	if len(nss) != 1 || nss[0].Name != "emulator" || nss[0].FQDN != "localhost:5682" || subErr == nil {
+	if credCalls != 2 || len(nss) != 1 || nss[0].Name != "emulator" || nss[0].FQDN != "localhost:5682" || subErr == nil {
 		t.Fatalf("--emulator: namespaces %+v, subscriptions err %v", nss, subErr)
 	}
 
@@ -105,8 +105,18 @@ func TestBackendWiring(t *testing.T) {
 	if _, _, err := backend(config{connectionString: "garbage"}, cred); err == nil {
 		t.Fatal("bad connection string accepted")
 	}
-	if _, _, err := backend(config{}, func() (azcore.TokenCredential, error) { return nil, errNoToken }); !errors.Is(err, errNoToken) {
+	noAz := func() (azcore.TokenCredential, error) { return nil, errNoToken }
+	if _, _, err := backend(config{}, noAz); !errors.Is(err, errNoToken) {
 		t.Fatalf("credential error = %v", err)
+	}
+	// The emulator still opens without the az credential, minus discovery.
+	be, closeFn, err = backend(config{emulator: true, emulatorAMQPPort: 5682, emulatorAdminPort: 5310}, noAz)
+	if err != nil {
+		t.Fatalf("--emulator without az: %v", err)
+	}
+	defer closeFn()
+	if subs, err := be.Subscriptions(ctx); len(subs) != 0 || err != nil {
+		t.Fatalf("--emulator without az ran discovery: %v, %v", subs, err)
 	}
 }
 

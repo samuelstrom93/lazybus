@@ -198,7 +198,8 @@ type Model struct {
 	messages   list[bus.Message]
 
 	disc    discoveryState
-	sortDLQ bool // s: Entities sorted by DLQ count, not path
+	discSem chan struct{} // bounds the discovery calls in flight
+	sortDLQ bool          // s: Entities sorted by DLQ count, not path
 
 	openNS     *bus.Namespace
 	openEntity *bus.Entity
@@ -260,7 +261,8 @@ func New(be bus.Backend, opts Options) Model {
 		stack:      NewContextStack(CtxNamespaces),
 		lastSide:   CtxNamespaces,
 		namespaces: list[nsRow]{loading: true},
-		disc:       discoveryState{configuredLoading: true, subsLoading: true},
+		disc:       newDiscovery(),
+		discSem:    make(chan struct{}, maxParallelDiscovery),
 		spin:       spinner.New(spinner.WithSpinner(spinner.MiniDot)),
 		clip:       newClipboard(),
 	}
@@ -345,7 +347,12 @@ func (m *Model) clearLines() {
 // paging: a short page can be followed by messages enqueued since.
 func (m *Model) loadMore() tea.Cmd {
 	l := &m.messages
-	if !l.more || l.loading || len(l.items) == 0 || l.cursor != len(l.items)-1 || m.openNS == nil || m.openEntity == nil {
+	atEnd := len(l.items) > 0 && l.cursor == len(l.items)-1
+	// A filter that hides every loaded row: the next page may hold matches.
+	if len(l.items) == 0 && l.filter != "" && len(l.all) > 0 {
+		atEnd = true
+	}
+	if !l.more || l.loading || !atEnd || m.openNS == nil || m.openEntity == nil {
 		return nil
 	}
 	return m.peekFrom(*m.openNS, *m.openEntity, m.subQueue, l.all[len(l.all)-1].SequenceNumber+1)
@@ -466,6 +473,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.clearLines()
 		m.messages.setAll(msg.items, m.messageText)
+		// A first page replaces the list: a cursor move pending for a next
+		// page no longer applies.
+		m.hasAfterPage = false
 		if m.hasKeepIndex {
 			// A refresh: same index, now on whatever message is there.
 			m.hasKeepIndex = false

@@ -20,10 +20,6 @@ import (
 // (lazybus uses the az CLI credential).
 const authEntra = "Entra ID (az login)"
 
-// maxParallelDiscovery bounds the concurrent per-subscription namespace
-// listings.
-const maxParallelDiscovery = 4
-
 // EnableDiscovery turns on ARM discovery with cred: Subscriptions lists the
 // subscriptions cred can read, and SubscriptionNamespaces their Service Bus
 // namespaces, which then open with the same credential.
@@ -31,19 +27,18 @@ func (b *Backend) EnableDiscovery(cred azcore.TokenCredential) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.discoveryCred = cred
-	b.discoverySem = make(chan struct{}, maxParallelDiscovery)
 }
 
-func (b *Backend) discovery() (azcore.TokenCredential, chan struct{}) {
+func (b *Backend) discovery() azcore.TokenCredential {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.discoveryCred, b.discoverySem
+	return b.discoveryCred
 }
 
 // Subscriptions implements bus.Discovery: the enabled subscriptions the
 // credential can read, sorted by name. None when discovery is off.
 func (b *Backend) Subscriptions(ctx context.Context) ([]bus.Subscription, error) {
-	cred, _ := b.discovery()
+	cred := b.discovery()
 	if cred == nil {
 		return nil, nil
 	}
@@ -95,15 +90,9 @@ func (b *Backend) Subscriptions(ctx context.Context) ([]bus.Subscription, error)
 // the discovery credential, so the data plane and admin calls use it too.
 func (b *Backend) SubscriptionNamespaces(ctx context.Context, sub bus.Subscription) ([]bus.Namespace, error) {
 	op := "discover namespaces " + sub.Name
-	cred, sem := b.discovery()
+	cred := b.discovery()
 	if cred == nil {
 		return nil, &bus.Error{Kind: bus.ErrNotFound, Op: op, Msg: "discovery is off"}
-	}
-	select {
-	case sem <- struct{}{}:
-		defer func() { <-sem }()
-	case <-ctx.Done():
-		return nil, mapErr(op, ctx.Err())
 	}
 	var found []bus.Namespace
 	err := Safe(op, func() error {

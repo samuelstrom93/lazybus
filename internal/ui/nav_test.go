@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -438,11 +439,85 @@ func TestDiscoverySubscriptionsError(t *testing.T) {
 	if m.openNS == nil || len(m.namespaces.items) != 2 || !hasLog(m, "discover subscriptions") {
 		t.Fatalf("open %+v, rows %v, log %+v", m.openNS, nsNames(m), m.log)
 	}
+	// It stays in the log: an empty DLQ still says so in the main pane.
+	m = keysIn(t, m, "2", "j", "j", "enter") // order-events/shipping: DLQ 0
+	if s := screenText(m); m.namespaces.err != nil || strings.Contains(s, "error:") || !strings.Contains(s, "no message selected") {
+		t.Fatalf("namespaces err %v:\n%s", m.namespaces.err, s)
+	}
 }
 
 func TestPartialEntities(t *testing.T) {
 	m := startWith(t, partialTopics{fake.New()})
 	if len(m.entities.items) != 2 || m.entities.err != nil || !hasLog(m, "Basic tier has no topics") {
 		t.Fatalf("%d entities, err %v, log %+v", len(m.entities.items), m.entities.err, m.log)
+	}
+}
+
+func TestFilterTakesNavigationLetters(t *testing.T) {
+	m := keysIn(t, loaded(t), "3", "/", "j", "k", "g", "G", "q")
+	if m.stack.Top() != CtxFilter || m.messages.filter != "jkgGq" {
+		t.Fatalf("top %v, filter %q", m.stack.Top(), m.messages.filter)
+	}
+}
+
+func TestRefreshCancelsThePreviousDiscovery(t *testing.T) {
+	m := keysIn(t, startWith(t, fake.New(fake.WithDiscovery())), "1")
+	old := m.disc.round
+	next, _ := m.Update(press("R")) // the new round's calls are not run
+	m = next.(Model)
+	if old.Err() == nil {
+		t.Fatal("R left the previous round's calls running")
+	}
+	next, _ = m.Update(subscriptionsLoadedMsg{gen: m.disc.gen - 1, err: errors.New("stale round")})
+	if m = next.(Model); m.disc.subsErr != nil || hasLog(m, "stale round") {
+		t.Fatalf("a response of the previous round was applied: %v", m.disc.subsErr)
+	}
+}
+
+func TestDiscoveryBoundWaitsOutsideTheDeadline(t *testing.T) {
+	m := New(fake.New(fake.WithDiscovery()), testOptions())
+	for range maxParallelDiscovery {
+		m.discSem <- struct{}{}
+	}
+	done := make(chan tea.Msg, 1)
+	go func() { done <- m.discoverSub(bus.Subscription{ID: "x", Name: "x"})() }()
+	select {
+	case <-done:
+		t.Fatal("a listing ran past the bound")
+	case <-time.After(20 * time.Millisecond):
+	}
+	m.disc.cancel()
+	if msg := (<-done).(subNamespacesLoadedMsg); !errors.Is(msg.err, context.Canceled) {
+		t.Fatalf("waiting listing after cancel: %v", msg.err)
+	}
+}
+
+func TestFailedRefreshKeepsDiscoveredNamespaces(t *testing.T) {
+	be := fake.New(fake.WithDiscovery())
+	m := startWith(t, be)
+	be.SetFault(fake.OpDiscover, fake.Fault{Err: errors.New("az token expired")})
+	m = keysIn(t, m, "1", "R")
+	if got := strings.Join(nsNames(m), ","); got != "sb-prod-weu,sb-test-weu,sb-dev-neu" || m.namespaces.loading {
+		t.Fatalf("after a failed refresh: %s (loading %v)", got, m.namespaces.loading)
+	}
+}
+
+func TestFirstPageDropsPendingCursorMove(t *testing.T) {
+	m := keysIn(t, loaded(t), "3")
+	m.afterPage, m.hasAfterPage = 2, true
+	if m = keysIn(t, m, "R"); m.hasAfterPage {
+		t.Fatal("a refresh kept the cursor move meant for a next page")
+	}
+}
+
+func TestRepairOfTheOnlyFilteredRowLoadsTheNextPage(t *testing.T) {
+	m := onOrders(t, fake.New(fake.WithDeadLetters("sb-prod-weu", "orders", 120)))
+	m = keysIn(t, m, "/", "o", "r", "d", "-", "4", "0", "0", "2", "enter")
+	if len(m.messages.items) != 1 || len(m.messages.all) != 50 {
+		t.Fatalf("setup: %d visible of %d", len(m.messages.items), len(m.messages.all))
+	}
+	m = keysIn(t, m, "r", "y")
+	if len(m.messages.all) != 99 {
+		t.Fatalf("after the repair: %d loaded, want 49 + the next 50", len(m.messages.all))
 	}
 }

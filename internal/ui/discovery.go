@@ -43,6 +43,8 @@ func (r nsRow) key() string {
 // discoveryState is what the Namespaces panel is built from.
 type discoveryState struct {
 	gen               int // id of the newest discovery; older responses are dropped
+	round             context.Context
+	cancel            context.CancelFunc // cancels the round's calls (R starts a new one)
 	configured        []bus.Namespace
 	configuredLoading bool
 	configuredErr     error
@@ -78,19 +80,29 @@ type (
 	}
 )
 
+// maxParallelDiscovery bounds the concurrent per-subscription namespace
+// listings.
+const maxParallelDiscovery = 4
+
+// newDiscovery is the state before the first round.
+func newDiscovery() discoveryState {
+	round, cancel := context.WithCancel(context.Background())
+	return discoveryState{round: round, cancel: cancel, configuredLoading: true, subsLoading: true}
+}
+
 // discover starts a discovery round: the configured namespaces and the
 // subscription list, at once. Each subscription's namespaces follow when
 // the list arrives.
 func (m Model) discover() tea.Cmd {
-	be, timeout, gen := m.be, m.opts.CallTimeout, m.disc.gen
+	be, timeout, gen, round := m.be, m.opts.CallTimeout, m.disc.gen, m.disc.round
 	configured := func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		ctx, cancel := context.WithTimeout(round, timeout)
 		defer cancel()
 		items, err := call(func() ([]bus.Namespace, error) { return be.Namespaces(ctx) })
 		return configuredLoadedMsg{gen: gen, items: items, err: err}
 	}
 	subs := func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		ctx, cancel := context.WithTimeout(round, timeout)
 		defer cancel()
 		items, err := call(func() ([]bus.Subscription, error) { return be.Subscriptions(ctx) })
 		return subscriptionsLoadedMsg{gen: gen, subs: items, err: err}
@@ -98,9 +110,11 @@ func (m Model) discover() tea.Cmd {
 	return tea.Batch(configured, subs)
 }
 
-// rediscover is R on Namespaces: a new round. The rows stay until their
-// replacements arrive.
+// rediscover is R on Namespaces: a new round, cancelling the calls of the
+// previous one. The rows stay until their replacements arrive.
 func (m *Model) rediscover() tea.Cmd {
+	m.disc.cancel()
+	m.disc.round, m.disc.cancel = context.WithCancel(context.Background())
 	m.disc.gen++
 	m.disc.configuredLoading, m.disc.subsLoading = true, true
 	m.rebuildNamespaces()
@@ -141,8 +155,9 @@ func (m Model) subscriptionsLoaded(msg subscriptionsLoadedMsg) (Model, tea.Cmd) 
 	m.disc.subsLoading = false
 	m.disc.subsErr = msg.err
 	if msg.err != nil {
+		// A failed refresh keeps the namespaces found before.
 		m.logf(true, "%s", errText("discover subscriptions", msg.err))
-		m.disc.subs = nil
+		m.disc.subs = keepLoaded(m.disc.subs)
 		m.rebuildNamespaces()
 		return m, nil
 	}
@@ -166,11 +181,33 @@ func (m Model) subscriptionsLoaded(msg subscriptionsLoadedMsg) (Model, tea.Cmd) 
 	return m, tea.Batch(cmds...)
 }
 
-// discoverSub lists the namespaces of one subscription.
+// keepLoaded is subs after a failed refresh: what was listed stays, and
+// nothing is loading any more.
+func keepLoaded(subs []subState) []subState {
+	var out []subState
+	for _, s := range subs {
+		if s.loading && len(s.nss) == 0 {
+			continue
+		}
+		s.loading = false
+		out = append(out, s)
+	}
+	return out
+}
+
+// discoverSub lists the namespaces of one subscription. At most
+// maxParallelDiscovery run at once; the call deadline starts once this
+// one may run, not while it waits.
 func (m Model) discoverSub(sub bus.Subscription) tea.Cmd {
-	be, timeout, gen := m.be, m.opts.CallTimeout, m.disc.gen
+	be, timeout, gen, round, sem := m.be, m.opts.CallTimeout, m.disc.gen, m.disc.round, m.discSem
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		select {
+		case sem <- struct{}{}:
+			defer func() { <-sem }()
+		case <-round.Done():
+			return subNamespacesLoadedMsg{gen: gen, sub: sub, err: round.Err()} // a newer round: dropped
+		}
+		ctx, cancel := context.WithTimeout(round, timeout)
 		defer cancel()
 		items, err := call(func() ([]bus.Namespace, error) { return be.SubscriptionNamespaces(ctx, sub) })
 		return subNamespacesLoadedMsg{gen: gen, sub: sub, items: items, err: err}
@@ -231,8 +268,11 @@ func (m *Model) rebuildNamespaces() {
 		}
 	}
 	m.namespaces.loading = loading
+	// A failed subscription listing is the panel's error only when it
+	// leaves the panel empty; otherwise it is in the log (spec §7: not
+	// fatal), and the main pane keeps showing messages.
 	m.namespaces.err = m.disc.configuredErr
-	if m.namespaces.err == nil {
+	if m.namespaces.err == nil && len(rows) == 0 {
 		m.namespaces.err = m.disc.subsErr
 	}
 	m.namespaces.setAll(rows, nsText)

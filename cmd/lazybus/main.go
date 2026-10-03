@@ -85,6 +85,11 @@ func backend(c config, newCred func() (azcore.TokenCredential, error)) (bus.Back
 	}
 	raw, err := newCred()
 	if err != nil {
+		// Without the credential there is no discovery, but a namespace
+		// from --connection-string or --emulator still opens.
+		if c.namespace == "" && (c.emulator || c.connectionString != "") {
+			return b, closeFn, nil
+		}
 		return fail(fmt.Errorf("az CLI credential: %w", err))
 	}
 	// One token per scope shared by every client, not one az run each.

@@ -54,7 +54,7 @@ func (m Model) handleFilterKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case key.Matches(msg, keys.FilterClear):
 		m.stack.Pop()
 		m.clearFilter(c)
-	case key.Matches(msg, keys.Up):
+	case msg.String() == "up": // not keys.Up: k is text here
 		m.moveBy(c, -1)
 	case msg.String() == "down":
 		m.moveBy(c, 1)

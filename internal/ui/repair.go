@@ -463,7 +463,7 @@ func (m *Model) decDLQCount(req bus.RepairRequest) {
 			prev, ok := m.entities.selected()
 			items := append([]bus.Entity(nil), m.entities.all...)
 			items[i].DeadLetterCount--
-			m.entities.setAll(items, m.entityText)
+			m.entities.setAll(sortEntities(items, m.sortDLQ), m.entityText)
 			if ok {
 				m.selectEntity(prev)
 			}
