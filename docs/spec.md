@@ -20,7 +20,7 @@ That is **DLQ Repair** (see `CONTEXT.md`). Everything in v0.1 serves it or the b
 - **Never hold a lock outside one operation.** Browsing is peek only. A lock exists only inside a DLQ Repair call and is released (complete/abandon) before the call returns. See ADR 0002.
 - **Peek is real peek.** Never emulate peek with peek-lock + abandon (it bumps `DeliveryCount`).
 - **Destructive = confirm.** Every action that changes broker state opens a confirm popup that defaults to cancel: only `y` confirms. While a state-changing call runs, ctrl-c and SIGHUP are ignored so its outcome is never lost mid-call.
-- **`--read-only`** disables every state-changing key; the UI shows `READ-ONLY` in the status bar.
+- **`--read-only`** disables every key that changes broker state (`r`, `c`); the UI shows `READ-ONLY` in the status bar. Pending Edits and `x` stay allowed: they only change memory (S3).
 - **Transparency.** Every broker call that changes state is written to the command log with entity, sequence number and outcome.
 - **State is visible.** After every action the screen shows the new state and the outcome; nothing happens silently.
 
@@ -117,7 +117,7 @@ Property Edit popup: fields Key, Type (selector: String, Int, Long, Double, Bool
 
 ## 6. DLQ Repair — behaviour
 
-Pending edits live per message in memory (lost on quit; the help says so). Edits apply only to the DLQ tab; Active is read-only (needs locks, principle 1).
+Pending edits live per message in memory (lost on quit; the help says so). They are locked (no edit, no `x`) on SendUncertain and CleanupPending rows, so a retry under the same MessageId sends the same content. An empty Subject/ContentType leaves the field unset on the copy. A JSON body opens pretty-printed in the editor and is sent as saved; saving the unchanged pretty form is no edit (S3). Edits apply only to the DLQ tab; Active is read-only (needs locks, principle 1).
 
 On `r`:
 1. **Pre-check without a lock:** peek 1 message from sequence N on the DLQ. If the returned sequence number ≠ N → **NotFound** ("already gone"), zero messages touched.
