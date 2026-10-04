@@ -46,8 +46,8 @@ type Result struct {
 	Threshold  *Threshold `json:"threshold,omitempty"`
 }
 
-// Threshold: a head median is a material regression when it is at least
-// MaxRegressionRatio times the base median AND at least
+// Threshold: a head median is a material regression when it is more than
+// MaxRegressionRatio times the base median AND more than
 // MinAbsoluteRegression above it.
 type Threshold struct {
 	MaxRegressionRatio    float64 `json:"maxRegressionRatio"`

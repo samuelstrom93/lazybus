@@ -108,7 +108,7 @@ func TestSelectBase(t *testing.T) {
 }
 
 func TestVersionLess(t *testing.T) {
-	order := []string{"v0.9.9", "v1.0.0-alpha", "v1.0.0-alpha.1", "v1.0.0-alpha.beta", "v1.0.0-beta.2", "v1.0.0-beta.11", "v1.0.0-rc.1", "v1.0.0", "v1.0.1"}
+	order := []string{"v0.9.9", "v0.10.0", "v1.0.0-rc.1", "v1.0.0", "v1.0.1", "v1.1.0", "v2.0.0"}
 	for i := 1; i < len(order); i++ {
 		a, _ := parseVersion(order[i-1])
 		b, _ := parseVersion(order[i])
@@ -134,6 +134,8 @@ func TestCompareStatuses(t *testing.T) {
 		res("Ratio", 100, true, th),         // 100 → 116: both
 		res("RatioOnly", 20, true, th),      // 20 → 25: +25% but +5 < 10
 		res("AbsoluteOnly", 1000, true, th), // 1000 → 1100: +100 but +10%
+		res("ExactRatio", 100, true, th),    // 100 → 115: exactly +15%
+		res("ExactFloor", 20, true, th),     // 20 → 30: +50% but exactly +10
 		res("Accepted", 100, true, th),
 		res("Gone", 100, true, th),
 		res("GoneInfo", 100, false, nil),
@@ -148,6 +150,8 @@ func TestCompareStatuses(t *testing.T) {
 		res("Ratio", 116, true, th),
 		res("RatioOnly", 25, true, th),
 		res("AbsoluteOnly", 1100, true, th),
+		res("ExactRatio", 115, true, th),
+		res("ExactFloor", 30, true, th),
 		res("Accepted", 200, true, th),
 		res("NotComparable", 500, false, th),
 		res("NoThreshold", 500, true, nil),
@@ -164,6 +168,7 @@ func TestCompareStatuses(t *testing.T) {
 	}
 	want := map[string]string{
 		"Faster": statusOK, "Ratio": statusRegression, "RatioOnly": statusOK, "AbsoluteOnly": statusOK,
+		"ExactRatio": statusOK, "ExactFloor": statusOK,
 		"Accepted": statusAccepted, "Gone": statusMissing, "GoneInfo": statusInfo,
 		"NotComparable": statusInfo, "NoThreshold": statusInfo, "BaseThreshold": statusRegression,
 		"Zero": statusRegression, "ZeroSame": statusOK, "Added": statusNew,

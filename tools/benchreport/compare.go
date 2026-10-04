@@ -105,16 +105,17 @@ func compare(head Snapshot, base *Snapshot) report {
 	return rep
 }
 
-// regressed: head grew by at least the absolute floor AND the ratio.
+// regressed: head grew by more than the absolute floor AND by more than
+// the ratio. Growth of exactly the floor or exactly the ratio passes.
 func regressed(base, head float64, t Threshold) bool {
 	delta := head - base
-	if delta <= 0 || delta < t.MinAbsoluteRegression {
+	if delta <= 0 || delta <= t.MinAbsoluteRegression {
 		return false
 	}
 	if base == 0 {
-		return head > 0
+		return true
 	}
-	return head/base >= t.MaxRegressionRatio
+	return head/base > t.MaxRegressionRatio
 }
 
 func byName(rs []Result) map[string]*Result {
@@ -258,8 +259,9 @@ func parseVersion(s string) (version, bool) {
 	return v, err1 == nil && err2 == nil && err3 == nil
 }
 
-// less orders versions by semver precedence: a prerelease is below its
-// stable version.
+// less orders versions by precedence as far as picking a base needs: a
+// prerelease is below its stable version. Two prereleases of one version
+// are not ordered: selectBase only ever compares with stable versions.
 func (v version) less(w version) bool {
 	if v.major != w.major {
 		return v.major < w.major
@@ -270,32 +272,7 @@ func (v version) less(w version) bool {
 	if v.patch != w.patch {
 		return v.patch < w.patch
 	}
-	switch {
-	case v.pre == w.pre:
-		return false
-	case v.pre == "":
-		return false
-	case w.pre == "":
-		return true
-	}
-	a, b := strings.Split(v.pre, "."), strings.Split(w.pre, ".")
-	for i := 0; i < len(a) && i < len(b); i++ {
-		if a[i] == b[i] {
-			continue
-		}
-		x, errX := strconv.Atoi(a[i])
-		y, errY := strconv.Atoi(b[i])
-		switch {
-		case errX == nil && errY == nil:
-			return x < y
-		case errX == nil:
-			return true // numeric identifiers sort first
-		case errY == nil:
-			return false
-		}
-		return a[i] < b[i]
-	}
-	return len(a) < len(b)
+	return v.pre != "" && w.pre == ""
 }
 
 // selectBase returns the snapshot in dir of the latest stable version below
