@@ -1,4 +1,6 @@
-# GoReleaser v2 config: GitHub release archives for linux/darwin × amd64/arm64.
+# GoReleaser v2 config: GitHub release archives for linux/darwin × amd64/arm64,
+# plus the release's benchmark snapshot. Runs in .github/workflows/release.yml
+# on a vX.Y.Z tag (docs/releasing.md); the release is published, not drafted.
 # Check locally with:
 #   goreleaser check
 #   goreleaser release --snapshot --clean   # builds into dist/, publishes nothing
@@ -68,4 +70,6 @@ release:
   github:
     owner: samuelstrom93
     name: lazybus
-  draft: true
+  draft: false
+  extra_files:
+    - glob: ./benchmarks/release/bench-{{ .Tag }}.json
