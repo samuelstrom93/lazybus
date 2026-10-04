@@ -159,7 +159,7 @@ Install the git hooks once per clone:
 ```
 
 - `pre-commit`: `gofmt -l .` must be empty, `go vet ./...`.
-- `pre-push`: `go test ./...` (unit tests and golden screens), `staticcheck ./...` if installed, `go build ./...`.
+- `pre-push`: `go test ./...` (unit tests and golden screens), `staticcheck ./...` if installed, `go build ./...`. Skipped for a push that only changes `benchmarks/release/` (the snapshot commit of a release).
 
 Golden screens live in `internal/ui/testdata/*.golden`. Regenerate them after an intended UI change and inspect the diff before committing:
 
@@ -215,7 +215,10 @@ It uses the Azure CLI credential, which needs Azure Service Bus Data Owner on th
 goreleaser check
 goreleaser release --snapshot --clean   # builds the archives into dist/, publishes nothing
 vhs docs/demo.tape                      # re-records docs/demo.gif from --demo
+./scripts/release.sh vX.Y.Z --dry-run   # measures and compares the release benchmarks, tags nothing
 ```
+
+A release is an annotated `vX.Y.Z` tag on `origin/main`, made by `./scripts/release.sh vX.Y.Z` on framen; the tag runs `.github/workflows/release.yml`, which gates on the benchmark snapshot and publishes the GitHub release. Merging to main ships nothing. Details, benchmarks and thresholds: [`docs/releasing.md`](docs/releasing.md).
 
 ## License
 

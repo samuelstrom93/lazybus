@@ -178,7 +178,7 @@ tools/seed/             emulator seeder (go run ./tools/seed)
 ## 9. Quality gate
 
 - `.githooks/pre-commit`: `gofmt -l` (fail on diff), `go vet ./...`.
-- `.githooks/pre-push` (main + tags): `go test ./...` (unit + goldens), `staticcheck` if installed, `go build ./...`. Emulator E2E excluded (`go test -tags emulator ./...` by hand; documented in README).
+- `.githooks/pre-push` (main + tags): `go test ./...` (unit + goldens), `staticcheck` if installed, `go build ./...`. Emulator E2E excluded (`go test -tags emulator ./...` by hand; documented in README). Skipped for a push that only changes `benchmarks/release/` (`docs/releasing.md`).
 - `scripts/install-hooks.sh` sets `core.hooksPath`.
 - Golden screens at 120×30 for every state listed in the slice acceptance; `go test ./internal/ui -update` regenerates. Inspect changed goldens before committing.
 - After each slice: render all goldens into one HTML page under `~/artifacts/scratch/<date>-lazybus-<slice>/index.html` (same style as the BusX slice 1 gallery) and send it with `to-macbook`; if the MacBook is offline, print the URL and continue (all gallery links go in the final report).

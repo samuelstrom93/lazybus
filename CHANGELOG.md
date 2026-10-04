@@ -22,6 +22,7 @@ The first release, planned as 0.1.0.
 - The Entities panel and the `:` jump list show the active count next to the dead-letter count.
 - `--version` and a `--help` with examples.
 - Release archives for Linux and macOS (amd64 and arm64), built with GoReleaser.
+- Tag-driven releases: `scripts/release.sh vX.Y.Z` measures the release benchmarks (startup, a 10,000-message DLQ, repair, binary size), compares them with the previous release and tags `origin/main`; the tag runs a GitHub workflow that refuses a material regression and publishes the release with the benchmark report.
 - Emulator end-to-end tests (`go test -tags emulator ./...`) and real-namespace end-to-end tests (`go test -tags azure ./...`).
 
 [Unreleased]: https://github.com/samuelstrom93/lazybus/commits/main
