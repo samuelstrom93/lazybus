@@ -13,7 +13,7 @@ No existing terminal tool does all four in one move (prior-art check 2026-10-03:
 3. strip the dead-letter markers from the outgoing copy,
 4. in a lazygit-style UI made only for Service Bus.
 
-That is **DLQ Repair** (see `CONTEXT.md`). Everything in v0.1 serves it or the browsing that leads to it.
+That is **DLQ Repair** (see `GLOSSARY.md`). Everything in v0.1 serves it or the browsing that leads to it.
 
 ## 2. Principles (non-negotiable)
 
@@ -218,7 +218,7 @@ Decided without asking: `--namespace` first and ARM discovery of all subscriptio
 
 ## 13. Carried-over knowledge from BusX
 
-- DLQ Repair semantics and outcome names (BusX ADR 0028.1, 0031, `CONTEXT.md`).
+- DLQ Repair semantics and outcome names (BusX ADR 0028.1, 0031, `GLOSSARY.md`).
 - No held locks (BusX ADR 0041).
 - Resubmit Target rules incl. rejecting topics without subscriptions (BusX ADR 0040).
 - By-sequence search must abandon siblings at once (BusX #196).

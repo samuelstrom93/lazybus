@@ -6,7 +6,7 @@ A lazygit-style terminal UI for **Azure Service Bus** dead-letter queues, built 
 
 Why another Service Bus tool: the existing ones are a desktop app (Service Bus Explorer) or the Azure portal, and neither fits a terminal over SSH at 3 a.m. lazybus does one job, **DLQ Repair**: it moves a dead-lettered message back to its queue (or to the parent topic of its subscription), optionally with edited properties or body, without the dead-letter markers, and it never holds a lock on a message outside that one call. Browsing is peek-only.
 
-**Status:** pre-release; v0.1.0 is not tagged yet. See [`CHANGELOG.md`](CHANGELOG.md), [`docs/spec.md`](docs/spec.md) for the design and [`CONTEXT.md`](CONTEXT.md) for the vocabulary.
+**Status:** pre-release; v0.1.0 is not tagged yet. See [`CHANGELOG.md`](CHANGELOG.md), [`docs/spec.md`](docs/spec.md) for the design and [`GLOSSARY.md`](GLOSSARY.md) for the vocabulary.
 
 ## Install
 
