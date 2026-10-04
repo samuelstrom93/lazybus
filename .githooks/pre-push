@@ -20,7 +20,8 @@ snapshot_only() {
     case "$local_sha" in *[!0]*) ;; *) return 1 ;; esac  # deletion
     case "$remote_sha" in *[!0]*) ;; *) return 1 ;; esac # new ref
     git cat-file -e "$remote_sha^{commit}" 2>/dev/null || return 1
-    files="$(git diff --name-only "$remote_sha" "$local_sha")" || return 1
+    # --no-renames: a rename into benchmarks/release/ also deletes the source.
+    files="$(git diff --no-renames --name-only "$remote_sha" "$local_sha")" || return 1
     [ -n "$files" ] || return 1
     if grep -qv '^benchmarks/release/' <<<"$files"; then
       return 1

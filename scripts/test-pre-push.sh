@@ -39,6 +39,9 @@ ZERO=0000000000000000000000000000000000000000
 BASE="$(commit base main.go)"
 SNAP="$(commit snapshot benchmarks/release/bench-v0.1.0.json)"
 MIXED="$(commit mixed main.go benchmarks/release/bench-v0.2.0.json)"
+git mv main.go benchmarks/release/main.go
+git commit --quiet -m rename
+RENAME="$(git rev-parse HEAD)"
 
 FAILED=0
 check() { # name, want (skip|gate), stdin lines
@@ -63,6 +66,7 @@ check "snapshot-only push" skip "refs/heads/main $SNAP refs/heads/main $BASE"
 check "mixed push" gate "refs/heads/main $MIXED refs/heads/main $SNAP"
 check "snapshot-only and mixed updates" gate "refs/heads/main $SNAP refs/heads/main $BASE
 refs/heads/other $MIXED refs/heads/other $SNAP"
+check "rename into benchmarks/release/" gate "refs/heads/main $RENAME refs/heads/main $MIXED"
 check "new branch" gate "refs/heads/new $SNAP refs/heads/new $ZERO"
 check "tag push" gate "refs/tags/v0.1.0 $SNAP refs/tags/v0.1.0 $ZERO"
 check "deletion" gate "(delete) $ZERO refs/heads/old $SNAP"
