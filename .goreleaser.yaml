@@ -71,5 +71,10 @@ release:
     owner: samuelstrom93
     name: lazybus
   draft: false
+  # vX.Y.Z-rc.N tags become GitHub prereleases, never the latest release.
+  prerelease: auto
+  # A workflow_dispatch re-run of a tag finds its release and updates it;
+  # without this, re-uploading an archive that already exists fails.
+  replace_existing_artifacts: true
   extra_files:
     - glob: ./benchmarks/release/bench-{{ .Tag }}.json

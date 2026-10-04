@@ -4,7 +4,10 @@ name: Release
 # pushes an annotated vX.Y.Z tag on the tip of origin/main. The benchmark gate
 # only compares the snapshot committed for the tag with the previous stable
 # one; measuring happens on framen before tagging (docs/releasing.md).
-# workflow_dispatch is the break-glass path for re-running an existing tag.
+# workflow_dispatch is the break-glass path for re-running an existing tag:
+# GoReleaser updates that tag's GitHub release and replaces assets that
+# already exist (release.replace_existing_artifacts in .goreleaser.yaml),
+# keeping the existing release notes.
 on:
   push:
     tags:
@@ -84,6 +87,9 @@ jobs:
 
       - name: Benchmark smoke run
         run: go test -run '^$' -bench . -benchtime 1x ./internal/ui
+
+      - name: Pre-push hook test
+        run: scripts/test-pre-push.sh
 
   benchmark-gate:
     needs: guard

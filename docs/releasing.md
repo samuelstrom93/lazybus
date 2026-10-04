@@ -34,7 +34,9 @@ The worktree is removed on every exit. To follow the run: `gh run list --workflo
 | benchmark-gate | Fails if `benchmarks/release/bench-<tag>.json` is not in the tag. Runs `benchreport compare` (no measuring in CI: GitHub runners are too noisy and a different machine class), writes the report to the job summary and uploads it with the snapshot as the `benchmark-report` artifact. |
 | release | Needs test and benchmark-gate. The only job with `contents: write`. GoReleaser builds the archives and publishes the release (not a draft), with the benchmark report as the release-notes footer and the snapshot attached. |
 
-`workflow_dispatch` with input `tag` is the break-glass path: it re-runs the whole workflow for an existing tag, for example after a transient GoReleaser failure. It does not create tags.
+`workflow_dispatch` with input `tag` is the break-glass path: it re-runs the whole workflow for an existing tag, for example after a transient GoReleaser failure. It does not create tags. If the tag's GitHub release already exists, GoReleaser updates it: assets that already exist are deleted and uploaded again (`release.replace_existing_artifacts: true`), and the existing release notes are kept (GoReleaser's default `keep-existing` mode). A release GitHub marks immutable cannot be updated: GoReleaser refuses it and the re-run fails.
+
+A `vX.Y.Z-rc.N` tag is published as a GitHub prerelease (`release.prerelease: auto`), so it never becomes the latest release.
 
 Every action is pinned to a commit SHA with its version in a comment; update them together.
 
@@ -97,7 +99,7 @@ Metrics per benchmark: `ns_per_op` (unit `ns`), `bytes_per_op` (`bytes`), `alloc
 
 ### Thresholds
 
-A metric is a material regression only when its head median is above the base median by **both** the ratio and the absolute floor. The time floors are 5–8% of the medians below, rounded, and at least 3× the run-to-run difference measured below; at today's medians the ratio is the stricter test, and the floors keep a fast benchmark's small absolute wobble from failing a release. They live in one table, `tools/benchreport/thresholds.go`; a metric without an entry never fails as a regression (it still fails as `missing` if a later release drops it).
+A metric is a material regression only when its head median exceeds the base median by more than **both** the ratio and the absolute floor; growth of exactly +15% or exactly the floor passes. The time floors are 5–8% of the medians below, rounded, and at least 3× the run-to-run difference measured below; at today's medians the ratio is the stricter test, and the floors keep a fast benchmark's small absolute wobble from failing a release. They live in one table, `tools/benchreport/thresholds.go`; a metric without an entry never fails as a regression (it still fails as `missing` if a later release drops it).
 
 | Metric | Ratio | Floor | Median on framen |
 |---|---:|---:|---:|
@@ -146,7 +148,7 @@ Per metric (the union of both snapshots, sorted by name), comparing medians, wit
 | Only in head | new | no |
 | Only in base, base comparable | missing | yes |
 | Head not comparable, or no threshold | info | no |
-| Grew by both ratio and floor (base 0: any growth past the floor) | regression | yes |
+| Grew by more than both the ratio and the floor (base 0: by more than the floor) | regression | yes |
 | … and named in head's `acceptedRegressions` | accepted | no |
 | Otherwise | ok | no |
 

@@ -130,7 +130,7 @@ NEW_SNAPSHOT=0
 if [ -f "$WT/$SNAPSHOT" ]; then
   # The snapshot may predate TARGET (an accepted regression committed
   # earlier): show which commit it measured.
-  MEASURED="$(sed -n 's/^  "gitSha": "\(.*\)",$/\1/p' "$WT/$SNAPSHOT")"
+  MEASURED="$(grep -o '"gitSha": *"[^"]*"' "$WT/$SNAPSHOT" | sed 's/.*"\([^"]*\)"$/\1/')"
   printf '    Reusing %s committed at %s, measured at %s (not measuring again).\n' \
     "$SNAPSHOT" "${TARGET:0:9}" "${MEASURED:0:9}"
 else
