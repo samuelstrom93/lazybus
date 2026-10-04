@@ -25,7 +25,7 @@ import (
 
 // onOrders opens sb-prod-weu orders (DLQ 37, seq 2…38) with Messages
 // focused.
-func onOrders(t *testing.T, be *fake.Backend) Model {
+func onOrders(t testing.TB, be *fake.Backend) Model {
 	t.Helper()
 	return keysIn(t, startWith(t, be), "2", "j", "j", "j", "enter")
 }

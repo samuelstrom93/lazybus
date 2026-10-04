@@ -17,7 +17,7 @@ func loaded(t *testing.T) Model {
 	return runCmd(t, m, m.Init())
 }
 
-func run(t *testing.T, m Model, msg tea.Msg) Model {
+func run(t testing.TB, m Model, msg tea.Msg) Model {
 	t.Helper()
 	next, cmd := m.Update(msg)
 	return runCmd(t, next.(Model), cmd)
@@ -26,7 +26,7 @@ func run(t *testing.T, m Model, msg tea.Msg) Model {
 // runCmd runs cmd and everything it leads to inline. A batch runs depth
 // first, in order: the broker call before the spinner tick, so the tick
 // finds the busy popup closed and ends.
-func runCmd(t *testing.T, m Model, cmd tea.Cmd) Model {
+func runCmd(t testing.TB, m Model, cmd tea.Cmd) Model {
 	t.Helper()
 	for cmd != nil {
 		msg := cmd()
