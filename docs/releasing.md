@@ -97,7 +97,7 @@ Metrics per benchmark: `ns_per_op` (unit `ns`), `bytes_per_op` (`bytes`), `alloc
 
 ### Thresholds
 
-A metric is a material regression only when its head median is above the base median by **both** the ratio and the absolute floor. The time floors are 5–8% of the medians below, rounded, and at least 3× the run-to-run difference measured below; at today's medians the ratio is the stricter test, and the floors keep a fast benchmark's small absolute wobble from failing a release. They live in one table, `tools/benchreport/thresholds.go`; a metric without an entry is reported but never fails.
+A metric is a material regression only when its head median is above the base median by **both** the ratio and the absolute floor. The time floors are 5–8% of the medians below, rounded, and at least 3× the run-to-run difference measured below; at today's medians the ratio is the stricter test, and the floors keep a fast benchmark's small absolute wobble from failing a release. They live in one table, `tools/benchreport/thresholds.go`; a metric without an entry never fails as a regression (it still fails as `missing` if a later release drops it).
 
 | Metric | Ratio | Floor | Median on framen |
 |---|---:|---:|---:|
@@ -114,9 +114,7 @@ A metric is a material regression only when its head median is above the base me
 
 The heap floor is 1 MiB, not 8 MiB: 10,000 loaded rows retain about 3.7 MiB, so an 8 MiB floor could never fire.
 
-Run-to-run noise on framen (two full `benchreport run`s back to back, medians):
-
-Measured 2026-10-04 with the defaults (two runs back to back, with other agents' work on the machine, load average 1.5–5):
+Run-to-run noise on framen. Measured 2026-10-04 with the defaults (two runs back to back, with other agents' work on the machine, load average 1.5–5):
 
 | Metric | Run 1 median (min–max) | Run 2 median (min–max) | Δ median |
 |---|---:|---:|---:|

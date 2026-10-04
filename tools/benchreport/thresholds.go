@@ -16,7 +16,7 @@ const (
 // gate only when its median grows by the ratio AND by the absolute floor;
 // the time floors sit at 5–8% of the medians measured on framen and at
 // least 3× run-to-run noise (docs/releasing.md lists the measurements). A
-// metric missing here is reported but never fails the gate.
+// metric missing here never fails as a regression.
 var thresholds = map[string]Threshold{
 	"StartupFirstFrame/ns_per_op": timeT(20e3),  // 20 µs
 	"LoadLargeList/ns_per_op":     timeT(4e6),   // 4 ms

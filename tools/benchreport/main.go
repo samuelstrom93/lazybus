@@ -128,7 +128,7 @@ func compareCmd(args []string, stdout, stderr io.Writer) (failed bool, err error
 	}
 	head, err := readSnapshot(*headPath)
 	if errors.Is(err, os.ErrNotExist) {
-		return false, fmt.Errorf("%s not found: run `go run ./tools/benchreport run -version %s` first", *headPath, *version)
+		return false, fmt.Errorf("%s not found: run `go run ./tools/benchreport run -version <version> -out %s` first", *headPath, *headPath)
 	}
 	if err != nil {
 		return false, err
