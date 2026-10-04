@@ -1,8 +1,38 @@
 #!/usr/bin/env bash
 # Full gate: tests (unit + goldens), staticcheck if installed, build.
 # Emulator E2E tests are excluded; run `go test -tags emulator ./...` by hand.
+#
+# Skipped only when every pushed update moves an existing ref and changes
+# nothing outside benchmarks/release/ (the snapshot commit scripts/release.sh
+# pushes to main). New refs (tags included), deletions and anything else run
+# the gate. scripts/test-pre-push.sh checks this.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
+
+# stdin: one "<local ref> <local sha> <remote ref> <remote sha>" per update.
+updates="$(cat)"
+
+snapshot_only() {
+  local local_ref local_sha remote_ref remote_sha files any=0
+  while read -r local_ref local_sha remote_ref remote_sha; do
+    [ -n "$local_ref" ] || continue
+    any=1
+    case "$local_sha" in *[!0]*) ;; *) return 1 ;; esac  # deletion
+    case "$remote_sha" in *[!0]*) ;; *) return 1 ;; esac # new ref
+    git cat-file -e "$remote_sha^{commit}" 2>/dev/null || return 1
+    files="$(git diff --name-only "$remote_sha" "$local_sha")" || return 1
+    [ -n "$files" ] || return 1
+    if grep -qv '^benchmarks/release/' <<<"$files"; then
+      return 1
+    fi
+  done <<<"$updates"
+  [ "$any" = 1 ]
+}
+
+if snapshot_only; then
+  echo "pre-push: only benchmarks/release/ changed, skipping the full gate" >&2
+  exit 0
+fi
 
 go test ./...
 
