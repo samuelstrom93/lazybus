@@ -155,7 +155,7 @@ fi
 if [ "$DRY_RUN" = "1" ]; then
   printf '\n%sDry run: nothing committed, pushed or tagged.%s\n' "$YELLOW" "$RESET"
   if [ "$NEW_SNAPSHOT" = "1" ]; then
-    printf '%sWould commit %s ("chore(release): benchmark snapshot %s") on %s, push it to main, then tag that commit %s and push the tag.%s\n' \
+    printf '%sWould commit %s ("chore(release): benchmark snapshot %s") on %s, tag that commit %s and push main and the tag in one atomic push.%s\n' \
       "$YELLOW" "$SNAPSHOT" "$VERSION" "${TARGET:0:9}" "$VERSION" "$RESET"
   else
     printf '%sWould tag %s at %s and push the tag.%s\n' "$YELLOW" "$VERSION" "${TARGET:0:9}" "$RESET"
@@ -178,11 +178,6 @@ if [ "$NEW_SNAPSHOT" = "1" ]; then
     fail "git commit failed — nothing pushed or tagged"
   TAG_TARGET="$(git -C "$WT" rev-parse HEAD)"
 
-  # A plain fast-forward: if main moved since the fetch the push is
-  # rejected, and the new tip has to be measured instead.
-  step "Pushing the snapshot commit to main"
-  git -C "$WT" push origin HEAD:refs/heads/main ||
-    fail "Pushing the snapshot to main failed (did main move?) — nothing tagged. Rerun to release the new tip."
 fi
 
 step "Creating annotated tag $VERSION"
@@ -190,10 +185,13 @@ git tag -a "$VERSION" "$TAG_TARGET" -m "Release $VERSION" || fail "git tag faile
 
 # Pushed from the worktree, so the pre-push hook gates the tagged tree.
 step "Pushing tag"
-if ! git -C "$WT" push origin "refs/tags/$VERSION"; then
+# One atomic push: main (snapshot commit) and the tag land together or not at all.
+PUSH_REFS=("refs/tags/$VERSION")
+[ "$NEW_SNAPSHOT" = "1" ] && PUSH_REFS=("$TAG_TARGET:refs/heads/main" "refs/tags/$VERSION")
+if ! git -C "$WT" push --atomic origin "${PUSH_REFS[@]}"; then
   git tag -d "$VERSION" >/dev/null 2>&1
   if [ "$NEW_SNAPSHOT" = "1" ]; then
-    fail "git push failed — local tag removed, nothing was released. The snapshot commit is already on main; rerunning reuses it."
+    fail "Atomic push failed (did main move?) — local tag removed, nothing pushed or released. Rerun to release the new tip."
   fi
   fail "git push failed — local tag removed, nothing was released"
 fi

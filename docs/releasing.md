@@ -16,8 +16,8 @@ Merging to main ships nothing. A release is an annotated `vX.Y.Z` tag on the tip
 3. Checks out that commit in a temporary detached worktree, so nothing in your checkout leaks into the measurement.
 4. If `benchmarks/release/bench-vX.Y.Z.json` is already committed there, reuses it. Otherwise measures it with `go run ./tools/benchreport run -version vX.Y.Z` (about 2 minutes).
 5. Runs `go run ./tools/benchreport compare -version vX.Y.Z` and prints the Markdown report. A material regression aborts here; nothing is committed or tagged.
-6. Asks for confirmation. If it measured a new snapshot, commits it (`chore(release): benchmark snapshot vX.Y.Z`) and pushes it to main as a plain fast-forward; if main moved meanwhile the push is rejected and nothing is tagged (rerun to release the new tip).
-7. Tags that commit (`Release vX.Y.Z`) and pushes only the tag, from the worktree, so the pre-push hook runs the full gate on the tagged tree. If the push fails the local tag is deleted; a snapshot commit already pushed to main is reused by the rerun.
+6. Asks for confirmation. If it measured a new snapshot, commits it (`chore(release): benchmark snapshot vX.Y.Z`).
+7. Tags that commit (`Release vX.Y.Z`) and pushes main and the tag in one `git push --atomic` from the worktree, so both land or neither does and the pre-push hook runs the full gate on the tagged tree. If main moved meanwhile the push is rejected, the local tag is deleted and nothing is released (rerun to release the new tip).
 
 The worktree is removed on every exit. To follow the run: `gh run list --workflow release.yml --limit 1`, then `gh run watch`.
 
@@ -165,7 +165,7 @@ When a release knowingly gets slower (a feature that costs time, say):
      {"name": "ViewLargeList/ns_per_op", "reason": "rows render the new age column"}
    ]
    ```
-3. Commit and push the snapshot to main (the pre-push gate is skipped, see below).
+3. Commit the snapshot; it is pushed atomically with the tag.
 4. `./scripts/release.sh vX.Y.Z`: it reuses the committed snapshot. The reason shows under the report in the release notes.
 
 `benchreport run` keeps the `acceptedRegressions` of an existing snapshot it overwrites. A `missing` metric (a benchmark removed or renamed) cannot be accepted.
