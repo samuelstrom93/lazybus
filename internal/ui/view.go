@@ -310,11 +310,10 @@ func (m Model) messageRows(width, n int) []string {
 	} else if m.subQueue == bus.DeadLetter {
 		empty = "dead-letter queue is empty"
 	}
-	digits := 1
-	reasonMax := 0
-	for _, msg := range m.messages.all {
-		digits = max(digits, len(strconv.FormatInt(msg.SequenceNumber, 10)))
-		reasonMax = max(reasonMax, ansi.StringWidth(sanitize(m.rowReason(msg))))
+	digits := max(1, m.msgCols.digits)
+	reasonMax := m.msgCols.dlqReason
+	if m.subQueue == bus.Active {
+		reasonMax = m.msgCols.subject
 	}
 	// cursor(2) seq " " time(5) " " reason " " id
 	rest := width - 2 - digits - 1 - 5 - 1
@@ -353,6 +352,25 @@ func (m Model) messageRows(width, n int) []string {
 			}
 			return segs
 		})
+}
+
+// msgCols are the widest values of the message list's columns: the
+// sequence number's digits and the sanitized reason for both
+// sub-queues, so a sub-queue switch needs no new measure.
+type msgCols struct {
+	digits    int
+	subject   int // reason column on the Active sub-queue
+	dlqReason int // reason column on the dead-letter sub-queue
+}
+
+// add returns c widened to fit msgs.
+func (c msgCols) add(msgs []bus.Message) msgCols {
+	for _, msg := range msgs {
+		c.digits = max(c.digits, len(strconv.FormatInt(msg.SequenceNumber, 10)))
+		c.subject = max(c.subject, ansi.StringWidth(sanitize(msg.Subject)))
+		c.dlqReason = max(c.dlqReason, ansi.StringWidth(sanitize(msg.DeadLetterReason)))
+	}
+	return c
 }
 
 func (m Model) rowReason(msg bus.Message) string {

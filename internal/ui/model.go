@@ -196,6 +196,9 @@ type Model struct {
 	namespaces list[nsRow]
 	entities   list[bus.Entity]
 	messages   list[bus.Message]
+	// msgCols are the column widths of messages.all, kept in step with it
+	// so a frame does not measure every loaded row.
+	msgCols msgCols
 
 	disc    discoveryState
 	discSem chan struct{} // bounds the discovery calls in flight
@@ -334,6 +337,7 @@ func (m *Model) peek(ns bus.Namespace, ent bus.Entity, sub bus.SubQueue) tea.Cmd
 // lines, which belong to the old list.
 func (m *Model) resetMessages() {
 	m.messages.reset()
+	m.msgCols = msgCols{}
 	m.hasAfterPage = false
 	m.hasKeepIndex = false
 	m.clearLines()
@@ -470,8 +474,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.messages.more = len(msg.items) > 0
 		if msg.from > 0 {
-			all := m.messages.all
-			m.messages.setAll(append(all[:len(all):len(all)], msg.items...), m.messageText)
+			// Appended in place, amortized: older Model copies only see
+			// their own length, and only the current Model pages on.
+			m.messages.setAll(append(m.messages.all, msg.items...), m.messageText)
+			m.msgCols = m.msgCols.add(msg.items)
 			m.logf(false, "peek %s from %d → %d", label, msg.from, len(msg.items))
 			if m.hasAfterPage {
 				m.hasAfterPage = false
@@ -481,7 +487,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			break
 		}
 		m.clearLines()
-		m.messages.setAll(msg.items, m.messageText)
+		// Clipped: the first append copies, so paging never writes into
+		// spare capacity of the backend's slice.
+		m.messages.setAll(msg.items[:len(msg.items):len(msg.items)], m.messageText)
+		m.msgCols = msgCols{}.add(msg.items)
 		// A first page replaces the list: a cursor move pending for a next
 		// page no longer applies.
 		m.hasAfterPage = false

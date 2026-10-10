@@ -835,3 +835,31 @@ func TestRepairGoldens(t *testing.T) {
 		})
 	}
 }
+
+// The message columns are measured as rows arrive and leave, not per
+// frame: after each change they match a fresh measure of every row.
+func TestMessageColumnsTrackTheList(t *testing.T) {
+	// Seq 2…100: only the last row, on the second page, has 3 digits.
+	be := fake.New(fake.WithDeadLetters("sb-prod-weu", "orders", 99))
+	check := func(m Model, step string, digits int) {
+		t.Helper()
+		if want := (msgCols{}).add(m.messages.all); m.msgCols != want || m.msgCols.digits != digits {
+			t.Fatalf("%s: columns %+v, want %+v with %d digits", step, m.msgCols, want, digits)
+		}
+	}
+	m := onOrders(t, be)
+	check(m, "first page", 2)
+	first := m
+	for m.messages.more {
+		m = keysIn(t, m, "G")
+	}
+	check(m, "all pages", 3)
+	if len(first.messages.all) != bus.PageSize {
+		t.Fatalf("older copy: %d rows, want %d", len(first.messages.all), bus.PageSize)
+	}
+	if seq := selectedSeq(t, m); seq != 100 {
+		t.Fatalf("setup: cursor on seq %d, want 100", seq)
+	}
+	m = keysIn(t, m, "r", "y")
+	check(m, "repair of the widest row", 2)
+}

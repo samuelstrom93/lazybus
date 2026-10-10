@@ -454,6 +454,8 @@ func (m *Model) removeRow(req bus.RepairRequest) tea.Cmd {
 	v := m.messages.visibleIndex(i)
 	// A new slice: older Model copies keep theirs.
 	m.messages.setAll(append(all[:i:i], all[i+1:]...), m.messageText)
+	// The removed row may have been the widest: measure again.
+	m.msgCols = msgCols{}.add(m.messages.all)
 	if v >= 0 && m.messages.cursor > v {
 		m.messages.cursor--
 	}
