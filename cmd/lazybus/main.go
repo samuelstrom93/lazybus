@@ -51,10 +51,11 @@ Browse, peek, edit and resubmit dead-lettered messages.
 Usage:
   lazybus [flags]
 
-Without --namespace, --connection-string, --emulator or --demo, lazybus
-discovers your namespaces from az login. With --entity it opens only the
-entities named, without listing them (listing needs Manage rights) and
-without discovery.
+Without --namespace, --entity or --demo, lazybus discovers your namespaces
+from az login; --connection-string and --emulator add their namespace on
+top of the discovered ones. With --entity it opens only the entities
+named, without listing them (listing needs Manage rights) and without
+discovery.
 
 Examples:
   lazybus                                   discover namespaces from az login
