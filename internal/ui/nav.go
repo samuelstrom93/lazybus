@@ -257,12 +257,17 @@ func (m Model) copySelected(cur ContextID) (Model, tea.Cmd) {
 		}
 		return m.copyText(f.value, f.label+" "+f.value)
 	}
-	if len(msg.Body) == 0 {
-		m.setStatus(statusInfo, "the body is empty: nothing copied")
+	// The Body tab shows the pending body when there is one; copy that.
+	body, what := msg.Body, "body"
+	if ed := m.editsOf(msg.SequenceNumber); ed.BodyEdited {
+		body, what = ed.Body, "pending body"
+	}
+	if len(body) == 0 {
+		m.setStatus(statusInfo, "the %s is empty: nothing copied", what)
 		return m, nil
 	}
-	return m.copyText(string(msg.Body), fmt.Sprintf("body of %s seq %d (%d bytes)",
-		entityLabel(*m.openEntity, m.subQueue), msg.SequenceNumber, len(msg.Body)))
+	return m.copyText(string(body), fmt.Sprintf("%s of %s seq %d (%d bytes)",
+		what, entityLabel(*m.openEntity, m.subQueue), msg.SequenceNumber, len(body)))
 }
 
 // copyMessageID handles Y.

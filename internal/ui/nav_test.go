@@ -291,6 +291,18 @@ func TestCopy(t *testing.T) {
 	}
 }
 
+func TestCopyPendingBody(t *testing.T) {
+	// y on the Body tab copies the body it shows: the pending one.
+	fakeEditor(t, "{\n  \"orderId\": 1\n}", nil)
+	rec := &clipRecorder{}
+	m := onOrders(t, fake.New())
+	m.clip = rec.clipboard()
+	m = keysIn(t, m, "E", "0", "y")
+	if len(rec.texts) != 1 || rec.texts[0] != "{\n  \"orderId\": 1\n}" || m.status.text != "copied pending body of orders/$DLQ seq 2 (18 bytes)" {
+		t.Fatalf("copied %q, status %q", rec.texts, m.status.text)
+	}
+}
+
 func TestClipboardBytes(t *testing.T) {
 	if got := osc52("hi"); got != "\x1b]52;c;aGk=\a" {
 		t.Fatalf("osc52 = %q", got)

@@ -86,7 +86,7 @@ Rule: same letter = analogous action in every context; lowercase = common action
 | | `/` | filter focused list (`esc` clears) |
 | | `:` | jump to entity by name (fuzzy, current namespace) |
 | | `R` | refresh focused panel |
-| | `y` | copy the selected thing: body (Body tab), value (Properties), field (System) — OSC 52 |
+| | `y` | copy the selected thing: body (Body tab; the pending body when edited), value (Properties), field (System) — OSC 52 |
 | | `Y` | copy MessageId |
 | | `?` | searchable keybindings menu |
 | | `esc` | back / close popup |
