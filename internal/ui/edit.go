@@ -11,6 +11,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/samuelstrom93/lazybus/internal/bus"
 )
@@ -599,11 +600,17 @@ var typeHints = map[bus.PropertyType]string{
 // tailFit shows the end of s in width cells: what is being typed stays
 // visible.
 func tailFit(s string, width int) string {
-	r := []rune(sanitize(s))
-	if len(r) <= width {
-		return string(r)
+	s = sanitize(s)
+	w := ansi.StringWidth(s)
+	if w <= width {
+		return s
 	}
-	return "…" + string(r[len(r)-(width-1):])
+	cut := w - (width - 1)
+	t := ansi.TruncateLeft(s, cut, "")
+	if ansi.StringWidth(t) > width-1 { // a wide character straddled the cut
+		t = ansi.TruncateLeft(s, cut+1, "")
+	}
+	return "…" + t
 }
 
 func (m Model) overlayEdit(screen string) string {

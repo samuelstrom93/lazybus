@@ -109,6 +109,14 @@ func TestPropertyEditNullUnchanged(t *testing.T) {
 	}
 }
 
+func TestEditPopupTailFitsWideText(t *testing.T) {
+	m := keysIn(t, onProperties(t, fake.New()), "a")
+	m = run(t, m, tea.PasteMsg{Content: strings.Repeat("日本", 30) + "END"})
+	if s := screenText(m); !strings.Contains(s, "日本END▏") {
+		t.Fatalf("typed end or cursor cut off:\n%s", s)
+	}
+}
+
 func TestPropertyAddAndRemove(t *testing.T) {
 	m := onProperties(t, fake.New())
 	m = typeText(t, keysIn(t, m, "a"), "region")
