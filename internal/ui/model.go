@@ -707,13 +707,14 @@ func (m Model) handlePanelKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 }
 
 // rowIsNotOpen reports whether l on Namespaces or Entities should open the
-// selected row, as enter does: the row differs from the open namespace or
-// entity. Otherwise l only moves focus.
+// selected row, as enter does: the row is a namespace or entity that differs
+// from the open one. Otherwise, as on a loading or failed subscription row, l
+// only moves focus.
 func (m Model) rowIsNotOpen(cur ContextID) bool {
 	switch cur {
 	case CtxNamespaces:
 		r, ok := m.namespaces.selected()
-		return ok && (m.openNS == nil || r.ns != *m.openNS)
+		return ok && r.kind == rowNamespace && (m.openNS == nil || r.ns != *m.openNS)
 	case CtxEntities:
 		ent, ok := m.entities.selected()
 		return ok && m.openNS != nil && (m.openEntity == nil || ent.Path != m.openEntity.Path || ent.Kind != m.openEntity.Kind)

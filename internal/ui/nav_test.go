@@ -425,6 +425,11 @@ func TestDiscovery(t *testing.T) {
 	if m.openNS == nil || m.openNS.Name != "sb-prod-weu" {
 		t.Fatalf("open namespace %+v", m.openNS)
 	}
+	// l on the failed placeholder row cannot open it, so it moves focus.
+	m = keysIn(t, m, "1", "j", "j", "l")
+	if m.stack.Top() != CtxEntities || m.openNS.Name != "sb-prod-weu" {
+		t.Fatalf("l on a failed row: top %v, open %s, status %q", m.stack.Top(), m.openNS.Name, m.status.text)
+	}
 	m = keysIn(t, m, "1", "G")
 	if s := screenText(m); !strings.Contains(s, "Resource group   rg-messaging-dev") || !strings.Contains(s, "Subscription     contoso-dev") {
 		t.Fatalf("namespace details:\n%s", s)
