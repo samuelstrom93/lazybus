@@ -348,6 +348,10 @@ func (m Model) saveEdit() (Model, tea.Cmd) {
 			m.edit.err, m.edit.field = e.typ.String()+": "+err.Error(), fieldValue
 			return m, nil
 		}
+		// A null property is shown as "null"; saving that text keeps the null.
+		if o, ok := findProp(e.msg.Properties, k); ok && o.Value == nil && o.Type == e.typ && e.value == propertyValue(o, m.opts.Location) {
+			v = nil
+		}
 		next, err = cur.SetProperty(e.msg.Properties, bus.PropertyEdit{Key: k, Type: e.typ, Value: v})
 		if err != nil {
 			m.edit.err = k + ": " + err.Error()

@@ -88,6 +88,27 @@ func TestPropertyEditPopupChangeKeepsType(t *testing.T) {
 	}
 }
 
+func TestPropertyEditNullUnchanged(t *testing.T) {
+	m := onProperties(t, fake.New())
+	seq := selectedSeq(t, m)
+	for i, it := range m.messages.items {
+		if it.SequenceNumber == seq { // tenant (first row) is an AMQP null
+			props := append([]bus.Property(nil), it.Properties...)
+			props[0].Value = nil
+			m.messages.items[i].Properties = props
+		}
+	}
+	m = keysIn(t, m, "g", "e", "enter")
+	if m.edit.value != "null" || !editsOfSelected(t, m).IsZero() || m.pendingCount() != 0 {
+		t.Fatalf("unchanged null made an edit: %+v (status %q)", editsOfSelected(t, m), m.status.text)
+	}
+	m = typeText(t, keysIn(t, m, "e", "ctrl+u"), "eu")
+	m = keysIn(t, m, "enter")
+	if pe, ok := editsOfSelected(t, m).Property("tenant"); !ok || pe.Value != "eu" {
+		t.Fatalf("null to a value: %+v", pe)
+	}
+}
+
 func TestPropertyAddAndRemove(t *testing.T) {
 	m := onProperties(t, fake.New())
 	m = typeText(t, keysIn(t, m, "a"), "region")
