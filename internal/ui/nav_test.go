@@ -381,6 +381,28 @@ func TestActiveTabSessionful(t *testing.T) {
 	}
 }
 
+// notAllowedActive refuses the Active peek with a not-allowed that is not
+// the sessionful one.
+type notAllowedActive struct{ *fake.Backend }
+
+func (b notAllowedActive) Peek(ctx context.Context, req bus.PeekRequest) ([]bus.Message, error) {
+	if req.SubQueue == bus.Active {
+		return nil, &bus.Error{Kind: bus.ErrNotAllowed, Op: "peek " + req.Entity.Path, Msg: "auto-forwarding is enabled"}
+	}
+	return b.Backend.Peek(ctx, req)
+}
+
+func TestActiveTabNotAllowedIsAnError(t *testing.T) {
+	m := keysIn(t, startWith(t, notAllowedActive{fake.New()}), "3", "tab")
+	s := screenText(m)
+	if !strings.Contains(s, "auto-forwarding is enabled") || strings.Contains(s, "press tab.") {
+		t.Fatalf("not-allowed Active:\n%s", s)
+	}
+	if len(m.log) == 0 || !m.log[len(m.log)-1].err || !strings.Contains(m.log[len(m.log)-1].text, "auto-forwarding is enabled") {
+		t.Fatalf("log: %+v", m.log)
+	}
+}
+
 // noConfigured has discovery only: no namespace given on the command line.
 type noConfigured struct{ *fake.Backend }
 

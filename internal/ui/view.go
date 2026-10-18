@@ -221,9 +221,10 @@ func listStatus[T any](l list[T], empty string) []seg {
 }
 
 // isSessionful reports whether err is the Active-tab peek of a sessionful
-// entity: not a failure, a v0.1 limit (spec §4 panel 3).
+// entity: not a failure, a v0.1 limit (spec §4 panel 3). Other
+// not-allowed refusals (an auto-forwarding entity, say) are errors.
 func (m Model) isSessionful(err error) bool {
-	return m.subQueue == bus.Active && bus.KindOf(err) == bus.ErrNotAllowed
+	return m.subQueue == bus.Active && bus.KindOf(err) == bus.ErrNotAllowed && shortErr(err) == bus.SessionfulActive
 }
 
 // shortErr is the error text for a panel: a *bus.Error without its
