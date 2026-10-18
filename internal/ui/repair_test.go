@@ -741,6 +741,14 @@ func TestRepairGoldens(t *testing.T) {
 			next, _ := m.Update(press("y"))
 			return next.(Model)
 		}},
+		{"executing-quit", func(t *testing.T) Model {
+			// A signal during the call: the deferred quit is on screen.
+			m := keysIn(t, onOrders(t, fake.New()), "r")
+			next, _ := m.Update(press("y"))
+			m = next.(Model)
+			next, _ = m.Update(Filter(m, tea.QuitMsg{}))
+			return next.(Model)
+		}},
 		{"outcome-resubmitted", func(t *testing.T) Model { return keysIn(t, onOrders(t, fake.New()), "r", "y") }},
 		{"outcome-notfound", func(t *testing.T) Model {
 			be := fake.New()

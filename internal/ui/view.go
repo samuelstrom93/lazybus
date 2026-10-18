@@ -807,7 +807,9 @@ func (m Model) renderOptions() string {
 	rw := segsWidth(right)
 
 	left := []seg{{" ", stPlain}}
-	if m.status.text != "" && m.stack.AtRoot() {
+	// A quit deferred during a call says so while the busy popup is open.
+	deferredQuit := m.stack.Top() == CtxBusy && m.quitAfterCall != nil
+	if m.status.text != "" && (m.stack.AtRoot() || deferredQuit) {
 		// The status bar: an outcome or a refusal, until the next key.
 		left = append(left, seg{m.status.text, levelStyle(m.status.level)})
 		l := row(left, max(0, m.width-rw-1), false)
