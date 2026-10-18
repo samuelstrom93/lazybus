@@ -254,6 +254,11 @@ func TestUnsupportedBody(t *testing.T) {
 		{raw(one, uint64(42)), "message-id is ulong"},
 		{raw(one, []byte{1}), "message-id is binary"},
 		{raw(azservicebus.AMQPAnnotatedMessageBody{Value: 1}, amqp.UUID{}), "AMQP value body, message-id is uuid"},
+		// The SDK drops a non-string correlation-id on receive.
+		{&azservicebus.AMQPAnnotatedMessage{Body: one, Properties: &azservicebus.AMQPAnnotatedMessageProperties{
+			MessageID: "m-1", CorrelationID: amqp.UUID{}}}, "correlation-id is uuid"},
+		{&azservicebus.AMQPAnnotatedMessage{Body: one, Properties: &azservicebus.AMQPAnnotatedMessageProperties{
+			MessageID: "m-1", CorrelationID: "corr"}}, ""},
 	} {
 		if got := unsupported(tc.raw); got != tc.want {
 			t.Errorf("unsupported(%+v) = %q, want %q", tc.raw, got, tc.want)

@@ -75,7 +75,7 @@ func (b *Backend) Messages(ns, path string, kind bus.EntityKind, sub bus.SubQueu
 
 // SetUnsupported marks DLQ message seq as one whose AMQP body or
 // message-id a repair can't copy (bus.Message.Unsupported), as the Azure
-// driver reports a value body or a non-string message-id.
+// driver reports a value body or a non-string message-id or correlation-id.
 func (b *Backend) SetUnsupported(ns, path string, kind bus.EntityKind, seq int64, why string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()

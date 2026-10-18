@@ -54,8 +54,9 @@ func toMessage(m *azservicebus.ReceivedMessage) bus.Message {
 }
 
 // unsupported says why a repair's copy of raw would lose data: the SDK
-// sends the copy as one data section with a string message-id, so any
-// other body or message-id type can't be carried over (spec §6 step 1).
+// sends the copy as one data section with a string message-id and
+// correlation-id, so any other body or id type can't be carried over
+// (spec §6 step 1).
 func unsupported(raw *azservicebus.AMQPAnnotatedMessage) string {
 	if raw == nil {
 		return ""
@@ -69,20 +70,30 @@ func unsupported(raw *azservicebus.AMQPAnnotatedMessage) string {
 	case len(b.Data) != 1:
 		why = append(why, fmt.Sprintf("%d data sections", len(b.Data)))
 	}
-	if raw.Properties != nil && raw.Properties.MessageID != nil {
-		switch id := raw.Properties.MessageID.(type) {
-		case string:
-		case uint64:
-			why = append(why, "message-id is ulong")
-		case amqp.UUID:
-			why = append(why, "message-id is uuid")
-		case []byte:
-			why = append(why, "message-id is binary")
-		default:
-			why = append(why, fmt.Sprintf("message-id is %T", id))
-		}
+	if raw.Properties != nil {
+		// The SDK keeps only string ids: a non-string correlation-id is
+		// dropped on receive, so the copy would go out without one.
+		why = appendIDType(why, "message-id", raw.Properties.MessageID)
+		why = appendIDType(why, "correlation-id", raw.Properties.CorrelationID)
 	}
 	return strings.Join(why, ", ")
+}
+
+// appendIDType adds why id (an AMQP message-id or correlation-id) is not
+// a string; a nil or string id adds nothing.
+func appendIDType(why []string, name string, id any) []string {
+	switch id := id.(type) {
+	case nil, string:
+		return why
+	case uint64:
+		return append(why, name+" is ulong")
+	case amqp.UUID:
+		return append(why, name+" is uuid")
+	case []byte:
+		return append(why, name+" is binary")
+	default:
+		return append(why, fmt.Sprintf("%s is %T", name, id))
+	}
 }
 
 // toProperty maps an AMQP application property value to a bus.Property.
