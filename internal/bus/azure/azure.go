@@ -62,14 +62,16 @@ func New() *Backend {
 	return b
 }
 
-// conn is one namespace: a data-plane client, an admin client, the
-// receivers opened for peeking, and the senders of DLQ Repair. A repair's
-// peek-lock receiver lives only for its call.
+// conn is one namespace: a data-plane client, a send client, an admin
+// client, the receivers opened for peeking, and the senders of DLQ Repair.
+// A repair's peek-lock receiver lives only for its call.
 type conn struct {
-	ns       bus.Namespace
-	client   *azservicebus.Client
-	admin    *admin.Client
-	emulator bool // never call runtime-properties APIs (S−1: they fail or panic)
+	ns     bus.Namespace
+	client *azservicebus.Client
+	// sendClient makes DLQ Repair's senders; see sendClientOptions.
+	sendClient *azservicebus.Client
+	admin      *admin.Client
+	emulator   bool // never call runtime-properties APIs (S−1: they fail or panic)
 	// entities, when set (--entity), is the entity list: nothing is
 	// listed, which needs Manage rights.
 	entities []bus.Entity
@@ -105,6 +107,9 @@ func (b *Backend) AddConnectionString(cs string, emulatorAdminPort int) (bus.Nam
 	}
 	c := newConn(bus.Namespace{}, cfg.emulator)
 	if c.client, err = azservicebus.NewClientFromConnectionString(cs, nil); err != nil {
+		return bus.Namespace{}, fmt.Errorf("connection string: %w", err)
+	}
+	if c.sendClient, err = azservicebus.NewClientFromConnectionString(cs, sendClientOptions()); err != nil {
 		return bus.Namespace{}, fmt.Errorf("connection string: %w", err)
 	}
 	if cfg.emulator {
@@ -174,6 +179,9 @@ func (b *Backend) addTokenNamespace(ns bus.Namespace, cred azcore.TokenCredentia
 	if c.client, err = azservicebus.NewClient(ns.FQDN, cred, nil); err != nil {
 		return bus.Namespace{}, fmt.Errorf("namespace %s: %w", ns.FQDN, err)
 	}
+	if c.sendClient, err = azservicebus.NewClient(ns.FQDN, cred, sendClientOptions()); err != nil {
+		return bus.Namespace{}, fmt.Errorf("namespace %s: %w", ns.FQDN, err)
+	}
 	if c.admin, err = admin.NewClient(ns.FQDN, cred, nil); err != nil {
 		return bus.Namespace{}, fmt.Errorf("namespace %s: %w", ns.FQDN, err)
 	}
@@ -187,6 +195,7 @@ func (b *Backend) add(c *conn) bus.Namespace {
 	for _, have := range b.conns {
 		if have.ns.FQDN == c.ns.FQDN {
 			_ = c.client.Close(context.Background())
+			_ = c.sendClient.Close(context.Background())
 			return have.ns
 		}
 	}
@@ -212,7 +221,7 @@ func (b *Backend) Close(ctx context.Context) error {
 			delete(c.senders, k)
 		}
 		c.mu.Unlock()
-		errs = append(errs, c.client.Close(ctx))
+		errs = append(errs, c.client.Close(ctx), c.sendClient.Close(ctx))
 	}
 	return errors.Join(errs...)
 }

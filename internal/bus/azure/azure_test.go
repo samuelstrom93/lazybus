@@ -369,3 +369,28 @@ func TestSendDefinite(t *testing.T) {
 		}
 	}
 }
+
+// TestSendClientNoRetries: a resubmit's send is one attempt, so the error
+// sendDefinite classifies is the only one (spec §6 step 3.4).
+func TestSendClientNoRetries(t *testing.T) {
+	if r := sendClientOptions().RetryOptions.MaxRetries; r >= 0 {
+		t.Fatalf("send client MaxRetries = %d, want < 0 (no retries)", r)
+	}
+	b := New()
+	defer b.Close(context.Background())
+	if _, err := b.AddConnectionString(EmulatorConnectionString("localhost", 5682), 5310); err != nil {
+		t.Fatal(err)
+	}
+	cred, err := azidentity.NewAzureCLICredential(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.AddNamespace("sb-prod-weu", cred); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range b.conns {
+		if c.sendClient == nil || c.sendClient == c.client {
+			t.Errorf("%s: senders share the retrying client", c.ns.Name)
+		}
+	}
+}

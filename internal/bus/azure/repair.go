@@ -338,6 +338,17 @@ func optional(s string) *string {
 	return &s
 }
 
+// sendClientOptions turns off the SDK's send retries. sendDefinite
+// classifies one error, so it must be the only attempt: with retries an
+// earlier attempt may have delivered the copy (a link drop) while the last
+// one is rejected (server-busy), and the row would say SendFailed (nothing
+// changed) for a copy that exists (spec §6 step 3.4). The SDK applies retry
+// options per client, so senders get a client of their own.
+func sendClientOptions() *azservicebus.ClientOptions {
+	// MaxRetries < 0: one try and no retries (azservicebus v1.10.0).
+	return &azservicebus.ClientOptions{RetryOptions: azservicebus.RetryOptions{MaxRetries: -1}}
+}
+
 // sender returns the cached sender for a queue or topic.
 func (c *conn) sender(name string) (*azservicebus.Sender, error) {
 	c.mu.Lock()
@@ -345,7 +356,7 @@ func (c *conn) sender(name string) (*azservicebus.Sender, error) {
 	if s, ok := c.senders[name]; ok {
 		return s, nil
 	}
-	s, err := c.client.NewSender(name, nil)
+	s, err := c.sendClient.NewSender(name, nil)
 	if err != nil {
 		return nil, err
 	}
