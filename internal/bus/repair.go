@@ -653,7 +653,7 @@ func bodyGuard(op string, m Message) error {
 	if m.Unsupported == "" {
 		return nil
 	}
-	return refused(op, "unsupported AMQP body/message-id; not repaired (%s)", m.Unsupported)
+	return refused(op, "unsupported AMQP body or id; not repaired (%s)", m.Unsupported)
 }
 
 // lockDeadline is the time a lock stops being trusted: LockedUntil minus

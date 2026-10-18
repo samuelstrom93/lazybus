@@ -577,7 +577,7 @@ func TestRepairRefusesUnsupportedBody(t *testing.T) {
 	be.SetUnsupported("sb-prod-weu", "orders", bus.KindQueue, selectedSeq(t, m), "AMQP value body")
 	be.ResetEvents()
 	m = keysIn(t, m, "r")
-	if !m.stack.AtRoot() || !strings.Contains(m.status.text, "unsupported AMQP body/message-id; not repaired (AMQP value body)") {
+	if !m.stack.AtRoot() || !strings.Contains(m.status.text, "unsupported AMQP body or id; not repaired (AMQP value body)") {
 		t.Fatalf("top %v status %q", m.stack.Top(), m.status.text)
 	}
 	if len(be.Events()) != 0 || len(m.messages.items) != 37 {

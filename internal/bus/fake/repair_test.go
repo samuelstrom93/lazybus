@@ -713,7 +713,7 @@ func TestRepairRefusesUnsupportedBody(t *testing.T) {
 		"repair": func() error { _, err := b.Repair(context.Background(), req(orders, 2, 0)); return err },
 	} {
 		err := call()
-		if bus.KindOf(err) != bus.ErrRefused || !strings.Contains(err.Error(), "unsupported AMQP body/message-id; not repaired") {
+		if bus.KindOf(err) != bus.ErrRefused || !strings.Contains(err.Error(), "unsupported AMQP body or id; not repaired") {
 			t.Errorf("%s: err %v", name, err)
 		}
 	}
