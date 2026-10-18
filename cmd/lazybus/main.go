@@ -268,6 +268,7 @@ func main() {
 	defer closeFn()
 	m := ui.New(be, ui.Options{ReadOnly: c.readOnly})
 	final, err := tea.NewProgram(m, tea.WithFilter(ui.Filter)).Run()
+	ui.RemoveBodyTemp()
 	if code := exitCode(final, err, os.Stderr); code != 0 {
 		closeFn()
 		os.Exit(code)

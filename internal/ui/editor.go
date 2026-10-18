@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
+	"sync"
+	"syscall"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -83,6 +86,67 @@ func writeTempBody(body []byte, jsonish bool) (string, error) {
 	return path, nil
 }
 
+// bodyTemp is the temp file of the body open in the editor. It is removed
+// on a SIGHUP (the terminal closed with the editor open, whose default
+// action would end lazybus with the file left behind) and by
+// RemoveBodyTemp when the program ends.
+var bodyTemp struct {
+	sync.Mutex
+	path string
+	stop chan struct{}
+}
+
+// hangup ends lazybus with SIGHUP's default action; tests replace it.
+var hangup = func() { _ = syscall.Kill(os.Getpid(), syscall.SIGHUP) }
+
+// trackBodyTemp records path as the open temp file and, unless SIGHUP is
+// ignored (nohup), removes it on a SIGHUP before the hangup goes through.
+func trackBodyTemp(path string) {
+	untrackBodyTemp()
+	bodyTemp.Lock()
+	defer bodyTemp.Unlock()
+	bodyTemp.path = path
+	if signal.Ignored(syscall.SIGHUP) {
+		return
+	}
+	hup := make(chan os.Signal, 1)
+	signal.Notify(hup, syscall.SIGHUP)
+	stop := make(chan struct{})
+	bodyTemp.stop = stop
+	go func() {
+		select {
+		case <-hup:
+			RemoveBodyTemp()
+			signal.Stop(hup)
+			hangup()
+		case <-stop:
+			signal.Stop(hup)
+		}
+	}()
+}
+
+// untrackBodyTemp ends trackBodyTemp: the editor returned.
+func untrackBodyTemp() {
+	bodyTemp.Lock()
+	defer bodyTemp.Unlock()
+	bodyTemp.path = ""
+	if bodyTemp.stop != nil {
+		close(bodyTemp.stop)
+		bodyTemp.stop = nil
+	}
+}
+
+// RemoveBodyTemp removes the temp file of a body still open in the
+// editor; main calls it when the program ends.
+func RemoveBodyTemp() {
+	bodyTemp.Lock()
+	defer bodyTemp.Unlock()
+	if bodyTemp.path != "" {
+		_ = os.Remove(bodyTemp.path)
+		bodyTemp.path = ""
+	}
+}
+
 // startBodyEdit handles E: open the body of the selected DLQ message in
 // the editor.
 func (m Model) startBodyEdit() (Model, tea.Cmd) {
@@ -98,6 +162,7 @@ func (m Model) startBodyEdit() (Model, tea.Cmd) {
 		m.setStatus(statusErr, "edit body: %v", err)
 		return m, nil
 	}
+	trackBodyTemp(path)
 	editor := editorCommand(os.Getenv)
 	c := exec.Command("sh", "-c", editor+` "$1"`, "lazybus-editor", path)
 	done := editorDoneMsg{target: k, msg: msg, path: path, written: body}
@@ -111,6 +176,7 @@ func (m Model) startBodyEdit() (Model, tea.Cmd) {
 // as a Pending Edit when it changed.
 func (m Model) editorDone(d editorDoneMsg) Model {
 	edited, rerr := os.ReadFile(d.path)
+	untrackBodyTemp()
 	_ = os.Remove(d.path)
 	switch {
 	case d.err != nil:

@@ -8,7 +8,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -452,6 +454,39 @@ printf 'edited by %s' "$2" > "$1"
 	m = keysIn(t, m, "E")
 	if got := string(editsOfSelected(t, m).Body); got != "edited by " || m.status.level != statusErr {
 		t.Fatalf("failed editor: body %q status %q", got, m.status.text)
+	}
+}
+
+// TestBodyTempRemovedOnExit: the temp file does not outlive lazybus when
+// it ends with the editor open, by SIGHUP or by the program ending.
+func TestBodyTempRemovedOnExit(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	hung := make(chan struct{}, 1)
+	prevHangup, prevExec := hangup, execProcess
+	t.Cleanup(func() { untrackBodyTemp(); hangup, execProcess = prevHangup, prevExec })
+	hangup = func() { hung <- struct{}{} }
+	var path string
+	execProcess = func(c *exec.Cmd, fn tea.ExecCallback) tea.Cmd {
+		path = c.Args[len(c.Args)-1]
+		return nil // the editor is still open
+	}
+	m := keysIn(t, onOrders(t, fake.New()), "E")
+	if err := syscall.Kill(os.Getpid(), syscall.SIGHUP); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-hung:
+	case <-time.After(5 * time.Second):
+		t.Fatal("SIGHUP not handled")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("SIGHUP left %s: %v", path, err)
+	}
+
+	keysIn(t, m, "E")
+	RemoveBodyTemp()
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("exit left %s: %v", path, err)
 	}
 }
 
