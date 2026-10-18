@@ -8,6 +8,10 @@ The first release, planned as 0.1.0.
 
 ### Added
 
+- `ö` and `ä` switch main-pane tabs like `[` and `]`, for Swedish keyboard layouts where those need AltGr.
+
+### Added
+
 - Terminal UI for Azure Service Bus in the lazygit layout: Namespaces, Entities and Messages panels, a main pane with Body, Properties and System tabs, a command log, an options bar with the keys that work right now, and a searchable `?` keybindings menu.
 - Namespace discovery from `az login` across every subscription you can read, one subscription at a time; a failing subscription goes to the log and the rest still load. `--namespace` opens one namespace without discovery, `--connection-string` (or `LAZYBUS_CONNECTION_STRING`) opens a namespace by SAS connection string, `--emulator` opens the local Service Bus emulator, `--demo` runs on built-in demo data.
 - Queues and topic subscriptions with their dead-letter and active counts (`?` on the emulator, which has no runtime counts); `s` sorts by dead-letter count.

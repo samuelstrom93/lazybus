@@ -78,7 +78,7 @@ Every broker call times out after 30 s (a resubmit and its pre-check, which are 
 | `j` `k` / `enter` | a panel | Move / open the selected namespace or entity. |
 | `h` `l` | anywhere | Previous / next panel. |
 | `g` `G` / `ctrl-d` `ctrl-u` | a list | Top, bottom / half page down, up. |
-| `[` `]` | anywhere | Previous / next main-pane tab: Body, Properties, System. |
+| `[` `]` `ö` `ä` | anywhere | Previous / next main-pane tab: Body, Properties, System. `ö` and `ä` (Swedish layout) do the same. |
 | `/` | a side panel | Filter the list as you type: a case-insensitive match on the visible columns. The filter shows in the panel title. `enter` keeps it and returns to the list; `esc` (while typing, or on the panel) clears it. It is dropped when the list changes source (another namespace, entity or tab). |
 | `:` | anywhere | Jump to an entity of the open namespace by fuzzy name; `enter` opens its DLQ. |
 | `s` | Entities | Sort by path, or by DLQ count (largest first; `?` counts last). |

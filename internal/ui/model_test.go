@@ -116,6 +116,23 @@ func TestPopupOwnsKeys(t *testing.T) {
 	}
 }
 
+func TestSwedishTabKeys(t *testing.T) {
+	m := loaded(t)
+	m = run(t, m, press("ä"))
+	if m.tab != tabProperties {
+		t.Fatalf("ä did not switch to the next tab: %v", m.tab)
+	}
+	m = run(t, m, press("ö"))
+	if m.tab != tabBody {
+		t.Fatalf("ö did not switch to the previous tab: %v", m.tab)
+	}
+
+	m = keysIn(t, m, "2", "/", "ö")
+	if got := m.entities.filter; got != "ö" || m.tab != tabBody {
+		t.Fatalf("ö typed into the filter: filter %q tab %v", got, m.tab)
+	}
+}
+
 func TestFocusAndTabKeys(t *testing.T) {
 	m := loaded(t)
 	m = run(t, m, press("]"))

@@ -27,4 +27,4 @@
 [90m├[m 3 Messages  [1mDLQ[m[90m│[m[90mActive[m [90m──────────────┤[m[90m│[m[90m 16:00 [m[31mpeek invoices/$DLQ: amqp:not-found: The messaging entity 'sb://sb-prod…[m[90m│[m
 [90m│[m  [31merror: amqp:not-found: The messagin…[m[90m│[m[90m│[m                                                                              [90m│[m
 [90m└──────────────────────────────────────┘[m[90m└──────────────────────────────────────────────────────────────────────────────┘[m
- [36menter[m open  [36m[ ][m tab  [36m/[m filter  [36m:[m jump  [36m?[m keybindings  [36mq[m quit                                                           
+ [36menter[m open  [36m[ ]/ö ä[m tab  [36m/[m filter  [36m:[m jump  [36m?[m keybindings  [36mq[m quit                                                       

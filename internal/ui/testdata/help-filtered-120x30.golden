@@ -15,8 +15,8 @@
 [32;1m│[m                               [32;1m│[36;22m   tab ↓    [mnext field                                [32;1m│[m                               [90m│[m
 [32;1m│[m                               [32;1m│[36;22m   ⇧tab ↑   [mprevious field                            [32;1m│[m                               [90m│[m
 [32;1m│[m                               [32;1m│[39m Global[m                                               [32;1m│[m                               [90m│[m
-[32;1m│[m                               [32;1m│[36;22m   [        [mprevious main tab                         [32;1m│[m                               [90m│[m
-[32;1m│[m                               [32;1m│[36;22m   ]        [mnext main tab                             [32;1m│[m                               [90m│[m
+[32;1m│[m                               [32;1m│[36;22m   [ ö      [mprevious main tab                         [32;1m│[m                               [90m│[m
+[32;1m│[m                               [32;1m│[36;22m   ] ä      [mnext main tab                             [32;1m│[m                               [90m│[m
 [32;1m│[m                               [32;1m└[m [90mtype to filter · esc close[m [32;1m──────────────────────────┘[m                               [90m│[m
 [32;1m│[m                                      [32;1m│[90;22m│[m                                                                              [90m│[m
 [32;1m│[m                                      [32;1m│[90;22m│[m                                                                              [90m│[m

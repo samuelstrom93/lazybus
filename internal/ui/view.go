@@ -846,7 +846,7 @@ func (m Model) renderOptions() string {
 // optionsDropOrder are the options bar keys left out first when the bar
 // is too narrow, so the context's own keys and ? / q stay visible.
 var optionsDropOrder = []key.Help{
-	keys.FocusMainOp.Help(), keys.Jump.Help(), keys.Filter.Help(), {Key: "[ ]", Desc: "tab"}, keys.SubQueue.Help(),
+	keys.FocusMainOp.Help(), keys.Jump.Help(), keys.Filter.Help(), {Key: "[ ]/ö ä", Desc: "tab"}, keys.SubQueue.Help(),
 }
 
 // fitBindings drops bindings in optionsDropOrder until they fit in width

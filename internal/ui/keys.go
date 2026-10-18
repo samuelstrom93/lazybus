@@ -82,8 +82,8 @@ var keys = keyMap{
 	Bottom:          key.NewBinding(key.WithKeys("G", "end"), key.WithHelp("G", "bottom")),
 	HalfDown:        key.NewBinding(key.WithKeys("ctrl+d"), key.WithHelp("ctrl-d", "half page down")),
 	HalfUp:          key.NewBinding(key.WithKeys("ctrl+u"), key.WithHelp("ctrl-u", "half page up")),
-	PrevTab:         key.NewBinding(key.WithKeys("["), key.WithHelp("[", "previous main tab")),
-	NextTab:         key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "next main tab")),
+	PrevTab:         key.NewBinding(key.WithKeys("[", "ö"), key.WithHelp("[ ö", "previous main tab")),
+	NextTab:         key.NewBinding(key.WithKeys("]", "ä"), key.WithHelp("] ä", "next main tab")),
 	Help:            key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "keybindings")),
 	Back:            key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 	Quit:            key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit")),
@@ -230,7 +230,7 @@ func optionsBindings(c ContextID, f optionFlags) []key.Binding {
 		}
 		out = append(out, b)
 	}
-	tab := key.NewBinding(key.WithKeys("[", "]"), key.WithHelp("[ ]", "tab"))
+	tab := key.NewBinding(key.WithKeys("[", "]", "ö", "ä"), key.WithHelp("[ ]/ö ä", "tab"))
 	out = append(out, tab)
 	if c.isSide() {
 		out = append(out, keys.Filter)
