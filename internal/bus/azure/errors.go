@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"regexp"
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -119,13 +120,22 @@ func classify(err error) (bus.ErrorKind, string) {
 	return bus.ErrUnknown, brief(err.Error())
 }
 
+// manageClaim matches the body of a management call refused for a missing
+// Manage claim, e.g. "<Detail>Manage,EntityRead claims required for this
+// operation.</Detail>" (the SDK's internal/atom example). A wrong key
+// ("InvalidSignature: …") or a bad token doesn't match.
+var manageClaim = regexp.MustCompile(`\bManage\b[^.\n]*\bclaim`)
+
 // manageHint adds what to do to an entity listing the namespace refused
-// with HTTP 401/403: listing needs Manage rights, which a Listen and Send
-// credential lacks although it can peek and repair (S4).
+// with HTTP 401/403 for a missing Manage claim: listing needs Manage
+// rights, which a Listen and Send credential lacks although it can peek
+// and repair (S4). Any other 401/403 (a wrong or expired key) keeps its
+// message, since --entity would fail the same way.
 func manageHint(err error) error {
 	var be *bus.Error
 	var re *azcore.ResponseError
-	if !errors.As(err, &be) || be.Kind != bus.ErrUnauthorized || !errors.As(err, &re) {
+	if !errors.As(err, &be) || be.Kind != bus.ErrUnauthorized || !errors.As(err, &re) ||
+		!manageClaim.MatchString(re.Error()) {
 		return err
 	}
 	be.Msg = fmt.Sprintf("listing needs Manage rights (HTTP %d); open entities with --entity <queue|topic/subscription>", re.StatusCode)

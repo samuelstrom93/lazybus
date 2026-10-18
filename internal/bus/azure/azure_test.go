@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus"
 	"github.com/Azure/go-amqp"
@@ -136,13 +139,22 @@ func TestUseEntities(t *testing.T) {
 }
 
 func TestManageHint(t *testing.T) {
-	err := manageHint(mapErr("list entities sb-prod-weu", &azcore.ResponseError{StatusCode: 401}))
+	// A management call's error as the admin client returns it.
+	httpErr := func(status int, detail string) error {
+		body := fmt.Sprintf("<Error><Code>%d</Code><Detail>%s</Detail></Error>", status, detail)
+		return runtime.NewResponseError(&http.Response{StatusCode: status, Status: http.StatusText(status),
+			Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))})
+	}
+	err := manageHint(mapErr("list entities sb-prod-weu", httpErr(401, "Manage,EntityRead claims required for this operation. TrackingId:x")))
 	if bus.KindOf(err) != bus.ErrUnauthorized || err.Error() !=
 		"list entities sb-prod-weu: listing needs Manage rights (HTTP 401); open entities with --entity <queue|topic/subscription>" {
 		t.Fatalf("401: %v", err)
 	}
-	// Not the namespace refusing: no hint.
-	for _, e := range []error{errors.New("AzureCLICredential: please run az login"), &azcore.ResponseError{StatusCode: 404}} {
+	// Not a missing Manage claim: no hint.
+	for _, e := range []error{
+		errors.New("AzureCLICredential: please run az login"), &azcore.ResponseError{StatusCode: 404},
+		httpErr(401, "InvalidSignature: The token has an invalid signature. TrackingId:x"),
+	} {
 		if err := manageHint(mapErr("list entities", e)); strings.Contains(err.Error(), "Manage") {
 			t.Errorf("%v: %v", e, err)
 		}
