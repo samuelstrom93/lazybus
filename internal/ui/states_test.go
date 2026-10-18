@@ -152,6 +152,17 @@ func initHeld(t *testing.T, m Model) (Model, tea.Cmd) {
 	return m, tea.Sequence(cmds...)
 }
 
+func TestRefreshKeepsIndexPastFirstPage(t *testing.T) {
+	// R loads pages until the cursor's row index is loaded again.
+	m := startWith(t, fake.New(fake.WithDeadLetters("sb-prod-weu", "orders", 120)))
+	m = keysIn(t, m, "2", "j", "j", "j", "enter", "G", "G")
+	seq := selectedSeq(t, m)
+	m = keysIn(t, m, "R")
+	if m.messages.cursor != 99 || selectedSeq(t, m) != seq {
+		t.Fatalf("after R: %d rows, cursor %d on seq %d, want 99 on seq %d", len(m.messages.items), m.messages.cursor, selectedSeq(t, m), seq)
+	}
+}
+
 func TestPagingAppendsAndStops(t *testing.T) {
 	m := startWith(t, fake.New(fake.WithDeadLetters("sb-prod-weu", "orders", 120)))
 	m = keysIn(t, m, "2", "j", "j", "j", "enter")

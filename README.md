@@ -82,7 +82,7 @@ Every broker call times out after 30 s (a resubmit and its pre-check, which are 
 | `/` | a side panel | Filter the list as you type: a case-insensitive match on the visible columns. The filter shows in the panel title. `enter` keeps it and returns to the list; `esc` (while typing, or on the panel) clears it. It is dropped when the list changes source (another namespace, entity or tab). |
 | `:` | anywhere | Jump to an entity of the open namespace by fuzzy name; `enter` opens its DLQ. |
 | `s` | Entities | Sort by path, or by DLQ count (largest first; `?` counts last). |
-| `R` | the focused panel | Refresh: Namespaces discovers again, Entities lists again (with counts), Messages and the main pane peek again from the start. The cursor keeps its entity, or its message row index. |
+| `R` | the focused panel | Refresh: Namespaces discovers again, Entities lists again (with counts), Messages and the main pane peek again from the start. The cursor keeps its entity, or its message row index (pages load again up to it). |
 | `y` | main pane tabs, Namespaces | Copy the body (Body tab), the selected property's value (Properties) or field (System); on Namespaces, the FQDN. `j`/`k` move the row cursor on Properties and System when the main pane is focused. |
 | `Y` | anywhere | Copy the selected message's MessageId. |
 | `?` / `q` | anywhere | Keybindings menu (searchable) / quit. |

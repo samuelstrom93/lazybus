@@ -219,8 +219,8 @@ type Model struct {
 	// that page.
 	afterPage    int
 	hasAfterPage bool
-	// keepIndex is the cursor index to restore when the first page of a
-	// refresh (R) arrives.
+	// keepIndex is the cursor index to restore after a refresh (R): pages
+	// load until it is loaded or the list ends.
 	keepIndex    int
 	hasKeepIndex bool
 
@@ -355,6 +355,21 @@ func (m *Model) clearLines() {
 	}
 }
 
+// keepIndexOrLoad is a refresh's next step once a page arrived: the cursor
+// goes back to keepIndex, now on whatever message is there, or the next
+// page loads first when that index is not loaded yet and more may follow.
+func (m *Model) keepIndexOrLoad() tea.Cmd {
+	l := &m.messages
+	m.resetMain()
+	if m.keepIndex >= len(l.items) && l.more && len(l.all) > 0 && m.openNS != nil && m.openEntity != nil {
+		l.move(len(l.items) - 1)
+		return m.peekFrom(*m.openNS, *m.openEntity, m.subQueue, l.all[len(l.all)-1].SequenceNumber+1)
+	}
+	m.hasKeepIndex = false
+	l.move(m.keepIndex)
+	return nil
+}
+
 // loadMore loads the page after the last message when the cursor is on
 // the last row and the last page was not empty. Only an empty page ends
 // paging: a short page can be followed by messages enqueued since.
@@ -479,6 +494,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.messages.setAll(append(m.messages.all, msg.items...), m.messageText)
 			m.msgCols = m.msgCols.add(msg.items)
 			m.logf(false, "peek %s from %d → %d", label, msg.from, len(msg.items))
+			if m.hasKeepIndex {
+				cmd = m.keepIndexOrLoad()
+				break
+			}
 			if m.hasAfterPage {
 				m.hasAfterPage = false
 				m.messages.move(m.afterPage)
@@ -494,16 +513,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// A first page replaces the list: a cursor move pending for a next
 		// page no longer applies.
 		m.hasAfterPage = false
-		if m.hasKeepIndex {
-			// A refresh: same index, now on whatever message is there.
-			m.hasKeepIndex = false
-			m.messages.move(m.keepIndex)
-		} else {
-			m.messages.offset = 0
-			m.messages.move(0)
-		}
-		m.resetMain()
 		m.logf(false, "peek %s → %d", label, len(msg.items))
+		if m.hasKeepIndex {
+			cmd = m.keepIndexOrLoad()
+			break
+		}
+		m.messages.offset = 0
+		m.messages.move(0)
+		m.resetMain()
 
 	case planDoneMsg:
 		m, cmd = m.planDone(msg)
