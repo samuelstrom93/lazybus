@@ -76,7 +76,7 @@ Every broker call times out after 30 s (a resubmit and its pre-check, which are 
 |---|---|---|
 | `1` `2` `3` / `0` | anywhere | Focus Namespaces, Entities, Messages / the main pane. |
 | `j` `k` / `enter` | a panel | Move / open the selected namespace or entity. |
-| `h` `l` | anywhere | Previous / next panel. |
+| `h` `l` | anywhere | Previous / next panel. On Namespaces and Entities, `l` also opens the selected row, like `Enter`. |
 | `g` `G` / `ctrl-d` `ctrl-u` | a list | Top, bottom / half page down, up. |
 | `[` `]` `ö` `ä` | anywhere | Previous / next main-pane tab: Body, Properties, System. `ö` and `ä` (Swedish layout) do the same. |
 | `/` | a side panel | Filter the list as you type: a case-insensitive match on the visible columns. The filter shows in the panel title. `enter` keeps it and returns to the list; `esc` (while typing, or on the panel) clears it. It is dropped when the list changes source (another namespace, entity or tab). |

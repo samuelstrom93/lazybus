@@ -75,7 +75,7 @@ var keys = keyMap{
 	FocusMessages:   key.NewBinding(key.WithKeys("3"), key.WithHelp("3", "focus Messages")),
 	FocusMain:       key.NewBinding(key.WithKeys("0"), key.WithHelp("0", "focus main pane")),
 	PrevPanel:       key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h ←", "previous panel")),
-	NextPanel:       key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l →", "next panel")),
+	NextPanel:       key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l →", "next panel / open")),
 	Down:            key.NewBinding(key.WithKeys("j", "down"), key.WithHelp("j ↓", "move down")),
 	Up:              key.NewBinding(key.WithKeys("k", "up"), key.WithHelp("k ↑", "move up")),
 	Top:             key.NewBinding(key.WithKeys("g", "home"), key.WithHelp("g", "top")),

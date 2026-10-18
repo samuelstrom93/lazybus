@@ -10,6 +10,10 @@ The first release, planned as 0.1.0.
 
 - `ö` and `ä` switch main-pane tabs like `[` and `]`, for Swedish keyboard layouts where those need AltGr.
 
+### Fixed
+
+- `l` and `→` on Namespaces and Entities open the selected row like `Enter` when it is not the one already open, instead of showing the previous row's content.
+
 ### Added
 
 - Terminal UI for Azure Service Bus in the lazygit layout: Namespaces, Entities and Messages panels, a main pane with Body, Properties and System tabs, a command log, an options bar with the keys that work right now, and a searchable `?` keybindings menu.

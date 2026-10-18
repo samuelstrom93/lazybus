@@ -630,6 +630,8 @@ func (m Model) handlePanelKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		m.focus(CtxMessages)
 	case key.Matches(msg, keys.FocusMain):
 		m.focus(CtxMain)
+	case key.Matches(msg, keys.NextPanel) && m.rowIsNotOpen(cur):
+		return m.open(cur)
 	case key.Matches(msg, keys.PrevPanel), key.Matches(msg, keys.NextPanel):
 		i := 0
 		for j, c := range panelOrder {
@@ -702,6 +704,21 @@ func (m Model) handlePanelKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.open(cur)
 	}
 	return m, nil
+}
+
+// rowIsNotOpen reports whether l on Namespaces or Entities should open the
+// selected row, as enter does: the row differs from the open namespace or
+// entity. Otherwise l only moves focus.
+func (m Model) rowIsNotOpen(cur ContextID) bool {
+	switch cur {
+	case CtxNamespaces:
+		r, ok := m.namespaces.selected()
+		return ok && (m.openNS == nil || r.ns != *m.openNS)
+	case CtxEntities:
+		ent, ok := m.entities.selected()
+		return ok && m.openNS != nil && (m.openEntity == nil || ent.Path != m.openEntity.Path || ent.Kind != m.openEntity.Kind)
+	}
+	return false
 }
 
 // open handles enter on a panel: Namespaces and Entities open the next

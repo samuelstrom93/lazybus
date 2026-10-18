@@ -78,7 +78,7 @@ Rule: same letter = analogous action in every context; lowercase = common action
 |---|---|---|
 | Global | `1` `2` `3` | focus side panel |
 | | `0` | focus main pane |
-| | `h` `l` / `←` `→` | previous / next panel |
+| | `h` `l` / `←` `→` | previous / next panel; on Namespaces and Entities, `l` also opens the selected row like `Enter` |
 | | `j` `k` / `↓` `↑` | move |
 | | `g` `G` | top / bottom |
 | | `ctrl-d` `ctrl-u` | half page down / up |

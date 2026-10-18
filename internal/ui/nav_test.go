@@ -143,6 +143,22 @@ func TestSortByDLQ(t *testing.T) {
 	}
 }
 
+func TestNextPanelOpensTheSelectedRow(t *testing.T) {
+	// l on the open entity only moves focus: the messages cursor stays.
+	m := keysIn(t, loaded(t), ":", "b", "i", "l", "enter", "j", "h", "l")
+	if m.openEntity.Path != "order-events/billing" || m.stack.Top() != CtxMessages || m.messages.cursor != 1 {
+		t.Fatalf("l on the open entity: open %s, top %v, cursor %d", m.openEntity.Path, m.stack.Top(), m.messages.cursor)
+	}
+	m = keysIn(t, m, "1", "j", "l")
+	if r, _ := m.namespaces.selected(); m.openNS == nil || m.openNS.Name != r.ns.Name || m.stack.Top() != CtxEntities {
+		t.Fatalf("l on Namespaces: open %+v, top %v", m.openNS, m.stack.Top())
+	}
+	m = keysIn(t, m, "l")
+	if e, _ := m.entities.selected(); m.openEntity == nil || m.openEntity.Path != e.Path || m.stack.Top() != CtxMessages {
+		t.Fatalf("l on Entities: open %+v, top %v", m.openEntity, m.stack.Top())
+	}
+}
+
 func TestJump(t *testing.T) {
 	m := keysIn(t, loaded(t), ":", "b", "i", "l")
 	if m.stack.Top() != CtxJump || !strings.Contains(screenText(m), "Jump to entity in sb-prod-weu") {
