@@ -751,22 +751,26 @@ func (s *Service) abandon(ctx context.Context, rcv DeadLetterReceiver, res *Repa
 	}
 	wg.Wait()
 	var ok []Locked
+	var failed []AbandonError
 	for i, m := range ms {
 		if errs[i] == nil {
 			ok = append(ok, m)
 			continue
 		}
-		res.AbandonErrors = append(res.AbandonErrors, AbandonError{SequenceNumber: m.SequenceNumber(), Err: errs[i]})
+		failed = append(failed, AbandonError{SequenceNumber: m.SequenceNumber(), Err: errs[i]})
 	}
-	sort.Slice(res.AbandonErrors, func(i, j int) bool {
-		return res.AbandonErrors[i].SequenceNumber < res.AbandonErrors[j].SequenceNumber
-	})
+	sort.Slice(failed, func(i, j int) bool { return failed[i].SequenceNumber < failed[j].SequenceNumber })
 	if len(ok) > 0 {
 		res.logf(false, "abandon %s seq %s → ok", res.Source, seqList(ok))
 	}
-	for _, ae := range res.AbandonErrors {
+	// Log only this call's failures: earlier calls logged theirs.
+	for _, ae := range failed {
 		res.logf(true, "abandon %s seq %d → error: %s", res.Source, ae.SequenceNumber, errMsg(ae.Err))
 	}
+	res.AbandonErrors = append(res.AbandonErrors, failed...)
+	sort.Slice(res.AbandonErrors, func(i, j int) bool {
+		return res.AbandonErrors[i].SequenceNumber < res.AbandonErrors[j].SequenceNumber
+	})
 }
 
 // complete completes m. When that fails, m is abandoned so no lock outlives

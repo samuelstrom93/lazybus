@@ -418,6 +418,27 @@ func TestRepairAbandonErrorReported(t *testing.T) {
 	}
 }
 
+// TestRepairAbandonErrorLoggedOnce: a later abandon (of the match, after a
+// rejected send) logs only its own failures, not the scan's again.
+func TestRepairAbandonErrorLoggedOnce(t *testing.T) {
+	b := New()
+	b.SetFault(OpAbandon, Fault{Seq: 5, Err: errors.New("abandon boom")})
+	b.SetFault(OpSend, Fault{Err: errors.New("nope"), Definite: true})
+	res := repair(t, b, req(queue("orders"), 3, 1))
+	if res.Outcome != bus.SendFailed || len(res.AbandonErrors) != 1 {
+		t.Fatalf("outcome %v abandon errors %+v", res.Outcome, res.AbandonErrors)
+	}
+	n := 0
+	for _, l := range res.Log {
+		if strings.Contains(l.Text, "seq 5 → error") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("seq 5 abandon error logged %d times: %+v", n, res.Log)
+	}
+}
+
 func TestRepairDuplicateDetection(t *testing.T) {
 	// invoices has duplicate detection; seq 2 was enqueued at Epoch+13h,
 	// so one minute later its MessageId is inside the window.
