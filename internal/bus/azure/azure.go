@@ -508,13 +508,22 @@ func (b *Backend) Peek(ctx context.Context, req bus.PeekRequest) ([]bus.Message,
 		}
 		return nil
 	})
-	var be *bus.Error
-	if req.SubQueue == bus.Active && errors.As(err, &be) && be.Kind == bus.ErrNotAllowed {
-		// S−1: a plain receiver can't peek the active side of a sessionful
-		// entity; that needs a session lock, which v0.1 never takes.
-		be.Msg = bus.SessionfulActive
+	if req.SubQueue == bus.Active {
+		labelSessionful(err)
 	}
 	return out, err
+}
+
+// labelSessionful replaces the message of an active-side peek error when
+// the broker says the entity requires sessions (S−1: a plain receiver
+// can't peek the active side of a sessionful entity; that needs a session
+// lock, which v0.1 never takes). Any other not-allowed keeps the broker's
+// reason.
+func labelSessionful(err error) {
+	var be *bus.Error
+	if errors.As(err, &be) && be.Kind == bus.ErrNotAllowed && strings.Contains(be.Msg, "requires sessions") {
+		be.Msg = bus.SessionfulActive
+	}
 }
 
 // receiver returns the cached receiver for key, opening it on first use.

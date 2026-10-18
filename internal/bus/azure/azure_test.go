@@ -193,6 +193,21 @@ func TestClassify(t *testing.T) {
 	}
 }
 
+func TestLabelSessionful(t *testing.T) {
+	sessionful := mapErr("peek q", &amqp.Error{Condition: amqp.ErrCondNotAllowed,
+		Description: "It is not possible for an entity that requires sessions to create a non-sessionful message receiver. TrackingId:x"})
+	labelSessionful(sessionful)
+	if sessionful.Error() != "peek q: "+bus.SessionfulActive {
+		t.Errorf("sessionful: %v", sessionful)
+	}
+	// Any other not-allowed keeps the broker's reason.
+	other := mapErr("peek q", &amqp.Error{Condition: amqp.ErrCondNotAllowed, Description: "Cannot receive from an entity with auto-forwarding enabled."})
+	labelSessionful(other)
+	if other.Error() != "peek q: amqp:not-allowed: Cannot receive from an entity with auto-forwarding enabled." {
+		t.Errorf("other: %v", other)
+	}
+}
+
 func TestSafeRecoversPanic(t *testing.T) {
 	err := Safe("list entities", func() error { panic("nil pointer") })
 	if bus.KindOf(err) != bus.ErrUnknown || err.Error() != "list entities: SDK panic: nil pointer" {
