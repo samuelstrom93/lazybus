@@ -473,6 +473,12 @@ func TestEditGoldens(t *testing.T) {
 			m = typeText(t, m, "OrderFixed")
 			return keysIn(t, m, "enter", "[", "[", "E", "r")
 		}},
+		{"confirm-long-edit", func(t *testing.T) Model {
+			// A long value is cut; the MessageId and the topic warning stay.
+			m := keysIn(t, startWith(t, fake.New()), "2", "j", "enter")
+			m = addProp(t, m, "note", strings.Repeat("customer address line ", 150))
+			return keysIn(t, m, "r")
+		}},
 		{"confirm-discard", func(t *testing.T) Model {
 			m := keysIn(t, onProperties(t, fake.New()), "j", "e", "ctrl+u", "7", "enter", "g", "d")
 			return keysIn(t, m, "x")

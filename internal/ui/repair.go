@@ -553,10 +553,13 @@ func (m Model) bannerLines(seq int64, width int) []string {
 }
 
 // confirmBlock is one item of the confirm popup: a field or a warning.
-// Optional blocks are dropped first when the terminal is too short.
+// Optional blocks are dropped first when the terminal is too short; then
+// a block with more, when set, is cut to its first lines and more(n), the
+// row that says n lines are hidden.
 type confirmBlock struct {
 	lines    []string
 	optional bool
+	more     func(hidden int) string
 }
 
 // confirmBlocks builds the confirm popup body: label/value rows and
@@ -575,7 +578,17 @@ func (m Model) confirmBlocks(inner int) (title string, blocks []confirmBlock, fo
 			}
 			lines = append(lines, row([]seg{{" " + fitPlain(lab, labelW), stDim}, {l, levelStyle(level)}}, inner, false))
 		}
-		blocks = append(blocks, confirmBlock{lines, optional})
+		blocks = append(blocks, confirmBlock{lines: lines, optional: optional})
+	}
+	// edits lists the Pending Edits; a long one is cut, not what follows it.
+	more := func(hidden int) string {
+		return row([]seg{{" " + fitPlain("", labelW), stDim}, {fmt.Sprintf("… %d more lines", hidden), stDim}}, inner, false)
+	}
+	edits := func(e bus.Edits) {
+		for _, d := range m.editDiff(p.Message, e) {
+			field(d.label, d.text, d.level, d.optional)
+			blocks[len(blocks)-1].more = more
+		}
 	}
 	note := func(text string, level statusLevel) {
 		var lines []string
@@ -586,7 +599,7 @@ func (m Model) confirmBlocks(inner int) (title string, blocks []confirmBlock, fo
 			}
 			lines = append(lines, row([]seg{{prefix + l, levelStyle(level)}}, inner, false))
 		}
-		blocks = append(blocks, confirmBlock{lines, false})
+		blocks = append(blocks, confirmBlock{lines: lines})
 	}
 	src := fmt.Sprintf("%s seq %d", p.Source, p.SequenceNumber)
 	target := fmt.Sprintf("%s %s", p.Target.Kind, p.Target.Name)
@@ -594,9 +607,7 @@ func (m Model) confirmBlocks(inner int) (title string, blocks []confirmBlock, fo
 	if c.kind == confirmDiscard {
 		title = "Discard Pending Edits"
 		field("Message", src+" (MessageId "+p.Message.MessageID+")", statusInfo, false)
-		for _, d := range m.editDiff(p.Message, c.req.Edits) {
-			field(d.label, d.text, d.level, d.optional)
-		}
+		edits(c.req.Edits)
 		note("the edits live only in memory: discarded edits can't be restored", statusWarn)
 		footer = []seg{{"y", stKey}, {" discard  ", stDim}, {"n", stKey}, {" cancel", stDim}}
 		return title, blocks, footer
@@ -616,18 +627,15 @@ func (m Model) confirmBlocks(inner int) (title string, blocks []confirmBlock, fo
 	title = "Resubmit"
 	field("Source", src, statusInfo, false)
 	field("Target", target, statusInfo, false)
-	edits := c.req.Edits
-	if !edits.BodyEdited {
+	if !c.req.Edits.BodyEdited {
 		field("Body", bodySummary("unchanged", p.Message.Body), statusInfo, true)
 	}
-	if edits.IsZero() {
+	if c.req.Edits.IsZero() {
 		field("Edits", "none (properties, Subject and ContentType unchanged)", statusInfo, true)
 	}
 	// Every Pending Edit is listed (what y sends); per-property lines give
-	// way on a short terminal, the count stays.
-	for _, d := range m.editDiff(p.Message, edits) {
-		field(d.label, d.text, d.level, d.optional)
-	}
+	// way on a short terminal, the count stays, and a long value is cut.
+	edits(c.req.Edits)
 	field("Markers", "removed: "+strings.Join(p.MarkersRemoved, ", "), statusInfo, true)
 	same := ""
 	if c.uncertain {
@@ -644,7 +652,7 @@ func (m Model) confirmBlocks(inner int) (title string, blocks []confirmBlock, fo
 	}
 	field("Scan", p.ScanCost, statusInfo, true)
 	if len(p.Warnings) > 0 || c.uncertain {
-		blocks = append(blocks, confirmBlock{[]string{strings.Repeat(" ", inner)}, true})
+		blocks = append(blocks, confirmBlock{lines: []string{strings.Repeat(" ", inner)}, optional: true})
 	}
 	for _, w := range p.Warnings {
 		note(w, statusWarn)
@@ -664,8 +672,9 @@ func (m Model) confirmBlocks(inner int) (title string, blocks []confirmBlock, fo
 }
 
 // fitBlocks returns the lines of blocks in at most n rows: optional
-// blocks go first, from the last one up, so warnings and the source,
-// target and MessageId stay on a short terminal.
+// blocks go first, from the last one up, then blocks with more are cut,
+// from the last one up, so warnings and the source, target and MessageId
+// stay on a short terminal.
 func fitBlocks(blocks []confirmBlock, n int) []string {
 	total := 0
 	for _, b := range blocks {
@@ -679,8 +688,21 @@ func fitBlocks(blocks []confirmBlock, n int) []string {
 		}
 	}
 	var out []string
+	cut := make([]int, len(blocks)) // lines kept of a cut block
+	for i := len(blocks) - 1; i >= 0 && total > n; i-- {
+		if b := blocks[i]; !drop[i] && b.more != nil && len(b.lines) > 2 {
+			keep := max(1, len(b.lines)-(total-n)-1)
+			cut[i] = keep
+			total -= len(b.lines) - keep - 1
+		}
+	}
 	for i, b := range blocks {
-		if !drop[i] {
+		switch {
+		case drop[i]:
+		case cut[i] > 0:
+			out = append(out, b.lines[:cut[i]]...)
+			out = append(out, b.more(len(b.lines)-cut[i]))
+		default:
 			out = append(out, b.lines...)
 		}
 	}
