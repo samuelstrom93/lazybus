@@ -22,7 +22,7 @@ All notable changes to lazybus are listed here. The format follows [Keep a Chang
 - The edit popup keeps the cursor visible on lines with wide characters.
 - The body's temporary file is removed when lazybus exits while the editor is open.
 - A resubmit refuses a message whose AMQP correlation-id is not a string (uuid, ulong or binary), instead of sending the copy without it.
-- A resubmit sends the copy once, without SDK retries, so `SendFailed (nothing changed)` can no longer hide an earlier attempt that may have delivered a copy.
+- A resubmit sends the copy with SDK retries off, so `SendFailed (nothing changed)` no longer hides an earlier attempt that may have delivered a copy. The SDK still makes one quick link-recovery retry after a link error: in the rare case where the link detaches after the broker accepted the copy, a SendFailed can still follow a delivered copy. A failure while the send link attaches or authorizes shows as SendUncertain, although nothing was sent.
 - The command log shows each failed abandon once, instead of repeating earlier ones after the send.
 - The entity-listing hint for an HTTP 401/403 says the credential lacks Manage rights or is invalid, since Azure answers both the same way; before, a wrong key was reported as a missing Manage right only.
 - The Active tab says "sessionful" only when the entity requires sessions; other `amqp:not-allowed` refusals show the broker's reason.
