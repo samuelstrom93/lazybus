@@ -401,8 +401,8 @@ func (m *Model) applyResult(kind confirmKind, req bus.RepairRequest, res bus.Rep
 	k := reqMarkKey(req)
 	switch res.Outcome {
 	case bus.Resubmitted, bus.Cleaned:
-		m.moveCounts(req, res)
-		return m.removeRow(req)
+		counts := m.moveCounts(req, res)
+		return tea.Batch(counts, m.removeRow(req))
 	case bus.NotFound:
 		if res.NotFound == bus.NotFoundScan {
 			return nil // the pre-check saw it: it may still be there
@@ -462,6 +462,13 @@ func (m *Model) removeRow(req bus.RepairRequest) tea.Cmd {
 	m.messages.move(m.messages.cursor)
 	m.resetMain()
 	m.clearLines()
+	if m.messages.loading && m.hasKeepIndex {
+		// A refresh in flight peeked before the row left: its first page
+		// would bring the row back. Peek again from here; the old response
+		// is dropped.
+		m.keepIndex = m.messages.cursor
+		return m.peekFrom(*m.openNS, *m.openEntity, m.subQueue, 0)
+	}
 	if v < 0 || v < len(m.messages.items) || !m.messages.more {
 		return m.loadMore()
 	}
@@ -487,9 +494,10 @@ func (m *Model) removeRow(req bus.RepairRequest) tea.Cmd {
 // its DLQ count drops by one, and a Resubmitted copy in a queue adds one to
 // that queue's active count. Unknown counts stay unknown; a topic's
 // subscriptions are left alone (which ones got a copy depends on rules).
-func (m *Model) moveCounts(req bus.RepairRequest, res bus.RepairResult) {
+// A refresh in flight listed the old counts, so it is sent again.
+func (m *Model) moveCounts(req bus.RepairRequest, res bus.RepairResult) tea.Cmd {
 	if m.openNS == nil || m.openNS.FQDN != req.Namespace.FQDN {
-		return
+		return nil
 	}
 	items := append([]bus.Entity(nil), m.entities.all...)
 	changed := false
@@ -508,13 +516,17 @@ func (m *Model) moveCounts(req bus.RepairRequest, res bus.RepairResult) {
 		}
 	}
 	if !changed {
-		return
+		return nil
 	}
 	prev, ok := m.entities.selected()
 	m.entities.setAll(sortEntities(items, m.sortDLQ), m.entityText)
 	if ok {
 		m.selectEntity(prev)
 	}
+	if m.entities.loading {
+		return m.loadEntities(*m.openNS, false, true)
+	}
+	return nil
 }
 
 // --- rendering -----------------------------------------------------------

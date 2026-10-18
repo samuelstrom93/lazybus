@@ -243,6 +243,24 @@ func TestRefresh(t *testing.T) {
 	}
 }
 
+func TestRefreshInFlightDuringRepair(t *testing.T) {
+	// R's page and counts were read before the Resubmit: when they arrive
+	// after it, the resubmitted row and the old DLQ count stay gone.
+	m := onOrders(t, fake.New())
+	seq := selectedSeq(t, m)
+	next, peek := m.Update(press("R"))
+	next, list := keysIn(t, next.(Model), "2").Update(press("R"))
+	stalePeek, staleList := peek(), list()
+	m = keysIn(t, next.(Model), "3", "r", "y")
+	m = run(t, run(t, m, stalePeek), staleList)
+	if len(m.messages.items) != 36 || selectedSeq(t, m) == seq {
+		t.Fatalf("after the stale refresh: %d rows, cursor on seq %d (resubmitted %d)", len(m.messages.items), selectedSeq(t, m), seq)
+	}
+	if e, _ := m.entities.selected(); e.Path != "orders" || e.DeadLetterCount != 36 {
+		t.Fatalf("after the stale entity list: %+v", e)
+	}
+}
+
 // clipRecorder records what a model copies through tmux.
 type clipRecorder struct{ texts []string }
 
