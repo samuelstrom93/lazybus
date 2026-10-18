@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -460,6 +461,9 @@ printf 'edited by %s' "$2" > "$1"
 // TestBodyTempRemovedOnExit: the temp file does not outlive lazybus when
 // it ends with the editor open, by SIGHUP or by the program ending.
 func TestBodyTempRemovedOnExit(t *testing.T) {
+	if signal.Ignored(syscall.SIGHUP) {
+		t.Skip("SIGHUP is ignored (started under nohup)")
+	}
 	t.Setenv("TMPDIR", t.TempDir())
 	hung := make(chan struct{}, 1)
 	prevHangup, prevExec := hangup, execProcess
