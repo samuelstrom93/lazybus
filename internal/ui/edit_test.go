@@ -394,6 +394,17 @@ func TestBodyEditorUnchangedTextBody(t *testing.T) {
 	}
 }
 
+func TestBodyEditorUnchangedCRLFBody(t *testing.T) {
+	// vim saves a CRLF file with a final "\r\n"; that is not an edit.
+	m := keysIn(t, onOrders(t, fake.New()), "j", "j", "j", "j")
+	m.messages.items[4].Body = []byte("a\r\nb")
+	fakeEditor(t, "a\r\nb\r\n", nil)
+	m = keysIn(t, m, "E")
+	if editsOfSelected(t, m).BodyEdited || !strings.Contains(m.status.text, "body unchanged") {
+		t.Fatalf("unchanged CRLF body: edits %+v status %q", editsOfSelected(t, m), m.status.text)
+	}
+}
+
 // TestBodyEditorRunsVisual runs the real command line: $VISUAL wins over
 // $EDITOR, the file is 0600 in the temp dir, and it is gone afterwards.
 func TestBodyEditorRunsVisual(t *testing.T) {

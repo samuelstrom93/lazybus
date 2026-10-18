@@ -120,9 +120,14 @@ func (m Model) editorDone(d editorDoneMsg) Model {
 		m.setStatus(statusErr, "reading the edited body: %v; body unchanged", rerr)
 		return m
 	}
-	// Editors end the file with a newline; lazybus did not write one.
+	// Editors end the file with a newline ("\r\n" for a CRLF file);
+	// lazybus did not write one.
 	if !bytes.HasSuffix(d.written, []byte("\n")) {
-		edited = bytes.TrimSuffix(edited, []byte("\n"))
+		if e, ok := bytes.CutSuffix(edited, []byte("\r\n")); ok {
+			edited = e
+		} else {
+			edited = bytes.TrimSuffix(edited, []byte("\n"))
+		}
 	}
 	label := fmt.Sprintf("%s seq %d", entityLabel(bus.Entity{Path: d.target.path}, bus.DeadLetter), d.target.seq)
 	cur := m.pending[d.target].Edits
