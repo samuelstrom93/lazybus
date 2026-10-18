@@ -14,7 +14,6 @@ All notable changes to lazybus are listed here. The format follows [Keep a Chang
 - The resubmit confirm popup always shows the MessageId line and the target warnings, also when long edits fill it.
 - A refresh that was in flight during a resubmit no longer brings the resubmitted message back into the list.
 - "quit after the call finishes" shows while the call runs, not only after it.
-- `l` no longer sticks on a discovery row that is still loading or failed.
 - `y` on the Body tab copies the edited body when there is one.
 - `R` on Messages keeps the cursor row when it is past the first page.
 - `e` and `enter` on a property with a null value no longer turn it into the string `"null"`.
@@ -26,7 +25,7 @@ All notable changes to lazybus are listed here. The format follows [Keep a Chang
 - The command log shows each failed abandon once, instead of repeating earlier ones after the send.
 - The entity-listing hint for an HTTP 401/403 says the credential lacks Manage rights or is invalid, since Azure answers both the same way; before, a wrong key was reported as a missing Manage right only.
 - The Active tab says "sessionful" only when the entity requires sessions; other `amqp:not-allowed` refusals show the broker's reason.
-- After a `Ctrl+C` that waited for a resubmit or cleanup, lazybus exits 0 when the outcome is Resubmitted, Cleaned or NotFound, without a "program was interrupted" line.
+- After a SIGINT signal (`kill -INT`) that waited for a resubmit or cleanup, lazybus exits 0 when the outcome is Resubmitted, Cleaned or NotFound, without a "program was interrupted" line.
 - `--help` says that discovery also runs with `--connection-string` and `--emulator`, which add their namespace on top.
 
 ## [0.1.0] - 2026-10-10
