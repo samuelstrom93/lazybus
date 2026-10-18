@@ -219,6 +219,8 @@ Related: the DLQ of an entity with `ForwardDeadLetteredMessagesTo` can't be peek
 | Entra (`--namespace`) with an invalid token | `HTTP 401` | Code `unauthorized` ("Generic: Generic") | same, definite |
 | Listen-only SAS rule on `lazybus-e2e-q` (created by the test with a random in-memory key) | `HTTP 401` (listing needs Manage) | works | Code `unauthorized` wrapping `amqp:unauthorized-access` "'Send' claim(s) are required…", **definite** |
 
+Listing bodies (2026-10-18, `GET /$Resources/Queues`): every 401 has `ErrorCode` `401` (from the XML `<Code>`, no `x-ms-error-code` header). The `<Detail>` is `InvalidSignature: The token has an invalid signature.` for a wrong key, an unknown key name **and** the queue-scoped Listen+Send rule (its token is not valid at namespace scope), and `Generic: Generic.` for an invalid Entra token. A missing Manage claim can't be told apart from a bad credential, so the listing hint names both: `HTTP 401: the credential lacks Manage rights or is invalid; without Manage, open entities with --entity <queue|topic/subscription>`.
+
 DLQ Repair with the Listen-only rule (target info read with the owner credential, everything else with the rule): **SendFailed**, the original abandoned back into the DLQ, nothing in the target, no abandon errors, DeliveryCount unchanged. The classifier needs no change: a token rejected at the claims-based-security step comes back as `*azservicebus.Error` Code `unauthorized`, a missing Send claim as the same code around the `amqp:unauthorized-access` error.
 
 Two things lazybus showed less well than it could; both addressed after S4:

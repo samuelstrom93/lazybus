@@ -145,16 +145,20 @@ func TestManageHint(t *testing.T) {
 		return runtime.NewResponseError(&http.Response{StatusCode: status, Status: http.StatusText(status),
 			Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))})
 	}
-	err := manageHint(mapErr("list entities sb-prod-weu", httpErr(401, "Manage,EntityRead claims required for this operation. TrackingId:x")))
-	if bus.KindOf(err) != bus.ErrUnauthorized || err.Error() !=
-		"list entities sb-prod-weu: listing needs Manage rights (HTTP 401); open entities with --entity <queue|topic/subscription>" {
-		t.Fatalf("401: %v", err)
-	}
-	// Not a missing Manage claim: no hint.
-	for _, e := range []error{
-		errors.New("AzureCLICredential: please run az login"), &azcore.ResponseError{StatusCode: 404},
-		httpErr(401, "InvalidSignature: The token has an invalid signature. TrackingId:x"),
+	// S4: Azure answers a Listen+Send rule (no Manage), a wrong key and an
+	// unknown key name alike, and an invalid Entra token with "Generic".
+	for _, detail := range []string{
+		"InvalidSignature: The token has an invalid signature. TrackingId:x, SystemTracker:NoSystemTracker, Timestamp:2026-10-18T20:42:00",
+		"Generic: Generic. TrackingId:x, SystemTracker:NoSystemTracker, Timestamp:2026-10-18T20:42:00",
 	} {
+		err := manageHint(mapErr("list entities sb-prod-weu", httpErr(401, detail)))
+		if bus.KindOf(err) != bus.ErrUnauthorized || err.Error() != "list entities sb-prod-weu: HTTP 401: the credential lacks Manage rights "+
+			"or is invalid; without Manage, open entities with --entity <queue|topic/subscription>" {
+			t.Errorf("%s: %v", detail, err)
+		}
+	}
+	// Not the namespace refusing: no hint.
+	for _, e := range []error{errors.New("AzureCLICredential: please run az login"), &azcore.ResponseError{StatusCode: 404}} {
 		if err := manageHint(mapErr("list entities", e)); strings.Contains(err.Error(), "Manage") {
 			t.Errorf("%v: %v", e, err)
 		}

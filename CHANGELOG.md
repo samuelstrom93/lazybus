@@ -24,7 +24,7 @@ All notable changes to lazybus are listed here. The format follows [Keep a Chang
 - A resubmit refuses a message whose AMQP correlation-id is not a string (uuid, ulong or binary), instead of sending the copy without it.
 - A resubmit sends the copy once, without SDK retries, so `SendFailed (nothing changed)` can no longer hide an earlier attempt that may have delivered a copy.
 - The command log shows each failed abandon once, instead of repeating earlier ones after the send.
-- The "listing needs Manage rights" hint shows only when the namespace says the Manage claim is missing; a wrong or expired key keeps the plain `HTTP 401` error.
+- The entity-listing hint for an HTTP 401/403 says the credential lacks Manage rights or is invalid, since Azure answers both the same way; before, a wrong key was reported as a missing Manage right only.
 - The Active tab says "sessionful" only when the entity requires sessions; other `amqp:not-allowed` refusals show the broker's reason.
 - After a `Ctrl+C` that waited for a resubmit or cleanup, lazybus exits 0 when the outcome is Resubmitted, Cleaned or NotFound, without a "program was interrupted" line.
 - `--help` says that discovery also runs with `--connection-string` and `--emulator`, which add their namespace on top.
