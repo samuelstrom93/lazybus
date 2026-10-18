@@ -211,7 +211,10 @@ func (m Model) refresh(cur ContextID) (Model, tea.Cmd) {
 		m.setStatus(statusInfo, "nothing to refresh: open an entity first")
 		return m, nil
 	}
-	m.keepIndex, m.hasKeepIndex = m.messages.cursor, true
+	// A second R while the first still pages keeps the first one's target.
+	if !m.hasKeepIndex {
+		m.keepIndex, m.keepLoaded, m.hasKeepIndex = m.messages.cursor, len(m.messages.all), true
+	}
 	m.hasAfterPage = false
 	cmd := m.peekFrom(*m.openNS, *m.openEntity, m.subQueue, 0)
 	return m, cmd

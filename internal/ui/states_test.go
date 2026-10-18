@@ -157,9 +157,29 @@ func TestRefreshKeepsIndexPastFirstPage(t *testing.T) {
 	m := startWith(t, fake.New(fake.WithDeadLetters("sb-prod-weu", "orders", 120)))
 	m = keysIn(t, m, "2", "j", "j", "j", "enter", "G", "G")
 	seq := selectedSeq(t, m)
-	m = keysIn(t, m, "R")
+	// A second R after the first page keeps the first R's target.
+	next, peek := m.Update(press("R"))
+	next, _ = next.(Model).Update(peek())
+	m = keysIn(t, next.(Model), "R")
 	if m.messages.cursor != 99 || selectedSeq(t, m) != seq {
 		t.Fatalf("after R: %d rows, cursor %d on seq %d, want 99 on seq %d", len(m.messages.items), m.messages.cursor, selectedSeq(t, m), seq)
+	}
+}
+
+func TestRefreshPagesOnlyUpToTheLoadedRows(t *testing.T) {
+	// The filter's only match leaves the DLQ: R loads the 50 rows it had,
+	// not the whole DLQ looking for another match.
+	be := fake.New(fake.WithDeadLetters("sb-prod-weu", "orders", 300))
+	m := keysIn(t, startWith(t, be), "2", "j", "j", "j", "enter")
+	id := m.messages.items[10].MessageID
+	m = keysIn(t, m, append(append([]string{"/"}, strings.Split(id, "")...), "enter")...)
+	if len(m.messages.items) != 1 {
+		t.Fatalf("filter %q: %d rows", id, len(m.messages.items))
+	}
+	removeOutOfBand(t, be, m, selectedSeq(t, m))
+	m = keysIn(t, m, "R")
+	if len(m.messages.all) != 50 || !m.messages.more || m.hasKeepIndex {
+		t.Fatalf("after R: %d rows loaded, more %v, still paging %v", len(m.messages.all), m.messages.more, m.hasKeepIndex)
 	}
 }
 

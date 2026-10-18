@@ -220,8 +220,10 @@ type Model struct {
 	afterPage    int
 	hasAfterPage bool
 	// keepIndex is the cursor index to restore after a refresh (R): pages
-	// load until it is loaded or the list ends.
+	// load until it is loaded, keepLoaded rows (the rows loaded at R) are
+	// loaded, or the list ends.
 	keepIndex    int
+	keepLoaded   int
 	hasKeepIndex bool
 
 	jump jumpState // the : popup (CtxJump)
@@ -357,15 +359,17 @@ func (m *Model) clearLines() {
 
 // keepIndexOrLoad is a refresh's next step once a page arrived: the cursor
 // goes back to keepIndex, now on whatever message is there, or the next
-// page loads first when that index is not loaded yet and more may follow.
+// page loads first when that index is not loaded yet, fewer rows than at R
+// are loaded, and more may follow. The bound keeps a filter that lost its
+// matches, or a shrunk list, from paging through the whole DLQ. The cursor
+// moves only when paging is done.
 func (m *Model) keepIndexOrLoad() tea.Cmd {
 	l := &m.messages
-	m.resetMain()
-	if m.keepIndex >= len(l.items) && l.more && len(l.all) > 0 && m.openNS != nil && m.openEntity != nil {
-		l.move(len(l.items) - 1)
+	if m.keepIndex >= len(l.items) && len(l.all) < m.keepLoaded && l.more && len(l.all) > 0 && m.openNS != nil && m.openEntity != nil {
 		return m.peekFrom(*m.openNS, *m.openEntity, m.subQueue, l.all[len(l.all)-1].SequenceNumber+1)
 	}
 	m.hasKeepIndex = false
+	m.resetMain()
 	l.move(m.keepIndex)
 	return nil
 }
