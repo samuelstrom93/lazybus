@@ -278,18 +278,23 @@ func main() {
 // exitCode reports how the program ended, after the terminal is restored:
 // the outcome of a call a signal's quit waited for (ui.Filter), which the
 // alt screen no longer shows, and the program's error. 1 when either
-// failed.
+// failed. A deferred SIGINT ends Run with ErrInterrupted (wrapped in
+// ErrProgramKilled) after the outcome is in; the outcome alone decides the
+// exit then (spec §2: 0 for Resubmitted, Cleaned, NotFound).
 func exitCode(final tea.Model, runErr error, stderr io.Writer) int {
 	code := 0
-	if m, ok := final.(ui.Model); ok {
+	deferred := false
+	// ui.Model's ExitReport; an interface so tests can stub the outcome.
+	if m, ok := final.(interface{ ExitReport() (string, bool) }); ok {
 		if text, failed := m.ExitReport(); text != "" {
+			deferred = true
 			fmt.Fprintln(stderr, text)
 			if failed {
 				code = 1
 			}
 		}
 	}
-	if runErr != nil {
+	if runErr != nil && !(deferred && errors.Is(runErr, tea.ErrInterrupted)) {
 		fmt.Fprintln(stderr, "lazybus:", runErr)
 		code = 1
 	}

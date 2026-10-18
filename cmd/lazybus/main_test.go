@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"reflect"
 	"strings"
@@ -232,8 +233,21 @@ func (failingCred) GetToken(context.Context, policy.TokenRequestOptions) (azcore
 
 // TestExitCode covers the wiring; the report itself is tested in ui
 // (TestExitReportAfterDeferredQuit).
+// deferredQuit is a final model whose quit waited for a call's outcome.
+type deferredQuit struct {
+	text   string
+	failed bool
+}
+
+func (deferredQuit) Init() tea.Cmd                         { return nil }
+func (d deferredQuit) Update(tea.Msg) (tea.Model, tea.Cmd) { return d, nil }
+func (deferredQuit) View() tea.View                        { return tea.NewView("") }
+func (d deferredQuit) ExitReport() (string, bool)          { return d.text, d.failed }
+
 func TestExitCode(t *testing.T) {
 	m := ui.New(fake.New(), ui.Options{})
+	// What Program.Run returns after a model returns tea.Interrupt.
+	interrupted := fmt.Errorf("%w: %w", tea.ErrProgramKilled, tea.ErrInterrupted)
 	for _, tc := range []struct {
 		final tea.Model
 		err   error
@@ -243,6 +257,10 @@ func TestExitCode(t *testing.T) {
 		{m, nil, 0, ""},
 		{m, tea.ErrInterrupted, 1, "lazybus: program was interrupted\n"},
 		{nil, tea.ErrProgramKilled, 1, "lazybus: program was killed\n"},
+		// A SIGINT deferred until the outcome: the outcome decides (spec §2).
+		{deferredQuit{"Resubmitted", false}, interrupted, 0, "Resubmitted\n"},
+		{deferredQuit{"SendFailed", true}, interrupted, 1, "SendFailed\n"},
+		{deferredQuit{"Resubmitted", false}, tea.ErrProgramPanic, 1, "Resubmitted\nlazybus: program experienced a panic\n"},
 	} {
 		var out bytes.Buffer
 		if code := exitCode(tc.final, tc.err, &out); code != tc.code || out.String() != tc.out {
