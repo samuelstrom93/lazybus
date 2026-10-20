@@ -671,7 +671,10 @@ func (m *Model) focus(c ContextID) {
 	m.stack.Focus(c)
 	if c.isSide() {
 		m.lastSide = c
-		m.zoom = false
+		if m.zoom {
+			m.zoom = false
+			m.search.line = -1 // the Body re-wraps at the new width
+		}
 	}
 }
 
