@@ -424,6 +424,8 @@ func (m Model) renderMain(l layout) []string {
 		var title string
 		title, lines = m.namespaceDetails(inner)
 		tabs, scroll = []seg{{title, stBold}}, 0
+	} else {
+		tabs = append(tabs, m.searchTitle(lines)...)
 	}
 
 	out := []string{hBorder(l.mainW, "┌", "┐", tabs, edge)}
@@ -431,6 +433,9 @@ func (m Model) renderMain(l layout) []string {
 		var s string
 		if j := scroll + i; j < len(lines) {
 			s = lines[j]
+			if m.search.term != "" && m.stack.Root() != CtxNamespaces {
+				s = highlight(s, m.search.term, j == m.search.line, inner)
+			}
 		}
 		out = append(out, boxRow(fitStyled(s, inner), edge))
 	}
@@ -830,7 +835,7 @@ func (m Model) renderOptions() string {
 		r, _ := renderSegs(right, rw, nil)
 		return l + " " + r
 	}
-	f := optionFlags{tab: m.tab}
+	f := optionFlags{tab: m.tab, search: m.search.term != ""}
 	if msg, ok := m.selectedMessage(); ok && m.subQueue == bus.DeadLetter {
 		mark, marked := m.markOf(msg.SequenceNumber)
 		f.cleanup = marked && mark.outcome == bus.CleanupPending
@@ -840,7 +845,7 @@ func (m Model) renderOptions() string {
 	f.repair = !m.opts.ReadOnly && m.subQueue == bus.DeadLetter
 	f.cleanup = f.cleanup && f.repair
 	bindings := optionsBindings(m.stack.Top(), f)
-	if m.stack.Top() == CtxFilter || m.stack.Top() == CtxJump {
+	if m.stack.Top() == CtxFilter || m.stack.Top() == CtxJump || m.stack.Top() == CtxSearch {
 		bindings = contextBindings(m.stack.Top())
 	}
 	if m.stack.Top() == CtxConfirm && m.confirm.kind == confirmRepair && !m.confirm.uncertain {
@@ -862,7 +867,7 @@ func (m Model) renderOptions() string {
 // optionsDropOrder are the options bar keys left out first when the bar
 // is too narrow, so the context's own keys and ? / q stay visible.
 var optionsDropOrder = []key.Help{
-	keys.FocusMainOp.Help(), keys.Jump.Help(), keys.Filter.Help(), {Key: "[ ]/ö ä", Desc: "tab"}, keys.SubQueue.Help(),
+	keys.FocusMainOp.Help(), keys.Jump.Help(), keys.Filter.Help(), keys.Search.Help(), {Key: "[ ]/ö ä", Desc: "tab"}, keys.SubQueue.Help(),
 }
 
 // fitBindings drops bindings in optionsDropOrder until they fit in width

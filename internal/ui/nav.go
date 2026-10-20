@@ -34,11 +34,11 @@ func (m Model) messageText(msg bus.Message) string {
 }
 
 // startFilter handles / on a side panel: the filter is typed into the
-// panel title, and the list narrows as you type.
+// panel title, and the list narrows as you type. On the main pane / starts
+// a search instead.
 func (m Model) startFilter(cur ContextID) (Model, tea.Cmd) {
-	if !cur.isSide() {
-		m.setStatus(statusInfo, "/ filters a side panel: focus 1, 2 or 3 first")
-		return m, nil
+	if cur == CtxMain {
+		return m.startSearch()
 	}
 	m.stack.Push(CtxFilter)
 	return m, nil

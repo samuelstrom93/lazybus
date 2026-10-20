@@ -75,13 +75,6 @@ func TestFilterEachPanel(t *testing.T) {
 	}
 }
 
-func TestFilterOutsideSidePanelRefused(t *testing.T) {
-	m := keysIn(t, loaded(t), "0", "/")
-	if m.stack.Top() != CtxMain || !strings.Contains(m.status.text, "focus 1, 2 or 3") {
-		t.Fatalf("top %v, status %q", m.stack.Top(), m.status.text)
-	}
-}
-
 func TestFilterClearsWhenTheListChanges(t *testing.T) {
 	m := keysIn(t, loaded(t), "3", "/", "m", "a", "x", "enter")
 	m = keysIn(t, m, "tab")

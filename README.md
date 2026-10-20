@@ -80,6 +80,7 @@ Every broker call times out after 30 s (a resubmit and its pre-check, which are 
 | `g` `G` / `ctrl-d` `ctrl-u` | a list | Top, bottom / half page down, up. |
 | `[` `]` `ö` `ä` | anywhere | Previous / next main-pane tab: Body, Properties, System. `ö` and `ä` (Swedish layout) do the same. |
 | `/` | a side panel | Filter the list as you type: a case-insensitive match on the visible columns. The filter shows in the panel title. `enter` keeps it and returns to the list; `esc` (while typing, or on the panel) clears it. It is dropped when the list changes source (another namespace, entity or tab). |
+| `/` | main pane | Search the shown tab as you type, ignoring case; the main pane title shows `/term 2/5`. `enter` keeps the term, `esc` clears it. `n` / `N` go to the next / previous matching line (wrapping); on Properties and System the cursor goes to that row. The term stays across messages and tabs, so you can look up the same field in message after message; `esc` on the main pane clears it before it leaves the pane. |
 | `:` | anywhere | Jump to an entity of the open namespace by fuzzy name; `enter` opens its DLQ. |
 | `s` | Entities | Sort by path, or by DLQ count (largest first; `?` counts last). |
 | `R` | the focused panel | Refresh: Namespaces discovers again, Entities lists again (with counts), Messages and the main pane peek again from the start. The cursor keeps its entity, or its message row index (pages load again up to it). |

@@ -227,8 +227,9 @@ type Model struct {
 	keepLoaded   int
 	hasKeepIndex bool
 
-	jump jumpState // the : popup (CtxJump)
-	clip clipboard
+	jump   jumpState   // the : popup (CtxJump)
+	search searchState // the main pane search (/ on the main pane)
+	clip   clipboard
 
 	log  []logEntry
 	help helpState
@@ -280,6 +281,7 @@ func New(be bus.Backend, opts Options) Model {
 		discSem:    make(chan struct{}, maxParallelDiscovery),
 		spin:       spinner.New(spinner.WithSpinner(spinner.MiniDot)),
 		clip:       newClipboard(),
+		search:     searchState{line: -1},
 	}
 }
 
@@ -350,6 +352,7 @@ func (m *Model) resetMessages() {
 func (m *Model) resetMain() {
 	m.mainScroll = 0
 	m.mainCursor = 0
+	m.search.line = -1
 }
 
 func (m *Model) clearLines() {
@@ -587,6 +590,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.handleJumpKey(msg)
 	case CtxEdit:
 		return m.handleEditKey(msg)
+	case CtxSearch:
+		return m.handleSearchKey(msg)
 	}
 	return m.handlePanelKey(msg)
 }
@@ -675,7 +680,10 @@ func (m Model) handlePanelKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		m.tab = (m.tab + 1) % tabCount
 		m.resetMain()
 	case key.Matches(msg, keys.Back):
-		if cur == CtxMain {
+		if cur == CtxMain && m.search.term != "" {
+			m.search = searchState{line: -1}
+			m.setStatus(statusInfo, "search cleared")
+		} else if cur == CtxMain {
 			m.focus(m.lastSide)
 		} else if m.clearFilter(cur) {
 			m.setStatus(statusInfo, "filter cleared")
@@ -684,6 +692,10 @@ func (m Model) handlePanelKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.startFilter(cur)
 	case key.Matches(msg, keys.Jump):
 		return m.startJump()
+	case cur == CtxMain && key.Matches(msg, keys.NextMatch):
+		return m.nextMatch(1)
+	case cur == CtxMain && key.Matches(msg, keys.PrevMatch):
+		return m.nextMatch(-1)
 	case key.Matches(msg, keys.Zoom):
 		m.zoom = !m.zoom
 		if m.zoom {
@@ -949,6 +961,9 @@ func (m Model) helpEntries() []helpLine {
 	add(name, contextBindings(root))
 	if root.isSide() {
 		add("Filter (/)", contextBindings(CtxFilter))
+	}
+	if root == CtxMain {
+		add("Search (/)", contextBindings(CtxSearch))
 	}
 	add("Jump popup (:)", contextBindings(CtxJump))
 	if root == CtxMessages || root == CtxMain {

@@ -14,6 +14,7 @@ const (
 	CtxFilter  // typing a / filter for the panel underneath
 	CtxJump    // the : jump-to-entity popup
 	CtxEdit    // the Property Edit popup, or the Subject / ContentType one
+	CtxSearch  // typing a / search of the main pane
 )
 
 func (c ContextID) String() string {
@@ -38,6 +39,8 @@ func (c ContextID) String() string {
 		return "Jump"
 	case CtxEdit:
 		return "Edit"
+	case CtxSearch:
+		return "Search"
 	}
 	return "Unknown"
 }

@@ -6,6 +6,7 @@ All notable changes to lazybus are listed here. The format follows [Keep a Chang
 
 ### Added
 
+- `/` on the main pane searches the Body, Properties or System tab as you type; `n` and `N` go to the next and previous matching line, wrapping around, and the matches are highlighted. The term stays across messages and tabs; `esc` clears it.
 - `+` zooms the main pane to the full width, for long bodies; `+` again, or focusing a side panel, returns to the normal layout.
 
 ## [0.1.1] - 2026-10-19

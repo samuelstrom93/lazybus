@@ -1,9 +1,11 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/samuelstrom93/lazybus/internal/bus/fake"
 )
@@ -198,5 +200,45 @@ func TestZoom(t *testing.T) {
 	m = keysIn(t, m, "+", "2")
 	if m.zoom || m.stack.Root() != CtxEntities {
 		t.Fatalf("focusing a side panel kept the zoom: zoom %v focus %v", m.zoom, m.stack.Root())
+	}
+}
+
+func TestSearchMainPane(t *testing.T) {
+	m := keysIn(t, loaded(t), "3", "enter", "/", "s", "k", "u")
+	if m.stack.Top() != CtxSearch || m.search.term != "sku" {
+		t.Fatalf("/ on the main pane: top %v term %q", m.stack.Top(), m.search.term)
+	}
+	lines := m.mainLines(m.layout().mainW - 2)
+	matches := searchLines(lines, "SKU")
+	if len(matches) != 2 || m.search.line != matches[0] {
+		t.Fatalf("matches %v, current %d", matches, m.search.line)
+	}
+	m = keysIn(t, m, "enter", "n")
+	if m.stack.Top() != CtxMain || m.search.line != matches[1] {
+		t.Fatalf("n: top %v line %d, want %d", m.stack.Top(), m.search.line, matches[1])
+	}
+	if m = run(t, m, press("n")); m.search.line != matches[0] {
+		t.Fatalf("n did not wrap: line %d", m.search.line)
+	}
+	if m = run(t, m, press("N")); m.search.line != matches[1] {
+		t.Fatalf("N did not wrap back: line %d", m.search.line)
+	}
+	if !strings.Contains(ansi.Strip(m.render()), "/sku 2/2") {
+		t.Fatal("the main pane title does not show the search")
+	}
+
+	// Properties: the cursor goes to the matching row.
+	m = keysIn(t, m, "]", "/", "i", "s", "r", "enter")
+	_, rows := m.mainContent(m.layout().mainW - 2)
+	if m.search.line < 0 || rows[m.mainCursor] != m.search.line || m.mainCursor != 4 {
+		t.Fatalf("Properties: line %d cursor row %v", m.search.line, rows)
+	}
+
+	m = run(t, m, press("esc"))
+	if m.search.term != "" || m.stack.Root() != CtxMain {
+		t.Fatalf("esc did not clear the search first: term %q focus %v", m.search.term, m.stack.Root())
+	}
+	if m = keysIn(t, m, "/", "x", "y", "z", "esc"); m.search.term != "" || m.stack.Top() != CtxMain {
+		t.Fatalf("esc while typing: term %q top %v", m.search.term, m.stack.Top())
 	}
 }

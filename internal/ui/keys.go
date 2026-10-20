@@ -68,6 +68,12 @@ type keyMap struct {
 	JumpCancel  key.Binding
 	JumpUp      key.Binding
 	JumpDown    key.Binding
+
+	Search      key.Binding // Main: / (help only; keys.Filter handles it)
+	NextMatch   key.Binding // Main: n
+	PrevMatch   key.Binding // Main: N
+	SearchKeep  key.Binding // / input on the main pane: enter
+	SearchClear key.Binding // / input on the main pane: esc
 }
 
 var keys = keyMap{
@@ -134,6 +140,12 @@ var keys = keyMap{
 	JumpCancel:  key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
 	JumpUp:      key.NewBinding(key.WithKeys("up", "ctrl+p"), key.WithHelp("↑", "previous")),
 	JumpDown:    key.NewBinding(key.WithKeys("down", "ctrl+n"), key.WithHelp("↓", "next")),
+
+	Search:      key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
+	NextMatch:   key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "next match")),
+	PrevMatch:   key.NewBinding(key.WithKeys("N"), key.WithHelp("N", "previous match")),
+	SearchKeep:  key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "keep search")),
+	SearchClear: key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "clear search")),
 }
 
 // contextBindings are the keys specific to one context.
@@ -148,11 +160,14 @@ func contextBindings(c ContextID) []key.Binding {
 			keys.AddPropMsg, keys.EditBody, keys.Discard}
 	case CtxMain:
 		return []key.Binding{keys.Back, keys.Resubmit, keys.FinishCleanup,
-			keys.EditBody, keys.EditProp, keys.AddProp, keys.RemoveProp, keys.EditField, keys.Discard}
+			keys.EditBody, keys.EditProp, keys.AddProp, keys.RemoveProp, keys.EditField, keys.Discard,
+			keys.Search, keys.NextMatch, keys.PrevMatch}
 	case CtxHelp:
 		return []key.Binding{keys.HelpUp, keys.HelpDown, keys.HelpErase, keys.HelpClose}
 	case CtxFilter:
 		return []key.Binding{keys.FilterKeep, keys.FilterClear, keys.FilterMove}
+	case CtxSearch:
+		return []key.Binding{keys.SearchKeep, keys.SearchClear}
 	case CtxJump:
 		return []key.Binding{keys.JumpOpen, keys.JumpCancel, keys.JumpUp, keys.JumpDown}
 	case CtxEdit:
@@ -183,6 +198,7 @@ type optionFlags struct {
 	cleanup bool    // c: a CleanupPending row, r allowed
 	edit    bool    // edit keys: DLQ tab with a message selected
 	discard bool    // x: the message has Pending Edits
+	search  bool    // n N: a main pane search term is set
 	tab     mainTab // main pane tab: which edit keys it takes
 }
 
@@ -227,6 +243,10 @@ func optionsBindings(c ContextID, f optionFlags) []key.Binding {
 			}
 		case keys.EditField.Help():
 			if !f.edit || f.tab != tabSystem {
+				continue
+			}
+		case keys.NextMatch.Help(), keys.PrevMatch.Help():
+			if !f.search {
 				continue
 			}
 		}

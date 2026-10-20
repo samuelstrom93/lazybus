@@ -27,4 +27,4 @@
 [90m│[m  19 [90m23:00 [mDownstreamTimeo…[90m ord-4019[m  [90m│[m[90m│[m[90m 16:00 [mpeek invoices/$DLQ → 3                                                 [90m│[m
 [90m│[m  20 [90m09-20 [mSchemaMismatch  [90m ord-4020[m  [90m│[m[90m│[m[90m 16:00 [mpeek orders/$DLQ → 37                                                  [90m│[m
 [90m└──────────────────────────────────────┘[m[90m└──────────────────────────────────────────────────────────────────────────────┘[m
- [36mesc[m back  [36mr[m resubmit  [36mE[m edit body  [36mx[m discard edits  [36m[ ]/ö ä[m tab  [36m+[m zoom  [36m:[m jump  [36m?[m keybindings  [36mq[m quit     [33m✎ 1 pending[m 
+ [36mesc[m back  [36mr[m resubmit  [36mE[m edit body  [36mx[m discard edits  [36m/[m search  [36m[ ]/ö ä[m tab  [36m+[m zoom  [36m?[m keybindings  [36mq[m quit   [33m✎ 1 pending[m 
