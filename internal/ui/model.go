@@ -749,6 +749,7 @@ func (m Model) handlePanelKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.startRecent()
 	case key.Matches(msg, keys.Zoom):
 		m.zoom = !m.zoom
+		m.search.line = -1 // the Body re-wraps at the new width
 		if m.zoom {
 			m.focus(CtxMain)
 		}
@@ -767,6 +768,7 @@ func (m Model) handlePanelKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 			} else {
 				m.subQueue = bus.DeadLetter
 			}
+			m.clearPicks()
 			cmd := m.peek(*m.openNS, *m.openEntity, m.subQueue)
 			return m, cmd
 		}

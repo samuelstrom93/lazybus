@@ -105,7 +105,7 @@ Rule: same letter = analogous action in every context; lowercase = common action
 | | `c` | Finish Cleanup on a CleanupPending row (§6) — confirm popup |
 | | `space` | pick / unpick the row for a bulk resubmit (§6.2) |
 | | `v` | pick a range from here to the cursor; `v` / `space` keeps it, `esc` cancels |
-| | `A` | pick every loaded row with the selected row's DeadLetterReason (again: unpick) |
+| | `A` | pick every loaded row shown (filter applies) with the selected row's DeadLetterReason (again: unpick) |
 | | `esc` | cancel the range, then clear the picks, then clear the filter |
 | Main pane: Body | `E` | edit body in `$EDITOR` |
 | Main pane: Properties | `e` | edit selected property (popup prefilled) |
@@ -157,11 +157,11 @@ Target: the entity the user opened, not `DeadLetterSource` (set only on dead let
 
 ### 6.2 Bulk resubmit
 
-`r` with picked rows repairs them in one call (at most 25, `bus.MaxBatch`; more is refused in the UI and the service layer). Picks cover loaded DLQ rows of the open entity only and are cleared when another list opens or a batch ran. A picked SendUncertain or CleanupPending row is refused: it is resolved on its own (`r` / `c`).
-1. Pre-check per message as in step 1 (guard, edit validation); gone ones are NotFound and leave the list, refused ones are listed and skipped. One confirm popup lists every message (seq, MessageId, reason, edit count), target, markers, MessageId (`m` toggles it for the whole batch) and the scan cost.
-2. One receiver, one scan (step 3.1) for all targets, limit K = the highest picked index + one page; non-matches are held and abandoned at once as for one message.
-3. Then, in pick order, steps 3.2–3.5 per message with its own Pending Edits. Stop at the first **SendUncertain** or **CleanupPending**: the remaining matches are abandoned and reported "not attempted". NotFound (scan), LockLost and SendFailed don't stop the batch.
-4. Row handling per message as in step 4; the status bar sums up the outcomes (`Resubmit N → target: 2 Resubmitted, 1 SendFailed`, plus "stopped at seq N" when it stopped) and the log has one line per message.
+`r` with picked rows repairs them in one call (at most 25, `bus.MaxBatch`; more is refused in the UI and the service layer). Picks cover loaded DLQ rows of the open entity only and are cleared when another list or sub-queue opens or a batch ran. A picked SendUncertain or CleanupPending row is refused: it is resolved on its own (`r` / `c`).
+1. Pre-check per message as in step 1 (guard, edit validation); gone ones are NotFound and leave the list, refused ones are listed, logged and skipped. One confirm popup lists every message (seq, MessageId, reason, edit count), target, markers, MessageId (`m` toggles it for the whole batch) and the scan cost.
+2. One receiver, one scan (step 3.1) for all targets, limit K = the highest picked index + one page; the call's time budget is one repair's plus one call timeout per message; non-matches are held and abandoned at once as for one message.
+3. Then, in list order, steps 3.2–3.5 per message with its own Pending Edits. Stop at the first **SendUncertain** or **CleanupPending**: the remaining matches are abandoned and reported "not attempted". NotFound (scan), LockLost and SendFailed don't stop the batch.
+4. Row handling per message as in step 4; the status bar sums up the outcomes (`Resubmit N → target: 2 Resubmitted, 1 SendFailed`, plus "stopped at seq N" with the same hint as for one message) and the log has one line per message.
 
 ## 7. Auth and connection
 

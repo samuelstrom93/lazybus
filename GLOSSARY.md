@@ -23,6 +23,10 @@ Taking one dead-letter message, optionally applying its Pending Edits, sending t
 _Avoid_: resend, replay, requeue (other tools use these for the copy-and-leave flow)
 "Resubmit" is the user-facing verb for a DLQ Repair (the `r` key, the Resubmitted outcome).
 
+**Bulk Resubmit**:
+Several picked dead-letter messages of one entity (at most 25) repaired in one call: one scan finds them all, then each gets its own DLQ Repair in turn, stopping at the first Send Uncertain or Resubmit Cleanup Pending.
+_Avoid_: batch repair, mass resubmit (code uses "batch" for the call's types)
+
 **Finish Cleanup**:
 Removing the original of a Resubmit Cleanup Pending message from the dead-letter queue without sending anything, so only the copy in the Resubmit Target remains.
 _Avoid_: delete, purge (v0.1 has no general delete)
@@ -39,6 +43,6 @@ The ordered set of UI contexts (side panels, main pane, popups, menus, filter) w
 
 ## Relationships
 
-- A DLQ Repair holds a lock only for its own duration; nothing else in lazybus ever holds a lock.
+- A DLQ Repair or Bulk Resubmit holds locks only for its own call; nothing else in lazybus ever holds a lock.
 - Pending Edits belong to exactly one dead-letter message; a DLQ Repair consumes them.
 - A Resubmit Cleanup Pending message is resolved by a Finish Cleanup, never by a second DLQ Repair.

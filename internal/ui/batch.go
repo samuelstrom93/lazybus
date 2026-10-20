@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -168,7 +169,8 @@ func (m Model) toggleRange() (Model, tea.Cmd) {
 }
 
 // pickSameReason is A on Messages: pick every visible loaded row with the
-// cursor row's DeadLetterReason, or unpick them when all already are.
+// cursor row's DeadLetterReason (the filter applies), or unpick them when
+// all already are.
 func (m Model) pickSameReason() (Model, tea.Cmd) {
 	if why := m.canPick(); why != "" {
 		m.setStatus(statusWarn, "%s", why)
@@ -289,15 +291,12 @@ func (m Model) batchPlanDone(msg batchPlanDoneMsg) (Model, tea.Cmd) {
 			cmds = append(cmds, m.outcomeRows(confirmRepair, r, res))
 		case p.Refused == "":
 			ready.Items = append(ready.Items, it)
+		default:
+			m.logf(true, "resubmit %s seq %d: %s", msg.plan.Source, p.SequenceNumber, p.Refused)
 		}
 	}
 	if len(ready.Items) == 0 {
 		m.setStatus(statusWarn, "nothing to resubmit: the picked messages are gone or refused (see log)")
-		for _, p := range msg.plan.Items {
-			if p.Found && p.Refused != "" {
-				m.logf(true, "resubmit %s seq %d: %s", msg.plan.Source, p.SequenceNumber, p.Refused)
-			}
-		}
 		return m, tea.Batch(cmds...)
 	}
 	m.confirm = confirmState{kind: confirmBatch, batch: ready, batchPlan: msg.plan, newID: msg.plan.NewIDByDefault}
@@ -315,7 +314,8 @@ func (m Model) executeBatch(c confirmState) (Model, tea.Cmd) {
 	t := c.batchPlan.Target
 	m.busy = busyState{fmt.Sprintf("resubmitting %d messages of %s → %s %s", len(req.Items), entityLabel(req.Entity, bus.DeadLetter), t.Kind, t.Name), true}
 	m.stack.Push(CtxBusy)
-	be, timeout := m.be, m.repairTimeout()
+	// One repair's budget plus a call per message for its send and complete.
+	be, timeout := m.be, m.repairTimeout()+time.Duration(len(req.Items))*m.opts.CallTimeout
 	run := func() tea.Msg {
 		// As for one message: the outcome must reach the log and the rows.
 		defer holdSignals()()
@@ -382,7 +382,11 @@ func batchStatus(msg batchDoneMsg, counts map[bus.Outcome]int, skipped int) stat
 		level = statusWarn
 	}
 	if msg.res.Stopped != 0 {
-		text += fmt.Sprintf(" — stopped at seq %d: check the target before retrying", msg.res.Stopped)
+		hint := "check the target before retrying"
+		if counts[bus.CleanupPending] > 0 {
+			hint = "press c on it to finish cleanup"
+		}
+		text += fmt.Sprintf(" — stopped at seq %d: %s", msg.res.Stopped, hint)
 	}
 	if n := len(msg.res.AbandonErrors); n > 0 {
 		text += fmt.Sprintf(" (%d abandon error%s, see log)", n, plural(n))

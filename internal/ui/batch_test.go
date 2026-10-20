@@ -132,9 +132,28 @@ func TestBulkResubmitGoneRowsLeave(t *testing.T) {
 	}
 }
 
-func TestPickRefusedOnActive(t *testing.T) {
-	m := keysIn(t, onOrders(t, fake.New()), "tab", "space")
+func TestPickRefusedOnActiveAndClearedByTab(t *testing.T) {
+	m := keysIn(t, onOrders(t, fake.New()), "space", "tab", "space")
 	if len(m.pickedSeqs()) != 0 || m.status.level != statusWarn {
 		t.Fatalf("picks %v status %q", m.pickedSeqs(), m.status.text)
+	}
+	if m = keysIn(t, m, "tab"); len(m.pickedSeqs()) != 0 {
+		t.Fatalf("back on DLQ: picks %v", m.pickedSeqs())
+	}
+}
+
+func TestBulkResubmitStopHintAndRefusedLog(t *testing.T) {
+	be := fake.New()
+	m := keysIn(t, onOrders(t, be), "v", "j", "j", "v")
+	seqs := m.pickedSeqs()
+	be.SetUnsupported("sb-prod-weu", "orders", bus.KindQueue, seqs[2], "AmqpValue body")
+	be.SetFault(fake.OpComplete, fake.Fault{Err: context.DeadlineExceeded, Seq: seqs[0]})
+	m = keysIn(t, m, "r")
+	if len(m.confirm.batch.Items) != 2 || !hasLog(m, "AmqpValue body") {
+		t.Fatalf("items %d log %+v", len(m.confirm.batch.Items), m.log)
+	}
+	m = keysIn(t, m, "y")
+	if !strings.Contains(m.status.text, "stopped at seq") || !strings.Contains(m.status.text, "press c") {
+		t.Fatalf("status %q", m.status.text)
 	}
 }

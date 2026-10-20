@@ -103,7 +103,7 @@ The status bar confirms each copy (`copied …`). Copy uses OSC 52, so it reache
 | `c` | Messages, main pane | Finish Cleanup on a CleanupPending row (confirm popup; nothing is sent). |
 | `space` | Messages (DLQ tab) | Pick the row for a bulk resubmit (● in the list), or unpick it. |
 | `v` | Messages (DLQ tab) | Pick a range: the rows from here to the cursor. `v` or `space` again keeps it, `esc` cancels it. |
-| `A` | Messages (DLQ tab) | Pick every loaded row with the selected row's DeadLetterReason, or unpick them all. |
+| `A` | Messages (DLQ tab) | Pick every loaded row shown (the filter applies) with the selected row's DeadLetterReason, or unpick them all. |
 | `esc` | Messages | Clear the picks. |
 
 After a successful resubmit the cursor stays on the same row, which now holds the next message, so `r y r y …` works down the list. `--read-only` disables `r` and `c`. The Active tab is read-only. While a resubmit or cleanup runs, keys wait, and `ctrl-c` and a closed terminal (SIGHUP) do not quit; `kill` (SIGTERM) quits once the outcome is logged, prints it to stderr, and exits 1 if the message did not get through. Its outcome is never lost.
