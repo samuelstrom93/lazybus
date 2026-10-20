@@ -103,6 +103,10 @@ Rule: same letter = analogous action in every context; lowercase = common action
 | | `e` | add a Property Edit (empty key) |
 | | `x` | discard Pending Edits for this message (confirm if any) |
 | | `c` | Finish Cleanup on a CleanupPending row (§6) — confirm popup |
+| | `space` | pick / unpick the row for a bulk resubmit (§6.2) |
+| | `v` | pick a range from here to the cursor; `v` / `space` keeps it, `esc` cancels |
+| | `A` | pick every loaded row with the selected row's DeadLetterReason (again: unpick) |
+| | `esc` | cancel the range, then clear the picks, then clear the filter |
 | Main pane: Body | `E` | edit body in `$EDITOR` |
 | Main pane: Properties | `e` | edit selected property (popup prefilled) |
 | | `a` | add property |
@@ -150,6 +154,14 @@ Target: the entity the user opened, not `DeadLetterSource` (set only on dead let
 - **Duplicate detection:** a message with a MessageId already seen inside the target's detection window is accepted and then discarded (documented Service Bus behaviour; verified in S−1: a same-MessageId repair within the window drops the copy and completes the original, so the message is lost with no error). When the target has `RequiresDuplicateDetection`, the repair uses a **new MessageId** by default and logs old → new; the confirm popup shows it and `m` toggles back to keeping the original id. Detect `RequiresDuplicateDetection` via `admin.GetQueue`/`GetTopic`.
 - **No Manage rights:** a credential with Listen + Send can peek and repair but can't read the target (admin API `HTTP 401`). On an unauthorized target read only (any other error still stops the repair) the service continues with the target unknown: exists assumed; duplicate detection assumed **on**, so the default is a new MessageId (`m` still keeps the original) — a kept id the target has seen would be dropped while the original is completed (§2); the confirm popup says "duplicate detection unknown (no Manage rights): new MessageId by default". Subscription count unknown: the zero-subscription guard is skipped (a subscription DLQ's target is the parent topic of that subscription, so it has ≥ 1); the fan-out warning says "an unknown number of subscriptions".
 - **Topic targets:** a topic delivers only to subscriptions whose rules match; if none match, the broker drops the copy and the original would still be completed. The confirm popup says so ("delivered only to subscriptions whose rules match; no match = dropped"). Showing the rules is v0.2.
+
+### 6.2 Bulk resubmit
+
+`r` with picked rows repairs them in one call (at most 25, `bus.MaxBatch`; more is refused in the UI and the service layer). Picks cover loaded DLQ rows of the open entity only and are cleared when another list opens or a batch ran. A picked SendUncertain or CleanupPending row is refused: it is resolved on its own (`r` / `c`).
+1. Pre-check per message as in step 1 (guard, edit validation); gone ones are NotFound and leave the list, refused ones are listed and skipped. One confirm popup lists every message (seq, MessageId, reason, edit count), target, markers, MessageId (`m` toggles it for the whole batch) and the scan cost.
+2. One receiver, one scan (step 3.1) for all targets, limit K = the highest picked index + one page; non-matches are held and abandoned at once as for one message.
+3. Then, in pick order, steps 3.2–3.5 per message with its own Pending Edits. Stop at the first **SendUncertain** or **CleanupPending**: the remaining matches are abandoned and reported "not attempted". NotFound (scan), LockLost and SendFailed don't stop the batch.
+4. Row handling per message as in step 4; the status bar sums up the outcomes (`Resubmit N → target: 2 Resubmitted, 1 SendFailed`, plus "stopped at seq N" when it stopped) and the log has one line per message.
 
 ## 7. Auth and connection
 
@@ -203,7 +215,7 @@ Order: S−1 → S0 → S1a → S2 → S1b → S3 → S4.
 
 ## 11. Out of scope for v0.1
 
-Send/compose, schedule, import/export, purge, delete, bulk/multi-select, sessions-aware receive, receive mode / any held lock, Windows, saved config/keybinding remap (the one file lazybus keeps is the recent entities list, `$XDG_STATE_HOME/lazybus/recent.json`, mode 0600: FQDN, name, auth label and entity path, never a connection string or key; not kept with `--demo`), themes, transactions (Go SDK lacks them; revisit if it adds them or CleanupPending shows up in practice), device-code auth.
+Send/compose, schedule, import/export, purge, delete, bulk actions other than resubmit (§6.2; no bulk across entities or pages not loaded), sessions-aware receive, receive mode / any held lock, Windows, saved config/keybinding remap (the one file lazybus keeps is the recent entities list, `$XDG_STATE_HOME/lazybus/recent.json`, mode 0600: FQDN, name, auth label and entity path, never a connection string or key; not kept with `--demo`), themes, transactions (Go SDK lacks them; revisit if it adds them or CleanupPending shows up in practice), device-code auth.
 
 ## 12. Open questions — answered from ServiceBusExplorer
 

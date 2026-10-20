@@ -25,6 +25,7 @@ const (
 	confirmRepair confirmKind = iota
 	confirmCleanup
 	confirmDiscard // x: discard the Pending Edits of a message (local)
+	confirmBatch   // r with picked rows: resubmit them all
 )
 
 // confirmState is the open confirm popup.
@@ -38,6 +39,10 @@ type confirmState struct {
 	// uncertain: the row is SendUncertain, so an earlier attempt may have
 	// delivered a copy.
 	uncertain bool
+	// batch and batchPlan are the bulk resubmit (confirmBatch): the items
+	// that will go, and the pre-check of every picked one.
+	batch     bus.BatchRequest
+	batchPlan bus.BatchPlan
 }
 
 // busyState is the busy popup: what runs, and whether it changes state
@@ -276,6 +281,10 @@ func (m Model) handleConfirmKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		m.setEdits(reqMarkKey(c.req), bus.Edits{})
 		m.setStatus(statusOK, "discarded %d Pending Edit%s of %s seq %d", c.req.Edits.Count(), plural(c.req.Edits.Count()),
 			entityLabel(c.req.Entity, bus.DeadLetter), c.req.SequenceNumber)
+	case key.Matches(msg, keys.Confirm) && c.kind == confirmBatch:
+		m.stack.Pop()
+		m.confirm = confirmState{}
+		return m.executeBatch(c)
 	case key.Matches(msg, keys.Confirm):
 		m.stack.Pop()
 		m.confirm = confirmState{}
@@ -287,8 +296,12 @@ func (m Model) handleConfirmKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 			m.setStatus(statusInfo, "discard canceled; Pending Edits kept")
 			break
 		}
+		if c.kind == confirmBatch {
+			m.setStatus(statusInfo, "%s canceled; nothing changed", batchOp(c.batch))
+			break
+		}
 		m.setStatus(statusInfo, "%s canceled; nothing changed", c.kind.op(c.req))
-	case c.kind == confirmRepair && !c.uncertain && key.Matches(msg, keys.ToggleID):
+	case (c.kind == confirmRepair && !c.uncertain || c.kind == confirmBatch) && key.Matches(msg, keys.ToggleID):
 		m.confirm.newID = !m.confirm.newID
 	}
 	return m, nil
@@ -346,7 +359,13 @@ func (m Model) repairDone(msg repairDoneMsg) (Model, tea.Cmd) {
 // applyResult logs the outcome, shows it in the status bar and applies the
 // row handling of spec §6 step 4.
 func (m *Model) applyResult(kind confirmKind, req bus.RepairRequest, res bus.RepairResult) tea.Cmd {
-	src := entityLabel(req.Entity, bus.DeadLetter)
+	m.logOutcome(kind, req, res)
+	m.status = m.outcomeStatus(kind, req, res)
+	return m.outcomeRows(kind, req, res)
+}
+
+// logOutcome is the command-log line of one outcome.
+func (m *Model) logOutcome(kind confirmKind, req bus.RepairRequest, res bus.RepairResult) {
 	t := res.Target
 	summary := kind.op(req)
 	if kind == confirmRepair && t.Name != "" {
@@ -362,7 +381,12 @@ func (m *Model) applyResult(kind confirmKind, req bus.RepairRequest, res bus.Rep
 	default:
 		m.logf(true, "%s", summary)
 	}
+}
 
+// outcomeStatus is the status bar line of one outcome.
+func (m Model) outcomeStatus(kind confirmKind, req bus.RepairRequest, res bus.RepairResult) statusLine {
+	src := entityLabel(req.Entity, bus.DeadLetter)
+	t := res.Target
 	var level statusLevel
 	var text string
 	retry := kind.key()
@@ -396,8 +420,13 @@ func (m *Model) applyResult(kind confirmKind, req bus.RepairRequest, res bus.Rep
 		text += fmt.Sprintf(" (%d abandon error%s, see log)", n, plural(n))
 		level = max(level, statusWarn)
 	}
-	m.status = statusLine{text: text, level: level}
+	return statusLine{text: text, level: level}
+}
 
+// outcomeRows is the row handling of one outcome (spec §6 step 4).
+func (m *Model) outcomeRows(kind confirmKind, req bus.RepairRequest, res bus.RepairResult) tea.Cmd {
+	src := entityLabel(req.Entity, bus.DeadLetter)
+	t := res.Target
 	k := reqMarkKey(req)
 	switch res.Outcome {
 	case bus.Resubmitted, bus.Cleaned:
@@ -612,6 +641,21 @@ func (m Model) confirmBlocks(inner int) (title string, blocks []confirmBlock, fo
 			lines = append(lines, row([]seg{{prefix + l, levelStyle(level)}}, inner, false))
 		}
 		blocks = append(blocks, confirmBlock{lines: lines})
+	}
+	if c.kind == confirmBatch {
+		list := func(label string, values []string) {
+			var lines []string
+			for i, v := range values {
+				lab := ""
+				if i == 0 {
+					lab = label
+				}
+				lines = append(lines, row([]seg{{" " + fitPlain(lab, labelW), stDim}, {fitPlain(v, valW), stPlain}}, inner, false))
+			}
+			blocks = append(blocks, confirmBlock{lines: lines, more: more})
+		}
+		title, footer = m.batchBlocks(field, list, note)
+		return title, blocks, footer
 	}
 	src := fmt.Sprintf("%s seq %d", p.Source, p.SequenceNumber)
 	target := fmt.Sprintf("%s %s", p.Target.Kind, p.Target.Name)

@@ -349,3 +349,13 @@ func outgoing(m bus.Message, messageID string, edits bus.Edits) bus.Message {
 	}
 	return out
 }
+
+// PlanBatch implements bus.BatchRepairer with the real algorithm.
+func (b *Backend) PlanBatch(ctx context.Context, req bus.BatchRequest) (bus.BatchPlan, error) {
+	return b.svc.PlanBatch(ctx, req)
+}
+
+// RepairBatch implements bus.BatchRepairer with the real algorithm.
+func (b *Backend) RepairBatch(ctx context.Context, req bus.BatchRequest) (bus.BatchResult, error) {
+	return b.svc.RepairBatch(ctx, req)
+}

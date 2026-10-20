@@ -383,3 +383,13 @@ func (c *conn) dropSender(name string, s *azservicebus.Sender) {
 	c.mu.Unlock()
 	go func() { _ = s.Close(context.Background()) }()
 }
+
+// PlanBatch implements bus.BatchRepairer.
+func (b *Backend) PlanBatch(ctx context.Context, req bus.BatchRequest) (bus.BatchPlan, error) {
+	return b.service().PlanBatch(ctx, req)
+}
+
+// RepairBatch implements bus.BatchRepairer.
+func (b *Backend) RepairBatch(ctx context.Context, req bus.BatchRequest) (bus.BatchResult, error) {
+	return b.service().RepairBatch(ctx, req)
+}

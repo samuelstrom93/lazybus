@@ -251,6 +251,7 @@ type Model struct {
 	// CleanupPending). Copied on write.
 	marks   map[markKey]rowMark
 	confirm confirmState // the open confirm popup (CtxConfirm)
+	picks   pickState    // the picked DLQ rows (space, v, A)
 	edit    editState    // the open edit popup (CtxEdit)
 	// pending holds the Pending Edits per DLQ message, in memory only.
 	// Copied on write. editRev numbers the edits (pending.rev).
@@ -561,7 +562,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		start := len(m.log)
 		m, cmd = m.repairDone(msg)
 		if m.quitAfterCall != nil {
-			m.exit = m.exitReport(msg, start)
+			m.exit = m.exitReport(repairFailed(msg), start)
+			cmd = m.quitAfterCall
+		}
+
+	case batchPlanDoneMsg:
+		m, cmd = m.batchPlanDone(msg)
+
+	case batchDoneMsg:
+		start := len(m.log)
+		m, cmd = m.batchDone(msg)
+		if m.quitAfterCall != nil {
+			m.exit = m.exitReport(batchFailed(msg), start)
 			cmd = m.quitAfterCall
 		}
 
@@ -711,7 +723,13 @@ func (m Model) handlePanelKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		m.tab = (m.tab + 1) % tabCount
 		m.resetMain()
 	case key.Matches(msg, keys.Back):
-		if cur == CtxMain && m.search.term != "" {
+		if cur == CtxMessages && m.picks.ranging {
+			m.picks.ranging = false
+			m.setStatus(statusInfo, "range canceled")
+		} else if cur == CtxMessages && len(m.pickedSeqs()) > 0 {
+			m.clearPicks()
+			m.setStatus(statusInfo, "picks cleared")
+		} else if cur == CtxMain && m.search.term != "" {
 			m.search = searchState{line: -1}
 			m.setStatus(statusInfo, "search cleared")
 		} else if cur == CtxMain {
@@ -752,8 +770,16 @@ func (m Model) handlePanelKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 			cmd := m.peek(*m.openNS, *m.openEntity, m.subQueue)
 			return m, cmd
 		}
+	case (cur == CtxMessages || cur == CtxMain) && key.Matches(msg, keys.Resubmit) && len(m.pickedSeqs()) > 0:
+		return m.startBatch()
 	case (cur == CtxMessages || cur == CtxMain) && key.Matches(msg, keys.Resubmit):
 		return m.startRepair(confirmRepair)
+	case cur == CtxMessages && key.Matches(msg, keys.Pick):
+		return m.togglePick()
+	case cur == CtxMessages && key.Matches(msg, keys.PickRange):
+		return m.toggleRange()
+	case cur == CtxMessages && key.Matches(msg, keys.PickReason):
+		return m.pickSameReason()
 	case (cur == CtxMessages || cur == CtxMain) && key.Matches(msg, keys.FinishCleanup):
 		return m.startRepair(confirmCleanup)
 	case (cur == CtxMessages || cur == CtxMain) && key.Matches(msg, keys.Discard):
@@ -833,6 +859,7 @@ func (m Model) openNamespace(ns bus.Namespace) Model {
 	m.openNS = &ns
 	m.openEntity = nil
 	m.afterEntities = nil
+	m.clearPicks()
 	m.entities.reset()
 	m.resetMessages()
 	m.focus(CtxEntities)

@@ -101,8 +101,16 @@ The status bar confirms each copy (`copied …`). Copy uses OSC 52, so it reache
 | `n` / `esc` | confirm popup | Cancel. Every other key is ignored: nothing happens until you confirm. |
 | `m` | resubmit popup | Toggle the copy's MessageId between the original and a new one. |
 | `c` | Messages, main pane | Finish Cleanup on a CleanupPending row (confirm popup; nothing is sent). |
+| `space` | Messages (DLQ tab) | Pick the row for a bulk resubmit (● in the list), or unpick it. |
+| `v` | Messages (DLQ tab) | Pick a range: the rows from here to the cursor. `v` or `space` again keeps it, `esc` cancels it. |
+| `A` | Messages (DLQ tab) | Pick every loaded row with the selected row's DeadLetterReason, or unpick them all. |
+| `esc` | Messages | Clear the picks. |
 
 After a successful resubmit the cursor stays on the same row, which now holds the next message, so `r y r y …` works down the list. `--read-only` disables `r` and `c`. The Active tab is read-only. While a resubmit or cleanup runs, keys wait, and `ctrl-c` and a closed terminal (SIGHUP) do not quit; `kill` (SIGTERM) quits once the outcome is logged, prints it to stderr, and exits 1 if the message did not get through. Its outcome is never lost.
+
+### Bulk resubmit
+
+With picked rows, `r` resubmits all of them (at most 25) in one call: it checks each one is still there (gone ones leave the list), shows one confirm popup with every message, then scans the DLQ once and resubmits each picked message in turn, as for one message. It stops at the first SendUncertain or CleanupPending, since the next ones may hit the same problem, and the rest are not sent; NotFound, LockLost and SendFailed don't stop it. The status bar sums it up (`Resubmit 3 → queue orders: 2 Resubmitted, 1 SendFailed`) and the log has one line per message. Each message keeps its own Pending Edits; `m` sets the MessageId for the whole batch. Picks cover loaded rows only, and a SendUncertain or CleanupPending row must be resolved on its own first.
 
 ### Edit before resubmit
 

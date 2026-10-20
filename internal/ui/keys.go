@@ -38,6 +38,9 @@ type keyMap struct {
 	Resubmit      key.Binding // Messages, Main: r
 	FinishCleanup key.Binding // Messages, Main: c
 	Sort          key.Binding // Entities: s
+	Pick          key.Binding // Messages: space
+	PickRange     key.Binding // Messages: v
+	PickReason    key.Binding // Messages: A
 
 	EditBody   key.Binding // Messages, Main (Body tab): E
 	AddPropMsg key.Binding // Messages: e (add with an empty key)
@@ -111,6 +114,9 @@ var keys = keyMap{
 	Resubmit:      key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "resubmit")),
 	FinishCleanup: key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "finish cleanup")),
 	Sort:          key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sort path / DLQ")),
+	Pick:          key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "pick")),
+	PickRange:     key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "pick range")),
+	PickReason:    key.NewBinding(key.WithKeys("A"), key.WithHelp("A", "pick same reason")),
 
 	EditBody:   key.NewBinding(key.WithKeys("E"), key.WithHelp("E", "edit body")),
 	AddPropMsg: key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "add prop")),
@@ -159,7 +165,7 @@ func contextBindings(c ContextID) []key.Binding {
 		return []key.Binding{keys.Open, keys.Sort}
 	case CtxMessages:
 		return []key.Binding{keys.FocusMainOp, keys.SubQueue, keys.Resubmit, keys.FinishCleanup,
-			keys.AddPropMsg, keys.EditBody, keys.Discard}
+			keys.AddPropMsg, keys.EditBody, keys.Discard, keys.Pick, keys.PickRange, keys.PickReason}
 	case CtxMain:
 		return []key.Binding{keys.Back, keys.Resubmit, keys.FinishCleanup,
 			keys.EditBody, keys.EditProp, keys.AddProp, keys.RemoveProp, keys.EditField, keys.Discard,
@@ -221,7 +227,9 @@ func optionsBindings(c ContextID, f optionFlags) []key.Binding {
 	var out []key.Binding
 	for _, b := range contextBindings(c) {
 		switch b.Help() {
-		case keys.Resubmit.Help():
+		case keys.PickRange.Help(), keys.PickReason.Help():
+			continue // in the ? menu; the bar has room for space only
+		case keys.Resubmit.Help(), keys.Pick.Help():
 			if !f.repair {
 				continue
 			}

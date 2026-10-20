@@ -71,20 +71,24 @@ type exitReport struct {
 	failed bool
 }
 
-// exitReport builds the report of msg's call from its status line and the
-// log lines from start on.
-func (m Model) exitReport(msg repairDoneMsg, start int) exitReport {
+// exitReport builds the report of the call from its status line and the
+// log lines from start on; failed sets the exit code.
+func (m Model) exitReport(failed bool, start int) exitReport {
 	var b strings.Builder
 	b.WriteString("lazybus quit after the call finished: " + m.status.text)
 	for _, e := range m.log[start:] {
 		b.WriteString("\n  " + e.text)
 	}
-	failed := msg.err != nil
+	return exitReport{b.String(), failed}
+}
+
+// repairFailed reports whether msg's message did not reach its end state.
+func repairFailed(msg repairDoneMsg) bool {
 	switch msg.res.Outcome {
 	case bus.SendFailed, bus.SendUncertain, bus.CleanupPending, bus.LockLost:
-		failed = true
+		return true
 	}
-	return exitReport{b.String(), failed}
+	return msg.err != nil
 }
 
 // ExitReport is the outcome of the state-changing call a signal's quit

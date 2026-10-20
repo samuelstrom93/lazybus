@@ -269,6 +269,7 @@ type Repairer interface {
 type Backend interface {
 	Browser
 	Repairer
+	BatchRepairer
 }
 
 // --- driver ------------------------------------------------------------------
@@ -501,8 +502,7 @@ func (s *Service) Repair(ctx context.Context, req RepairRequest) (RepairResult, 
 
 // repair is §6 steps 3.1 to 3.5 on the call's receiver.
 func (s *Service) repair(ctx context.Context, rcv DeadLetterReceiver, req RepairRequest, t Target, info TargetInfo, res *RepairResult) error {
-	src := res.Source
-	match, stop, err := s.scan(ctx, rcv, req, res)
+	match, stop, err := s.scanOne(ctx, rcv, req, res)
 	if err != nil {
 		return err
 	}
@@ -510,6 +510,15 @@ func (s *Service) repair(ctx context.Context, rcv DeadLetterReceiver, req Repair
 		res.Outcome, res.NotFound, res.Detail = NotFound, NotFoundScan, stop
 		return nil
 	}
+	s.resubmit(ctx, rcv, req, t, info, match, res)
+	return nil
+}
+
+// resubmit is §6 steps 3.2 to 3.5 on match, received and locked by rcv:
+// send the copy, then complete the original. It sets res.Outcome; match's
+// lock is settled before it returns.
+func (s *Service) resubmit(ctx context.Context, rcv DeadLetterReceiver, req RepairRequest, t Target, info TargetInfo, match Locked, res *RepairResult) {
+	src := res.Source
 
 	// §6 step 3.2: the copy's MessageId.
 	res.OldMessageID = match.MessageID()
@@ -525,14 +534,14 @@ func (s *Service) repair(ctx context.Context, rcv DeadLetterReceiver, req Repair
 	if !s.lockValid(match) {
 		s.abandon(ctx, rcv, res, []Locked{match})
 		res.Outcome, res.Detail = LockLost, "lock on the message expires too soon to send (nothing changed)"
-		return nil
+		return
 	}
 	// §6 step 3.4: a call whose time is up sends nothing (a send on a
 	// dead context would only come back ambiguous).
 	if ctx.Err() != nil {
 		s.abandon(ctx, rcv, res, []Locked{match})
 		res.Outcome, res.Detail = LockLost, "the call ran out of time before the send (nothing sent)"
-		return nil
+		return
 	}
 
 	// §6 step 3.4: send.
@@ -554,7 +563,7 @@ func (s *Service) repair(ctx context.Context, rcv DeadLetterReceiver, req Repair
 			res.Outcome, res.Detail = SendUncertain, shortDetail(err)
 		}
 		s.abandon(ctx, rcv, res, []Locked{match})
-		return nil
+		return
 	}
 	res.logf(false, "send %s seq %d → %s %s (%s) → ok", src, req.SequenceNumber, t.Kind, t.Name, ids)
 
@@ -562,10 +571,9 @@ func (s *Service) repair(ctx context.Context, rcv DeadLetterReceiver, req Repair
 	if err := s.complete(ctx, rcv, res, match); err != nil {
 		res.Err = err
 		res.Outcome, res.Detail = CleanupPending, shortDetail(err)
-		return nil
+		return
 	}
 	res.Outcome = Resubmitted
-	return nil
 }
 
 // FinishCleanup implements Repairer: the same scan as Repair, then
@@ -587,7 +595,7 @@ func (s *Service) FinishCleanup(ctx context.Context, req RepairRequest) (RepairR
 		return res, nil
 	}
 	err := s.withReceiver(ctx, req, &res, func(rcv DeadLetterReceiver) error {
-		match, stop, err := s.scan(ctx, rcv, req, &res)
+		match, stop, err := s.scanOne(ctx, rcv, req, &res)
 		if err != nil {
 			return err
 		}
@@ -670,15 +678,23 @@ func (s *Service) lockValid(m Locked) bool {
 	return s.now().Before(s.lockDeadline(m))
 }
 
+// scanOne is scan for the one message of req, within ScanLimit(req.Index).
+// A nil match with a nil error is NotFound; stop says why.
+func (s *Service) scanOne(ctx context.Context, rcv DeadLetterReceiver, req RepairRequest, res *RepairResult) (Locked, string, error) {
+	matches, stop, err := s.scan(ctx, rcv, map[int64]bool{req.SequenceNumber: true}, ScanLimit(req.Index), res)
+	return matches[req.SequenceNumber], stop, err
+}
+
 // scan is §6 step 3.1: receive the DLQ in peek-lock, batches of ScanBatch,
-// until sequence N turns up. Non-matching messages keep their locks until
-// the scan ends (abandoning one puts it back at the head and the scan
-// never advances, S−1); then all of them are abandoned at once, the
-// post-match siblings included, and every abandon is awaited. The scan
-// stops after ScanLimit messages, or LockMargin before the first held
-// lock expires. A nil match with a nil error is NotFound; stop says why.
-func (s *Service) scan(ctx context.Context, rcv DeadLetterReceiver, req RepairRequest, res *RepairResult) (match Locked, stop string, err error) {
-	limit := ScanLimit(req.Index)
+// until every sequence number in want turns up. Non-matching messages keep
+// their locks until the scan ends (abandoning one puts it back at the head
+// and the scan never advances, S−1); then all of them are abandoned at
+// once, the post-match siblings included, and every abandon is awaited.
+// The scan stops after limit messages, or LockMargin before the first held
+// lock expires. matches holds the ones found, still locked; stop says why
+// the others were not.
+func (s *Service) scan(ctx context.Context, rcv DeadLetterReceiver, want map[int64]bool, limit int, res *RepairResult) (matches map[int64]Locked, stop string, err error) {
+	matches = map[int64]Locked{}
 	var held, all []Locked
 	var deadline time.Time
 	defer func() {
@@ -688,9 +704,11 @@ func (s *Service) scan(ctx context.Context, rcv DeadLetterReceiver, req RepairRe
 			res.logf(false, "receive (peek-lock) %s → nothing", res.Source)
 		}
 		res.Locked = len(all)
-		if err != nil && match != nil {
-			held = append(held, match)
-			match = nil
+		if err != nil {
+			for _, m := range matches {
+				held = append(held, m)
+			}
+			matches = map[int64]Locked{}
 		}
 		s.abandon(ctx, rcv, res, held)
 	}()
@@ -699,7 +717,7 @@ func (s *Service) scan(ctx context.Context, rcv DeadLetterReceiver, req RepairRe
 		if !deadline.IsZero() {
 			left := deadline.Sub(s.now())
 			if left <= 0 {
-				return nil, fmt.Sprintf("not found before the first lock got within %s of expiring", LockMargin), nil
+				return matches, fmt.Sprintf("not found before the first lock got within %s of expiring", LockMargin), nil
 			}
 			wait = min(wait, left)
 		}
@@ -709,27 +727,27 @@ func (s *Service) scan(ctx context.Context, rcv DeadLetterReceiver, req RepairRe
 		cancel()
 		if err != nil && !timedOut {
 			res.logf(true, "receive (peek-lock) %s → error: %s", res.Source, errMsg(err))
-			return nil, "", err
+			return matches, "", err
 		}
 		if len(got) == 0 {
-			return nil, fmt.Sprintf("not found: the DLQ delivered nothing more after %d messages", len(all)), nil
+			return matches, fmt.Sprintf("not found: the DLQ delivered nothing more after %d messages", len(all)), nil
 		}
 		for _, m := range got {
 			all = append(all, m)
 			if deadline.IsZero() {
 				deadline = s.lockDeadline(m)
 			}
-			if match == nil && m.SequenceNumber() == req.SequenceNumber {
-				match = m
+			if seq := m.SequenceNumber(); want[seq] && matches[seq] == nil {
+				matches[seq] = m
 			} else {
 				held = append(held, m)
 			}
 		}
-		if match != nil {
-			return match, "", nil
+		if len(matches) == len(want) {
+			return matches, "", nil
 		}
 	}
-	return nil, fmt.Sprintf("not within the first %d messages (scan limit)", limit), nil
+	return matches, fmt.Sprintf("not within the first %d messages (scan limit)", limit), nil
 }
 
 // abandon abandons ms at once and awaits every abandon, on a context the

@@ -195,13 +195,20 @@ func (m Model) messagesTitle() []seg {
 		// A failed next page: the rows stay, the title says so.
 		t = append(t, seg{" error", stErr})
 	}
+	if n := len(m.pickedSeqs()); n > 0 || m.picks.ranging {
+		text := fmt.Sprintf(" %d picked", n)
+		if m.picks.ranging {
+			text += " (v range)"
+		}
+		t = append(t, seg{text, stKey})
+	}
 	return append(t, m.filterTitle(CtxMessages, m.messages.filter)...)
 }
 
 // listRows renders n rows of a list: the visible window from offset, the
-// cursor row marked, empty rows padded. status replaces the rows when the
-// list has nothing to show.
-func listRows[T any](l list[T], focused bool, width, n int, status []seg, render func(T) []seg) []string {
+// cursor row marked, picked rows (picked, nil for none) marked ●, empty
+// rows padded. status replaces the rows when the list has nothing to show.
+func listRows[T any](l list[T], focused bool, width, n int, status []seg, picked func(int) bool, render func(T) []seg) []string {
 	out := make([]string, 0, n)
 	if len(l.items) == 0 && status != nil {
 		out = append(out, row(append([]seg{{"  ", stPlain}}, status...), width, false))
@@ -212,7 +219,11 @@ func listRows[T any](l list[T], focused bool, width, n int, status []seg, render
 		if cursor {
 			mark = "▸ "
 		}
-		segs := append([]seg{{mark, stPlain}}, render(l.items[i])...)
+		segs := []seg{{mark, stPlain}}
+		if picked != nil && picked(i) {
+			segs = []seg{{mark[:len(mark)-1], stPlain}, {"●", stKey}}
+		}
+		segs = append(segs, render(l.items[i])...)
 		out = append(out, row(segs, width, cursor && focused))
 	}
 	for len(out) < n {
@@ -254,7 +265,7 @@ func shortErr(err error) string {
 
 func (m Model) namespaceRows(width, n int) []string {
 	return listRows(m.namespaces, m.stack.Root() == CtxNamespaces, width, n,
-		listStatus(m.namespaces, "no namespaces"),
+		listStatus(m.namespaces, "no namespaces"), nil,
 		func(r nsRow) []seg { return nsRowSegs(r, width-2) })
 }
 
@@ -290,7 +301,7 @@ func (m Model) entityRows(width, n int) []string {
 	}
 	pathW = max(1, pathW)
 	return listRows(m.entities, m.stack.Root() == CtxEntities, width, n,
-		listStatus(m.entities, empty),
+		listStatus(m.entities, empty), nil,
 		func(e bus.Entity) []seg {
 			segs := []seg{{fitPlain(e.Path, pathW) + " ", stPlain}}
 			if showActive {
@@ -344,7 +355,7 @@ func (m Model) messageRows(width, n int) []string {
 		status = []seg{{shortErr(m.messages.err), stWarn}}
 	}
 	return listRows(m.messages, m.stack.Root() == CtxMessages, width, n,
-		status,
+		status, m.isPicked,
 		func(msg bus.Message) []seg {
 			seq := padLeft(strconv.FormatInt(msg.SequenceNumber, 10), digits) + " "
 			at := listTime(msg.EnqueuedTime, now, m.opts.Location) + " "
@@ -869,7 +880,7 @@ func (m Model) renderOptions() string {
 // optionsDropOrder are the options bar keys left out first when the bar
 // is too narrow, so the context's own keys and ? / q stay visible.
 var optionsDropOrder = []key.Help{
-	keys.FocusMainOp.Help(), keys.Jump.Help(), keys.Filter.Help(), keys.Search.Help(), {Key: "[ ]/ö ä", Desc: "tab"}, keys.SubQueue.Help(),
+	keys.FocusMainOp.Help(), keys.Jump.Help(), keys.Filter.Help(), keys.Search.Help(), {Key: "[ ]/ö ä", Desc: "tab"}, keys.SubQueue.Help(), keys.Pick.Help(),
 }
 
 // fitBindings drops bindings in optionsDropOrder until they fit in width

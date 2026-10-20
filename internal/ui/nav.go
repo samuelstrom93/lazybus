@@ -182,6 +182,7 @@ func (m *Model) selectEntity(e bus.Entity) bool {
 // openEntityMessages opens ent's DLQ in Messages and focuses it.
 func (m Model) openEntityMessages(ent bus.Entity) (Model, tea.Cmd) {
 	m.openEntity = &ent
+	m.clearPicks()
 	m.subQueue = bus.DeadLetter
 	m.focus(CtxMessages)
 	cmd := m.peek(*m.openNS, ent, m.subQueue)
