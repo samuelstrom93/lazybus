@@ -126,6 +126,11 @@ func (s *Store) Save(rev int64, entries []Entry) error {
 		tmp.Close()
 		return err
 	}
+	// On disk before the rename, so a crash can't leave an empty file.
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
 	if err := tmp.Close(); err != nil {
 		return err
 	}

@@ -79,8 +79,8 @@ type BatchRepairer interface {
 	RepairBatch(ctx context.Context, req BatchRequest) (BatchResult, error)
 }
 
-// one is req as a RepairRequest for item it.
-func (req BatchRequest) one(it BatchItem) RepairRequest {
+// Item is req as a RepairRequest for item it.
+func (req BatchRequest) Item(it BatchItem) RepairRequest {
 	return RepairRequest{
 		Namespace: req.Namespace, Entity: req.Entity, SubQueue: req.SubQueue,
 		SequenceNumber: it.SequenceNumber, Index: it.Index, MessageID: req.MessageID, Edits: it.Edits,
@@ -112,7 +112,7 @@ func (req BatchRequest) check() error {
 // precheckItem is the pre-check of one item: found, and refused when the
 // copy could not carry it unchanged or its edits are invalid.
 func (s *Service) precheckItem(ctx context.Context, req BatchRequest, it BatchItem) (Message, bool, string, error) {
-	r := req.one(it)
+	r := req.Item(it)
 	msg, found, err := s.precheck(ctx, r)
 	if err != nil || !found {
 		return msg, found, "", err
@@ -225,7 +225,7 @@ func (s *Service) RepairBatch(ctx context.Context, req BatchRequest) (res BatchR
 				leftover = append(leftover, m)
 				continue
 			}
-			s.resubmit(ctx, rcv, req.one(it), t, info, m, &ir.RepairResult)
+			s.resubmit(ctx, rcv, req.Item(it), t, info, m, &ir.RepairResult)
 			// The batch log stays in call order.
 			sink.Log = append(sink.Log, ir.Log...)
 			ir.Log = nil

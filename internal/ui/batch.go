@@ -258,15 +258,6 @@ func batchOp(req bus.BatchRequest) string {
 	return fmt.Sprintf("resubmit %d messages of %s", len(req.Items), entityLabel(req.Entity, bus.DeadLetter))
 }
 
-// itemRequest is item it of req as a single repair request, for the row
-// handling and the log.
-func itemRequest(req bus.BatchRequest, it bus.BatchItem) bus.RepairRequest {
-	return bus.RepairRequest{
-		Namespace: req.Namespace, Entity: req.Entity, SubQueue: req.SubQueue,
-		SequenceNumber: it.SequenceNumber, Index: it.Index, Edits: it.Edits,
-	}
-}
-
 func (m Model) batchPlanDone(msg batchPlanDoneMsg) (Model, tea.Cmd) {
 	m.endBusy()
 	if msg.err != nil {
@@ -285,7 +276,7 @@ func (m Model) batchPlanDone(msg batchPlanDoneMsg) (Model, tea.Cmd) {
 		case !p.Found:
 			res := bus.RepairResult{Outcome: bus.NotFound, Source: msg.plan.Source, SequenceNumber: it.SequenceNumber,
 				Target: msg.plan.Target, Detail: "already gone (nothing locked)"}
-			r := itemRequest(msg.req, it)
+			r := msg.req.Item(it)
 			m.logOutcome(confirmRepair, r, res)
 			m.setPicked(false, it.SequenceNumber)
 			cmds = append(cmds, m.outcomeRows(confirmRepair, r, res))
@@ -347,7 +338,7 @@ func (m Model) batchDone(msg batchDoneMsg) (Model, tea.Cmd) {
 			break
 		}
 		ir := msg.res.Items[i]
-		r := itemRequest(msg.req, it)
+		r := msg.req.Item(it)
 		if ir.Skipped != "" {
 			skipped++
 			m.logf(true, "%s: %s", confirmRepair.op(r), ir.Skipped)
