@@ -86,6 +86,7 @@ Every broker call times out after 30 s (a resubmit and its pre-check, which are 
 | `R` | the focused panel | Refresh: Namespaces discovers again, Entities lists again (with counts), Messages and the main pane peek again from the start. The cursor keeps its entity, or its message row index (pages load again up to it). |
 | `y` | main pane tabs, Namespaces | Copy the body (Body tab), the selected property's value (Properties) or field (System); on Namespaces, the FQDN. `j`/`k` move the row cursor on Properties and System when the main pane is focused. |
 | `Y` | anywhere | Copy the selected message's MessageId. |
+| `ctrl-r` | anywhere | Recent entities, newest first. `enter` opens one: its namespace opens in Entities and the entity's DLQ in Messages. It works for a namespace this run can reach (discovered, or given with a flag); a SAS or emulator entry from an earlier run says to start lazybus with `--connection-string` or `--emulator`, since lazybus never stores the connection string. The list (20 entries) is kept in `$XDG_STATE_HOME/lazybus/recent.json` (default `~/.local/state/lazybus/recent.json`, mode 0600) with the FQDN, name, auth label and entity path only; `--demo` keeps nothing. |
 | `+` | anywhere | Zoom: the main pane takes the full width (the Log stays), and gets focus. `+` again, or `1` `2` `3` `h`, returns to the normal layout. |
 | `?` / `q` | anywhere | Keybindings menu (searchable) / quit. |
 

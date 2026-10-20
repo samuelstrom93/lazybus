@@ -83,11 +83,13 @@ Rule: same letter = analogous action in every context; lowercase = common action
 | | `g` `G` | top / bottom |
 | | `ctrl-d` `ctrl-u` | half page down / up |
 | | `[` `]` | previous / next **main-pane tab** (Body / Properties / System) — works from any side panel (lazydocker convention) |
-| | `/` | filter focused list (`esc` clears) |
+| | `/` | filter focused list (`esc` clears); on the main pane, search the shown tab (`n` / `N` next / previous matching line, wrapping; the term stays across messages and tabs; `esc` clears it) |
 | | `:` | jump to entity by name (fuzzy, current namespace) |
 | | `R` | refresh focused panel |
 | | `y` | copy the selected thing: body (Body tab; the pending body when edited), value (Properties), field (System) — OSC 52 |
 | | `Y` | copy MessageId |
+| | `+` | zoom: the main pane takes the full width (Log kept) and gets focus; `+` again or focusing a side panel unzooms |
+| | `ctrl-r` | recent entities popup (newest first, 20 kept); `enter` opens one that this run can reach (discovered or on the command line); a SAS or emulator entry from another run says which flag to pass |
 | | `?` | searchable keybindings menu |
 | | `esc` | back / close popup |
 | | `q` | quit (from root context) |
@@ -201,7 +203,7 @@ Order: S−1 → S0 → S1a → S2 → S1b → S3 → S4.
 
 ## 11. Out of scope for v0.1
 
-Send/compose, schedule, import/export, purge, delete, bulk/multi-select, sessions-aware receive, receive mode / any held lock, Windows, saved config/keybinding remap, themes, transactions (Go SDK lacks them; revisit if it adds them or CleanupPending shows up in practice), device-code auth.
+Send/compose, schedule, import/export, purge, delete, bulk/multi-select, sessions-aware receive, receive mode / any held lock, Windows, saved config/keybinding remap (the one file lazybus keeps is the recent entities list, `$XDG_STATE_HOME/lazybus/recent.json`, mode 0600: FQDN, name, auth label and entity path, never a connection string or key; not kept with `--demo`), themes, transactions (Go SDK lacks them; revisit if it adds them or CleanupPending shows up in practice), device-code auth.
 
 ## 12. Open questions — answered from ServiceBusExplorer
 

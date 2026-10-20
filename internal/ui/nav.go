@@ -185,7 +185,7 @@ func (m Model) openEntityMessages(ent bus.Entity) (Model, tea.Cmd) {
 	m.subQueue = bus.DeadLetter
 	m.focus(CtxMessages)
 	cmd := m.peek(*m.openNS, ent, m.subQueue)
-	return m, cmd
+	return m, tea.Batch(cmd, m.remember(*m.openNS, ent))
 }
 
 // --- R refresh -----------------------------------------------------------------

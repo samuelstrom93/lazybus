@@ -15,6 +15,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/samuelstrom93/lazybus/internal/bus"
+	"github.com/samuelstrom93/lazybus/internal/recent"
 )
 
 // Options configure the UI.
@@ -27,6 +28,9 @@ type Options struct {
 	Now func() time.Time
 	// CallTimeout bounds every broker call; zero means DefaultCallTimeout.
 	CallTimeout time.Duration
+	// Recent keeps the entities opened last, for ctrl-r; nil keeps none
+	// (--demo, tests).
+	Recent *recent.Store
 }
 
 // DefaultCallTimeout is the per-call deadline for broker calls.
@@ -229,7 +233,13 @@ type Model struct {
 
 	jump   jumpState   // the : popup (CtxJump)
 	search searchState // the main pane search (/ on the main pane)
-	clip   clipboard
+
+	recents []recent.Entry // newest first (ctrl-r)
+	recent  recentState    // the ctrl-r popup (CtxRecent)
+	// afterEntities is the entity to open once the open namespace's
+	// entities arrive: picked in the ctrl-r popup.
+	afterEntities *bus.Entity
+	clip          clipboard
 
 	log  []logEntry
 	help helpState
@@ -270,7 +280,7 @@ func New(be bus.Backend, opts Options) Model {
 	if opts.CallTimeout <= 0 {
 		opts.CallTimeout = DefaultCallTimeout
 	}
-	return Model{
+	m := Model{
 		lines:      &linesCache{},
 		be:         be,
 		opts:       opts,
@@ -283,6 +293,14 @@ func New(be bus.Backend, opts Options) Model {
 		clip:       newClipboard(),
 		search:     searchState{line: -1},
 	}
+	if opts.Recent != nil {
+		entries, err := opts.Recent.Load()
+		if err != nil {
+			m.logf(true, "read recent entities %s: %v", opts.Recent.Path(), err)
+		}
+		m.recents = entries
+	}
+	return m
 }
 
 // Messages returned by broker commands.
@@ -458,6 +476,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			msg.err = nil
 		}
 		m.entities.err = msg.err
+		after := m.afterEntities
+		m.afterEntities = nil
 		if msg.err != nil {
 			m.logf(true, "%s", errText("list entities "+msg.ns.Name, msg.err))
 			break
@@ -471,9 +491,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.entities.move(0)
 		}
 		m.logf(false, "list entities %s → %d", msg.ns.Name, len(msg.items))
+		if after != nil {
+			m, cmd = m.openRecentEntity(*after)
+			break
+		}
 		if ent, ok := m.entities.selected(); ok && msg.cascade {
 			m.openEntity = &ent
-			cmd = m.peek(msg.ns, ent, m.subQueue)
+			cmd = tea.Batch(m.peek(msg.ns, ent, m.subQueue), m.remember(msg.ns, ent))
 		}
 
 	case messagesLoadedMsg:
@@ -541,6 +565,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd = m.quitAfterCall
 		}
 
+	case recentSavedMsg:
+		if msg.err != nil {
+			m.logf(true, "save recent entities: %v", msg.err)
+		}
+
 	case deferredQuitMsg:
 		m.quitAfterCall = msg.quit
 		m.setStatus(statusWarn, "quit after the call finishes")
@@ -592,6 +621,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.handleEditKey(msg)
 	case CtxSearch:
 		return m.handleSearchKey(msg)
+	case CtxRecent:
+		return m.handleRecentKey(msg)
 	}
 	return m.handlePanelKey(msg)
 }
@@ -696,6 +727,8 @@ func (m Model) handlePanelKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.nextMatch(1)
 	case cur == CtxMain && key.Matches(msg, keys.PrevMatch):
 		return m.nextMatch(-1)
+	case key.Matches(msg, keys.Recent):
+		return m.startRecent()
 	case key.Matches(msg, keys.Zoom):
 		m.zoom = !m.zoom
 		if m.zoom {
@@ -779,13 +812,8 @@ func (m Model) open(cur ContextID) (Model, tea.Cmd) {
 			m.setStatus(statusWarn, "listing the namespaces of %s failed (see log); R retries", r.sub.Name)
 			return m, nil
 		}
-		ns := r.ns
-		m.openNS = &ns
-		m.openEntity = nil
-		m.entities.reset()
-		m.resetMessages()
-		m.focus(CtxEntities)
-		cmd := m.loadEntities(ns, false, false)
+		m = m.openNamespace(r.ns)
+		cmd := m.loadEntities(r.ns, false, false)
 		return m, cmd
 	case CtxEntities:
 		ent, ok := m.entities.selected()
@@ -797,6 +825,18 @@ func (m Model) open(cur ContextID) (Model, tea.Cmd) {
 		m.focus(CtxMain)
 	}
 	return m, nil
+}
+
+// openNamespace makes ns the open namespace, emptying Entities and
+// Messages, and focuses Entities. The caller loads the entities.
+func (m Model) openNamespace(ns bus.Namespace) Model {
+	m.openNS = &ns
+	m.openEntity = nil
+	m.afterEntities = nil
+	m.entities.reset()
+	m.resetMessages()
+	m.focus(CtxEntities)
+	return m
 }
 
 // isMove reports whether msg is a cursor movement key.
@@ -966,6 +1006,7 @@ func (m Model) helpEntries() []helpLine {
 		add("Search (/)", contextBindings(CtxSearch))
 	}
 	add("Jump popup (:)", contextBindings(CtxJump))
+	add("Recent popup (ctrl-r)", contextBindings(CtxRecent))
 	if root == CtxMessages || root == CtxMain {
 		add("Confirm popup", confirmBindings())
 		add("Edit popup", contextBindings(CtxEdit))

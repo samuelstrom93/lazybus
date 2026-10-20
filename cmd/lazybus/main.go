@@ -19,6 +19,7 @@ import (
 	"github.com/samuelstrom93/lazybus/internal/bus"
 	"github.com/samuelstrom93/lazybus/internal/bus/azure"
 	"github.com/samuelstrom93/lazybus/internal/bus/fake"
+	"github.com/samuelstrom93/lazybus/internal/recent"
 	"github.com/samuelstrom93/lazybus/internal/ui"
 )
 
@@ -245,6 +246,19 @@ func backend(c config, newCred func() (azcore.TokenCredential, error)) (bus.Back
 	return b, closeFn, nil
 }
 
+// recentStore is where the ctrl-r entities are kept; nil (none kept) for
+// --demo, or when there is no state directory.
+func recentStore(c config) *recent.Store {
+	if c.demo {
+		return nil
+	}
+	path, err := recent.DefaultPath(os.Getenv)
+	if err != nil {
+		return nil
+	}
+	return recent.NewStore(path)
+}
+
 func cliCredential() (azcore.TokenCredential, error) {
 	return azidentity.NewAzureCLICredential(nil)
 }
@@ -267,7 +281,7 @@ func main() {
 		os.Exit(2)
 	}
 	defer closeFn()
-	m := ui.New(be, ui.Options{ReadOnly: c.readOnly})
+	m := ui.New(be, ui.Options{ReadOnly: c.readOnly, Recent: recentStore(c)})
 	final, err := tea.NewProgram(m, tea.WithFilter(ui.Filter)).Run()
 	ui.RemoveBodyTemp()
 	if code := exitCode(final, err, os.Stderr); code != 0 {

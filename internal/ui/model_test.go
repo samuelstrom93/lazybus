@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/samuelstrom93/lazybus/internal/bus/fake"
+	"github.com/samuelstrom93/lazybus/internal/recent"
 )
 
 // loaded returns a 120×30 model with the startup cascade applied, running
@@ -66,6 +68,8 @@ func press(s string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: tea.KeyRight}
 	case "ctrl+u":
 		return tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl}
+	case "ctrl+r":
+		return tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl}
 	}
 	r := []rune(s)[0]
 	return tea.KeyPressMsg{Code: r, Text: s}
@@ -240,5 +244,41 @@ func TestSearchMainPane(t *testing.T) {
 	}
 	if m = keysIn(t, m, "/", "x", "y", "z", "esc"); m.search.term != "" || m.stack.Top() != CtxMain {
 		t.Fatalf("esc while typing: term %q top %v", m.search.term, m.stack.Top())
+	}
+}
+
+func TestRecent(t *testing.T) {
+	store := recent.NewStore(filepath.Join(t.TempDir(), "recent.json"))
+	if err := store.Save(store.Next(), []recent.Entry{
+		{FQDN: "sb-test-weu.servicebus.windows.net", Name: "sb-test-weu", Auth: "demo data", Path: "orders"},
+		{FQDN: "sb-gone.servicebus.windows.net", Name: "sb-gone", Auth: "SAS connection string", Path: "orders"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	opts := testOptions()
+	opts.Recent = store
+	m := New(fake.New(), opts)
+	m = run(t, m, tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = runCmd(t, m, m.Init())
+
+	// The startup cascade opened invoices: it is the newest entry, saved.
+	saved, err := store.Load()
+	if err != nil || len(saved) != 3 || saved[0].Path != "invoices" || saved[1].Path != "orders" {
+		t.Fatalf("saved after startup: %+v %v", saved, err)
+	}
+
+	m = keysIn(t, m, "ctrl+r", "j", "j", "enter")
+	if m.stack.Top() != CtxRecent || !strings.Contains(m.status.text, "--connection-string") {
+		t.Fatalf("SAS entry from an earlier run: top %v status %q", m.stack.Top(), m.status.text)
+	}
+	m = keysIn(t, m, "k", "enter")
+	if m.openNS == nil || m.openNS.Name != "sb-test-weu" || m.openEntity == nil || m.openEntity.Path != "orders" {
+		t.Fatalf("enter did not open sb-test-weu/orders: ns %v entity %v", m.openNS, m.openEntity)
+	}
+	if m.stack.Top() != CtxMessages || len(m.messages.items) != 1 {
+		t.Fatalf("focus %v messages %d", m.stack.Top(), len(m.messages.items))
+	}
+	if saved, _ := store.Load(); saved[0].Path != "orders" || saved[0].FQDN != "sb-test-weu.servicebus.windows.net" {
+		t.Fatalf("reopened entry not moved first: %+v", saved[0])
 	}
 }

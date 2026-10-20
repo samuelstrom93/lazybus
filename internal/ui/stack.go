@@ -15,6 +15,7 @@ const (
 	CtxJump    // the : jump-to-entity popup
 	CtxEdit    // the Property Edit popup, or the Subject / ContentType one
 	CtxSearch  // typing a / search of the main pane
+	CtxRecent  // the ctrl-r recent entities popup
 )
 
 func (c ContextID) String() string {
@@ -41,6 +42,8 @@ func (c ContextID) String() string {
 		return "Edit"
 	case CtxSearch:
 		return "Search"
+	case CtxRecent:
+		return "Recent"
 	}
 	return "Unknown"
 }

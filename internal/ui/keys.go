@@ -30,6 +30,7 @@ type keyMap struct {
 	Copy            key.Binding
 	CopyID          key.Binding
 	Zoom            key.Binding
+	Recent          key.Binding
 
 	Open          key.Binding // Namespaces, Entities
 	FocusMainOp   key.Binding // Messages: enter
@@ -100,6 +101,7 @@ var keys = keyMap{
 	Refresh:         key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "refresh panel")),
 	Copy:            key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy body / value / field")),
 	CopyID:          key.NewBinding(key.WithKeys("Y"), key.WithHelp("Y", "copy MessageId")),
+	Recent:          key.NewBinding(key.WithKeys("ctrl+r"), key.WithHelp("ctrl-r", "recent entities")),
 	Zoom:            key.NewBinding(key.WithKeys("+"), key.WithHelp("+", "zoom")),
 
 	Open:        key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open")),
@@ -168,6 +170,8 @@ func contextBindings(c ContextID) []key.Binding {
 		return []key.Binding{keys.FilterKeep, keys.FilterClear, keys.FilterMove}
 	case CtxSearch:
 		return []key.Binding{keys.SearchKeep, keys.SearchClear}
+	case CtxRecent:
+		return []key.Binding{keys.JumpOpen, keys.JumpCancel, keys.JumpUp, keys.JumpDown}
 	case CtxJump:
 		return []key.Binding{keys.JumpOpen, keys.JumpCancel, keys.JumpUp, keys.JumpDown}
 	case CtxEdit:
@@ -188,7 +192,7 @@ func globalBindings() []key.Binding {
 		keys.FocusNamespaces, keys.FocusEntities, keys.FocusMessages, keys.FocusMain,
 		keys.PrevPanel, keys.NextPanel, keys.Down, keys.Up, keys.Top, keys.Bottom,
 		keys.HalfDown, keys.HalfUp, keys.PrevTab, keys.NextTab,
-		keys.Filter, keys.Jump, keys.Refresh, keys.Copy, keys.CopyID, keys.Zoom, keys.Help, keys.Quit,
+		keys.Filter, keys.Jump, keys.Refresh, keys.Copy, keys.CopyID, keys.Zoom, keys.Recent, keys.Help, keys.Quit,
 	}
 }
 

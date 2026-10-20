@@ -7,6 +7,7 @@ All notable changes to lazybus are listed here. The format follows [Keep a Chang
 ### Added
 
 - `/` on the main pane searches the Body, Properties or System tab as you type; `n` and `N` go to the next and previous matching line, wrapping around, and the matches are highlighted. The term stays across messages and tabs; `esc` clears it.
+- `ctrl-r` lists the entities you opened last (20, newest first, kept in `$XDG_STATE_HOME/lazybus/recent.json`) and `enter` reopens one. Only the namespace's FQDN, name, auth label and entity path are stored, never a connection string or key, so a SAS or emulator entry from an earlier run says which flag to start lazybus with. Nothing is kept with `--demo`.
 - `+` zooms the main pane to the full width, for long bodies; `+` again, or focusing a side panel, returns to the normal layout.
 
 ## [0.1.1] - 2026-10-19

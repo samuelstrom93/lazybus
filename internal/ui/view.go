@@ -83,6 +83,8 @@ func (m Model) render() string {
 		screen = m.overlayHelp(screen)
 	case CtxJump:
 		screen = m.overlayJump(screen)
+	case CtxRecent:
+		screen = m.overlayRecent(screen)
 	case CtxEdit:
 		screen = m.overlayEdit(screen)
 	case CtxConfirm:
@@ -845,7 +847,7 @@ func (m Model) renderOptions() string {
 	f.repair = !m.opts.ReadOnly && m.subQueue == bus.DeadLetter
 	f.cleanup = f.cleanup && f.repair
 	bindings := optionsBindings(m.stack.Top(), f)
-	if m.stack.Top() == CtxFilter || m.stack.Top() == CtxJump || m.stack.Top() == CtxSearch {
+	if m.stack.Top() == CtxFilter || m.stack.Top() == CtxJump || m.stack.Top() == CtxSearch || m.stack.Top() == CtxRecent {
 		bindings = contextBindings(m.stack.Top())
 	}
 	if m.stack.Top() == CtxConfirm && m.confirm.kind == confirmRepair && !m.confirm.uncertain {
