@@ -85,6 +85,7 @@ Every broker call times out after 30 s (a resubmit and its pre-check, which are 
 | `R` | the focused panel | Refresh: Namespaces discovers again, Entities lists again (with counts), Messages and the main pane peek again from the start. The cursor keeps its entity, or its message row index (pages load again up to it). |
 | `y` | main pane tabs, Namespaces | Copy the body (Body tab), the selected property's value (Properties) or field (System); on Namespaces, the FQDN. `j`/`k` move the row cursor on Properties and System when the main pane is focused. |
 | `Y` | anywhere | Copy the selected message's MessageId. |
+| `+` | anywhere | Zoom: the main pane takes the full width (the Log stays), and gets focus. `+` again, or `1` `2` `3` `h`, returns to the normal layout. |
 | `?` / `q` | anywhere | Keybindings menu (searchable) / quit. |
 
 The status bar confirms each copy (`copied …`). Copy uses OSC 52, so it reaches your local clipboard over SSH when the terminal supports it. Inside tmux, lazybus runs `tmux load-buffer -w -`, which works with tmux's default settings (tmux 3.2 or newer) and sets the tmux buffer too; if that fails it falls back to an OSC 52 sequence wrapped for tmux passthrough, which needs `set -g allow-passthrough on`. The body is copied as stored (raw bytes, not the pretty-printed view); with a pending body edit, `y` copies the pending body the tab shows.

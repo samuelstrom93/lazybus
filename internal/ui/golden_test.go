@@ -45,6 +45,7 @@ func TestGoldens(t *testing.T) {
 		{name: "tab-system", w: 120, h: 30, keys: "3]]"},
 		{name: "help-open", w: 120, h: 30, keys: "3?"},
 		{name: "help-filtered", w: 120, h: 30, keys: "3?tab"},
+		{name: "zoom", w: 120, h: 30, keys: "3+"},
 		{name: "read-only", w: 120, h: 30, opts: func(o *Options) { o.ReadOnly = true }},
 		{name: "initial", w: 80, h: 24},
 		{name: "focus-messages", w: 80, h: 24, keys: "3]"},

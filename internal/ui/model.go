@@ -209,6 +209,7 @@ type Model struct {
 	subQueue   bus.SubQueue
 
 	tab        mainTab
+	zoom       bool // +: the main pane takes the full width while focused
 	mainScroll int
 	// mainCursor is the selected row on the Properties and System tabs:
 	// what y copies.
@@ -622,6 +623,7 @@ func (m *Model) focus(c ContextID) {
 	m.stack.Focus(c)
 	if c.isSide() {
 		m.lastSide = c
+		m.zoom = false
 	}
 }
 
@@ -682,6 +684,11 @@ func (m Model) handlePanelKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.startFilter(cur)
 	case key.Matches(msg, keys.Jump):
 		return m.startJump()
+	case key.Matches(msg, keys.Zoom):
+		m.zoom = !m.zoom
+		if m.zoom {
+			m.focus(CtxMain)
+		}
 	case key.Matches(msg, keys.Refresh):
 		return m.refresh(cur)
 	case key.Matches(msg, keys.Copy):

@@ -4,6 +4,10 @@ All notable changes to lazybus are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Added
+
+- `+` zooms the main pane to the full width, for long bodies; `+` again, or focusing a side panel, returns to the normal layout.
+
 ## [0.1.1] - 2026-10-19
 
 ### Added

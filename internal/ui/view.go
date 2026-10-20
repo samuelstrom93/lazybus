@@ -33,6 +33,9 @@ func (m Model) layout() layout {
 	frameH := h - 1 // options bar
 	var l layout
 	l.leftW = max(26, min(48, w/3))
+	if m.zoomed() {
+		l.leftW = 0
+	}
 	l.mainW = w - l.leftW
 	l.logRows = max(2, min(5, frameH/7))
 	l.mainRows = max(1, frameH-3-l.logRows)
@@ -63,11 +66,15 @@ func (m Model) render() string {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, fitPlain(msg, m.width))
 	}
 	l := m.layout()
-	left := m.renderSide(l)
 	right := m.renderMain(l)
 	lines := make([]string, 0, m.height)
-	for i := range left {
-		lines = append(lines, left[i]+right[i])
+	if m.zoomed() {
+		lines = append(lines, right...)
+	} else {
+		left := m.renderSide(l)
+		for i := range left {
+			lines = append(lines, left[i]+right[i])
+		}
 	}
 	lines = append(lines, m.renderOptions())
 	screen := strings.Join(lines, "\n")
@@ -84,6 +91,12 @@ func (m Model) render() string {
 		screen = m.overlayBusy(screen)
 	}
 	return screen
+}
+
+// zoomed reports whether the main pane takes the full width: + while the
+// main pane is focused.
+func (m Model) zoomed() bool {
+	return m.zoom && m.stack.Root() == CtxMain
 }
 
 // --- side panels -----------------------------------------------------------

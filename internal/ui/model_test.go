@@ -181,3 +181,22 @@ func TestEnterOpensNextPanel(t *testing.T) {
 		t.Fatalf("enter on Messages: focus %v", m.stack.Top())
 	}
 }
+
+func TestZoom(t *testing.T) {
+	m := keysIn(t, loaded(t), "3", "+")
+	if !m.zoom || m.stack.Root() != CtxMain {
+		t.Fatalf("+ did not zoom the main pane: zoom %v focus %v", m.zoom, m.stack.Root())
+	}
+	if l := m.layout(); l.leftW != 0 || l.mainW != 120 {
+		t.Fatalf("zoomed layout: leftW %d mainW %d", l.leftW, l.mainW)
+	}
+	requireScreenSize(t, m.render(), 120, 30)
+	if m = run(t, m, press("+")); m.zoom || m.layout().leftW == 0 {
+		t.Fatal("+ again did not unzoom")
+	}
+
+	m = keysIn(t, m, "+", "2")
+	if m.zoom || m.stack.Root() != CtxEntities {
+		t.Fatalf("focusing a side panel kept the zoom: zoom %v focus %v", m.zoom, m.stack.Root())
+	}
+}
