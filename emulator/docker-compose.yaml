@@ -13,8 +13,10 @@ services:
     networks:
       - lazybus-sb
     ports:
-      - "5682:5672"  # AMQP (no TLS)
-      - "5310:5300"  # Admin API + /health (HTTP)
+      # Loopback only: Docker-published ports bypass UFW, and the emulator
+      # uses a well-known SAS key. Tunnel over SSH for remote access.
+      - "127.0.0.1:5682:5672"  # AMQP (no TLS)
+      - "127.0.0.1:5310:5300"  # Admin API + /health (HTTP)
     environment:
       ACCEPT_EULA: ${ACCEPT_EULA}
       CONFIG_PATH: /ServiceBus_Emulator/ConfigFiles/Config.json
