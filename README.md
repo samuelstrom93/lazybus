@@ -88,7 +88,7 @@ Every broker call times out after 30 s (a resubmit and its pre-check, which are 
 | `Y` | anywhere | Copy the selected message's MessageId. |
 | `ctrl-r` | anywhere | Recent entities, newest first. `enter` opens one: its namespace opens in Entities and the entity's DLQ in Messages. It works for a namespace this run can reach (discovered, or given with a flag); a SAS or emulator entry from an earlier run says to start lazybus with `--connection-string` or `--emulator`, since lazybus never stores the connection string. The list (20 entries) is kept in `$XDG_STATE_HOME/lazybus/recent.json` (default `~/.local/state/lazybus/recent.json`, mode 0600) with the FQDN, name, auth label and entity path only; `--demo` keeps nothing. |
 | `+` | anywhere | Zoom: the main pane takes the full width (the Log stays), and gets focus. `+` again, or `1` `2` `3` `h`, returns to the normal layout. |
-| `?` / `q` | anywhere | Keybindings menu (searchable) / quit. |
+| `?` / `q` | anywhere | Keybindings menu (searchable) / quit (asks for a second `q` while SendUncertain or CleanupPending rows are open). |
 
 The status bar confirms each copy (`copied …`). Copy uses OSC 52, so it reaches your local clipboard over SSH when the terminal supports it. Inside tmux, lazybus runs `tmux load-buffer -w -`, which works with tmux's default settings (tmux 3.2 or newer) and sets the tmux buffer too; if that fails it falls back to an OSC 52 sequence wrapped for tmux passthrough, which needs `set -g allow-passthrough on`. The body is copied as stored (raw bytes, not the pretty-printed view); with a pending body edit, `y` copies the pending body the tab shows.
 
@@ -107,6 +107,8 @@ The status bar confirms each copy (`copied …`). Copy uses OSC 52, so it reache
 | `esc` | Messages | Clear the picks. |
 
 After a successful resubmit the cursor stays on the same row, which now holds the next message, so `r y r y …` works down the list. `--read-only` disables `r` and `c`. The Active tab is read-only. While a resubmit or cleanup runs, keys wait, and `ctrl-c` and a closed terminal (SIGHUP) do not quit; `kill` (SIGTERM) quits once the outcome is logged, prints it to stderr, and exits 1 if the message did not get through. Its outcome is never lost.
+
+SendUncertain and CleanupPending live in memory only. After a restart the row looks like any dead-letter message, and `r` would send a second copy. So `q` with such rows open warns first (`q` again quits), and on any exit lazybus prints them to stderr: outcome, source and sequence number, target and MessageId. Check the target for that MessageId before you resubmit the message again.
 
 ### Bulk resubmit
 
@@ -155,7 +157,7 @@ Every outcome is shown in the status bar, and every broker call that changes sta
 | Resubmitted | The copy is in the target and the original is gone. | Removed. |
 | NotFound | The message was already gone (pre-check), or the scan stopped before reaching it; nothing sent. | Removed when gone; kept when the scan stopped, since it may still be in the DLQ. |
 | LockLost | The lock (or the call's time) ran out before the send; nothing changed. | Kept; `r` retries. |
-| SendFailed | The target rejected the copy (for example, no Send right); nothing changed. | Kept; `r` retries. |
+| SendFailed | The target rejected the copy for a reason that does not pass (for example, no Send right); nothing changed. A transient rejection (throttled, quota full, entity disabled) shows as SendUncertain instead: the SDK retries once after a dropped link, and the first attempt may have delivered the copy. | Kept; `r` retries. |
 | SendUncertain | The send ended without a clear answer: the copy may or may not be in the target. Never retried automatically. | Amber. `r` is allowed after you check the target; the retry reuses the same MessageId, so a target with duplicate detection drops a second copy. |
 | CleanupPending | The copy is in the target but deleting the original failed. Never reported as success. | Red. `r` is blocked; **Finish Cleanup** (`c`) removes the original without sending anything. |
 

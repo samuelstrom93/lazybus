@@ -1,8 +1,12 @@
 package ui
 
 import (
+	"cmp"
+	"fmt"
+	"maps"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -104,4 +108,25 @@ func (m Model) ExitReport() (text string, failed bool) {
 // Cleanup) is running.
 func (m Model) callRunning() bool {
 	return m.stack.Top() == CtxBusy && m.busy.changes
+}
+
+// OpenOutcomes lists the rows that keep a SendUncertain or CleanupPending
+// outcome, to print once the terminal is restored: the marks live in
+// memory only, and after a restart the row looks like any dead-letter
+// message, so a resubmit would send a second copy. Empty when there are
+// none.
+func (m Model) OpenOutcomes() string {
+	if len(m.marks) == 0 {
+		return ""
+	}
+	keys := slices.SortedFunc(maps.Keys(m.marks), func(a, b markKey) int {
+		return cmp.Or(cmp.Compare(a.fqdn, b.fqdn), cmp.Compare(a.path, b.path), cmp.Compare(a.kind, b.kind), cmp.Compare(a.seq, b.seq))
+	})
+	var b strings.Builder
+	fmt.Fprintf(&b, "lazybus quit with %d open outcome%s; check the target before you resubmit again, or a second copy is sent:", len(keys), plural(len(keys)))
+	for _, k := range keys {
+		mk := m.marks[k]
+		fmt.Fprintf(&b, "\n  %s: %s seq %d → %s %s, MessageId %s (%s)", mk.outcome, mk.source, k.seq, mk.target.Kind, mk.target.Name, mk.messageID, k.fqdn)
+	}
+	return b.String()
 }

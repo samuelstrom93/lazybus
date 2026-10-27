@@ -309,6 +309,12 @@ func exitCode(final tea.Model, runErr error, stderr io.Writer) int {
 			}
 		}
 	}
+	// ui.Model's OpenOutcomes: printed, but the exit code stays.
+	if m, ok := final.(interface{ OpenOutcomes() string }); ok {
+		if text := m.OpenOutcomes(); text != "" {
+			fmt.Fprintln(stderr, text)
+		}
+	}
 	if runErr != nil && !(deferred && errors.Is(runErr, tea.ErrInterrupted)) {
 		fmt.Fprintln(stderr, "lazybus:", runErr)
 		code = 1

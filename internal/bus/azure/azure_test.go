@@ -372,13 +372,15 @@ func TestSendDefinite(t *testing.T) {
 		{&amqp.Error{Condition: amqp.ErrCondNotAllowed}, true},
 		{&amqp.Error{Condition: amqp.ErrCondUnauthorizedAccess}, true},
 		{&amqp.Error{Condition: amqp.ErrCondMessageSizeExceeded}, true},
-		{&amqp.Error{Condition: amqp.ErrCondResourceLimitExceeded}, true},
-		{&amqp.Error{Condition: "com.microsoft:entity-disabled"}, true},
-		{&amqp.Error{Condition: "com.microsoft:server-busy"}, true},
 		{fmt.Errorf("send: %w", &amqp.Error{Condition: amqp.ErrCondNotFound}), true},
 		{&azservicebus.Error{Code: azservicebus.CodeUnauthorizedAccess}, true},
 		{&azservicebus.Error{Code: azservicebus.CodeNotFound}, true},
 		{azservicebus.ErrMessageTooLarge, true},
+		// Transient: may follow a delivered copy after the SDK's
+		// link-recovery retry (sendClientOptions).
+		{&amqp.Error{Condition: amqp.ErrCondResourceLimitExceeded}, false},
+		{&amqp.Error{Condition: "com.microsoft:entity-disabled"}, false},
+		{&amqp.Error{Condition: "com.microsoft:server-busy"}, false},
 		{&amqp.Error{Condition: "com.microsoft:timeout"}, false},
 		{&amqp.Error{Condition: amqp.ErrCondInternalError}, false},
 		{&azservicebus.Error{Code: azservicebus.CodeTimeout}, false},

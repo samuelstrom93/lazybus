@@ -263,6 +263,9 @@ type Model struct {
 	quitAfterCall tea.Cmd
 	exit          exitReport // the outcome of that call, for ExitReport
 	spin          spinner.Model
+	// quitAsked is set by a q that open marks held back: the next key,
+	// if q, quits.
+	quitAsked bool
 
 	// lines caches the main pane content of the selected message, so a
 	// large body is not re-formatted on every keystroke. A pointer: the
@@ -622,6 +625,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.handleConfirmKey(msg)
 	}
 	m.status = statusLine{}
+	quitAsked := m.quitAsked
+	m.quitAsked = false
 	switch m.stack.Top() {
 	case CtxHelp:
 		return m.handleHelpKey(msg)
@@ -636,7 +641,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case CtxRecent:
 		return m.handleRecentKey(msg)
 	}
-	return m.handlePanelKey(msg)
+	return m.handlePanelKey(msg, quitAsked)
 }
 
 func (m Model) handleHelpKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
@@ -678,7 +683,9 @@ func (m *Model) focus(c ContextID) {
 	}
 }
 
-func (m Model) handlePanelKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
+// handlePanelKey handles a key on a panel; quitAsked when the previous
+// key was a q that open marks held back.
+func (m Model) handlePanelKey(msg tea.KeyPressMsg, quitAsked bool) (Model, tea.Cmd) {
 	cur := m.stack.Top()
 	if m.isMove(msg) {
 		m.move(cur, msg)
@@ -690,9 +697,17 @@ func (m Model) handlePanelKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	}
 	switch {
 	case key.Matches(msg, keys.Quit):
-		if m.stack.AtRoot() {
-			return m, tea.Quit
+		if !m.stack.AtRoot() {
+			break
 		}
+		// SendUncertain and CleanupPending marks live in memory only:
+		// after a restart nothing stops a second copy (OpenOutcomes).
+		if n := len(m.marks); n > 0 && !quitAsked {
+			m.quitAsked = true
+			m.setStatus(statusWarn, "%d open outcome%s (SendUncertain or CleanupPending): lost on quit, listed on stderr; q again to quit", n, plural(n))
+			return m, nil
+		}
+		return m, tea.Quit
 	case key.Matches(msg, keys.Help):
 		m.help = helpState{}
 		m.stack.Push(CtxHelp)

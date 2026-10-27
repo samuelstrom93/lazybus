@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -870,4 +871,36 @@ func TestMessageColumnsTrackTheList(t *testing.T) {
 	}
 	m = keysIn(t, m, "r", "y")
 	check(m, "repair of the widest row", 2)
+}
+
+func TestQuitWithOpenOutcomeAsksAgainAndReports(t *testing.T) {
+	be := fake.New()
+	m := onOrders(t, be)
+	seq := selectedSeq(t, m)
+	be.SetFault(fake.OpSend, fake.Fault{Err: context.DeadlineExceeded})
+	m = keysIn(t, m, "r", "y")
+	if m.OpenOutcomes() == "" {
+		t.Fatal("no open outcomes after SendUncertain")
+	}
+	next, cmd := m.Update(press("q"))
+	if isQuit(cmd) {
+		t.Fatal("q quit with a SendUncertain row open")
+	}
+	m = next.(Model)
+	if m.status.level != statusWarn || !strings.Contains(m.status.text, "q again") {
+		t.Fatalf("status %q", m.status.text)
+	}
+	// Another key in between asks again.
+	m = keysIn(t, m, "j", "k")
+	if _, cmd := m.Update(press("q")); isQuit(cmd) {
+		t.Fatal("q after another key quit without asking again")
+	}
+	m = keysIn(t, m, "q")
+	if _, cmd := m.Update(press("q")); !isQuit(cmd) {
+		t.Fatal("second q did not quit")
+	}
+	want := fmt.Sprintf("SendUncertain: orders/$DLQ seq %d → queue orders", seq)
+	if got := m.OpenOutcomes(); !strings.Contains(got, want) {
+		t.Fatalf("OpenOutcomes = %q, want it to contain %q", got, want)
+	}
 }

@@ -244,6 +244,11 @@ func (d deferredQuit) Update(tea.Msg) (tea.Model, tea.Cmd) { return d, nil }
 func (deferredQuit) View() tea.View                        { return tea.NewView("") }
 func (d deferredQuit) ExitReport() (string, bool)          { return d.text, d.failed }
 
+// openOutcomes is a final model with rows that kept an outcome.
+type openOutcomes struct{ deferredQuit }
+
+func (openOutcomes) OpenOutcomes() string { return "1 open outcome" }
+
 func TestExitCode(t *testing.T) {
 	m := ui.New(fake.New(), ui.Options{})
 	// What Program.Run returns after a model returns tea.Interrupt.
@@ -261,6 +266,9 @@ func TestExitCode(t *testing.T) {
 		{deferredQuit{"Resubmitted", false}, interrupted, 0, "Resubmitted\n"},
 		{deferredQuit{"SendFailed", true}, interrupted, 1, "SendFailed\n"},
 		{deferredQuit{"Resubmitted", false}, tea.ErrProgramPanic, 1, "Resubmitted\nlazybus: program experienced a panic\n"},
+		// Open outcomes are printed, but do not change the exit code.
+		{openOutcomes{}, nil, 0, "1 open outcome\n"},
+		{openOutcomes{deferredQuit{"SendUncertain", true}}, nil, 1, "SendUncertain\n1 open outcome\n"},
 	} {
 		var out bytes.Buffer
 		if code := exitCode(tc.final, tc.err, &out); code != tc.code || out.String() != tc.out {

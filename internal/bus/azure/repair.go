@@ -229,13 +229,17 @@ func sendDefiniteErr(err error) error {
 
 // sendDefinite reports whether a send error is a definite rejection
 // (nothing was delivered). Everything else is ambiguous (S−1 §7).
+// Definite are only the rejections that don't change between two quick
+// attempts: one of them after the SDK's link-recovery retry
+// (sendClientOptions) means attempt 0 was rejected too. A transient one
+// (server-busy, resource-limit-exceeded, entity-disabled) may follow an
+// attempt 0 that delivered the copy, so it is ambiguous.
 func sendDefinite(err error) bool {
 	var ae *amqp.Error
 	if errors.As(err, &ae) {
 		switch ae.Condition {
 		case amqp.ErrCondNotFound, amqp.ErrCondNotAllowed, amqp.ErrCondUnauthorizedAccess,
-			amqp.ErrCondMessageSizeExceeded, amqp.ErrCondResourceLimitExceeded,
-			"com.microsoft:entity-disabled", "com.microsoft:server-busy":
+			amqp.ErrCondMessageSizeExceeded:
 			return true
 		}
 		return false
@@ -341,18 +345,18 @@ func optional(s string) *string {
 // sendClientOptions turns off the SDK's send retries. sendDefinite
 // classifies one error, so it should see the only attempt: with retries an
 // earlier attempt may have delivered the copy (a link drop) while the last
-// one is rejected (server-busy), and the row would say SendFailed (nothing
+// one is rejected definitely, and the row would say SendFailed (nothing
 // changed) for a copy that exists (spec §6 step 3.4). The SDK applies retry
 // options per client, so senders get a client of their own.
 //
 // Retries off is not quite one attempt: azservicebus v1.10.0
 // (internal/amqpLinks.go, Retry) still makes one quick link-recovery retry
-// when attempt 0 fails with an *amqp.LinkError. In the rare case where the
-// link detaches after the broker accepted the copy, that retry can end in a
-// definite-looking error, and the row says SendFailed although a copy was
-// delivered. The opposite trade-off is safe: a failure while the send link
-// attaches or authorizes (before anything is sent) is classified ambiguous,
-// so the row says SendUncertain though nothing was sent.
+// when attempt 0 fails with an *amqp.LinkError. The link can detach after
+// the broker accepted the copy, so sendDefinite counts only rejections
+// that the retry and attempt 0 would both get. The opposite trade-off is
+// safe: a failure while the send link attaches or authorizes (before
+// anything is sent) is classified ambiguous, so the row says SendUncertain
+// though nothing was sent.
 func sendClientOptions() *azservicebus.ClientOptions {
 	// MaxRetries < 0: no retries apart from the link-recovery retry above
 	// (azservicebus v1.10.0).

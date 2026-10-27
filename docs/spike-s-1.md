@@ -134,7 +134,7 @@ Most broker errors are **not** wrapped in `*azservicebus.Error`. Classify on `*a
 
 `azservicebus.Code` values in v1.10.0: `unauthorized`, `connlost`, `locklost`, `timeout`, `notfound`, `closed`. The SDK only produces them for: lock lost; `com.microsoft:timeout` → `timeout`; closed; `amqp:unauthorized-access` → `unauthorized`; management RPC 401/404 → `unauthorized`/`notfound`; link/conn recovery → `connlost`. `amqp:not-found` on a send link stays a raw `*amqp.Error`.
 
-Proposed classifier:
+Proposed classifier (superseded: spec §6 step 3.4 now counts resource-limit-exceeded, entity-disabled and server-busy as ambiguous, because the SDK's link-recovery retry may follow a delivered copy):
 
 - **Definite** (abandon → SendFailed):
   - `*amqp.Error` with condition in {`amqp:not-found`, `amqp:not-allowed`, `amqp:unauthorized-access`, `amqp:link:message-size-exceeded`, `amqp:resource-limit-exceeded`, `com.microsoft:entity-disabled`, `com.microsoft:server-busy`}
