@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/samuelstrom93/lazybus/internal/bus"
 	"github.com/samuelstrom93/lazybus/internal/bus/fake"
 )
@@ -155,5 +157,39 @@ func TestBulkResubmitStopHintAndRefusedLog(t *testing.T) {
 	m = keysIn(t, m, "y")
 	if !strings.Contains(m.status.text, "stopped at seq") || !strings.Contains(m.status.text, "press c") {
 		t.Fatalf("status %q", m.status.text)
+	}
+}
+
+// TestBatchExitReportAfterDeferredQuit: a quit during a bulk resubmit
+// waits for it, then reports it and fails the exit when an item failed.
+func TestBatchExitReportAfterDeferredQuit(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		fault  fake.Fault
+		want   string
+		failed bool
+	}{
+		{"Resubmitted", fake.Fault{}, "lazybus quit after the call finished: Resubmit 2 → queue orders: 2 Resubmitted", false},
+		{"SendFailed", fake.Fault{Err: &bus.Error{Kind: bus.ErrNotAllowed, Msg: "not allowed"}, Definite: true}, "lazybus quit after the call finished: Resubmit 2 → queue orders", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			be := fake.New()
+			m := keysIn(t, onOrders(t, be), "space", "j", "space", "r")
+			be.SetFault(fake.OpSend, tc.fault)
+			next, cmd := m.Update(press("y"))
+			m = next.(Model)
+			m = run(t, m, Filter(m, tea.QuitMsg{}))
+			next, quit := m.Update(cmd().(tea.BatchMsg)[0]())
+			if quit == nil || quit() != (tea.QuitMsg{}) {
+				t.Fatal("no quit after the batch")
+			}
+			text, failed := next.(Model).ExitReport()
+			if !strings.HasPrefix(text, tc.want) || !strings.Contains(text, "\n  ") {
+				t.Errorf("report:\n%s\nwant prefix %q and the log lines", text, tc.want)
+			}
+			if failed != tc.failed {
+				t.Errorf("failed = %v, want %v", failed, tc.failed)
+			}
+		})
 	}
 }

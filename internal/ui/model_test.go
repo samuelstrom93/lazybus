@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -282,5 +283,30 @@ func TestRecent(t *testing.T) {
 	}
 	if saved, _ := store.Load(); saved[0].Path != "orders" || saved[0].FQDN != "sb-test-weu.servicebus.windows.net" {
 		t.Fatalf("reopened entry not moved first: %+v", saved[0])
+	}
+}
+
+func TestRecentSaveErrorIsLogged(t *testing.T) {
+	m := loaded(t)
+	n := len(m.log)
+	if m = run(t, m, recentSavedMsg{}); len(m.log) != n {
+		t.Fatalf("a save without error logged %+v", m.log[n:])
+	}
+	m = run(t, m, recentSavedMsg{err: errors.New("disk full")})
+	if len(m.log) != n+1 || m.log[n].text != "save recent entities: disk full" || !m.log[n].err {
+		t.Fatalf("log %+v, want one error line", m.log[n:])
+	}
+}
+
+// A spinner tick after the busy popup closed ends the tick chain.
+func TestSpinnerTickOnlyWhileBusy(t *testing.T) {
+	m := loaded(t)
+	if _, cmd := m.Update(m.spin.Tick()); cmd != nil {
+		t.Fatal("idle: the tick asked for another")
+	}
+	next, _ := keysIn(t, onOrders(t, fake.New()), "r").Update(press("y"))
+	m = next.(Model)
+	if _, cmd := m.Update(m.spin.Tick()); cmd == nil {
+		t.Fatal("busy: the tick chain ended")
 	}
 }
