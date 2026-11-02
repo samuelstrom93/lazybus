@@ -521,6 +521,12 @@ func TestEditGoldens(t *testing.T) {
 			return typeText(t, keysIn(t, onProperties(t, fake.New()), "a"), "region")
 		}},
 		{"prop-edit", func(t *testing.T) Model { return keysIn(t, onProperties(t, fake.New()), "j", "e") }},
+		{"prop-add-type", func(t *testing.T) Model {
+			return keysIn(t, typeText(t, keysIn(t, onProperties(t, fake.New()), "a"), "region"), "tab")
+		}},
+		{"edit-subject", func(t *testing.T) Model {
+			return keysIn(t, onOrders(t, fake.New()), "0", "]", "]", "j", "j", "e")
+		}},
 		{"prop-invalid", func(t *testing.T) Model {
 			m := keysIn(t, onProperties(t, fake.New()), "j", "j", "e", "ctrl+u")
 			return keysIn(t, typeText(t, m, "2147483648"), "enter")
@@ -663,4 +669,50 @@ func TestConfirmManyEditsKeepsWarnings(t *testing.T) {
 			t.Errorf("confirm at %dx%d lacks %q:\n%s", minWidth, minHeight, want, ansi.Strip(screen))
 		}
 	}
+}
+
+// TestEditOverlayEdges covers the edit popup rows the goldens don't: the
+// "was" row without an original value, a long error, the smallest layout.
+func TestEditOverlayEdges(t *testing.T) {
+	t.Run("was without original", func(t *testing.T) {
+		m := keysIn(t, onOrders(t, fake.New()), "0", "]", "]", "j", "j", "e") // Subject
+		m.edit.was = ""
+		if s := screenText(m); !strings.Contains(s, "  was     —  ") {
+			t.Errorf("Subject without original:\n%s", s)
+		}
+		m = keysIn(t, onProperties(t, fake.New()), "j", "e")
+		m.edit.was = ""
+		if s := screenText(m); !strings.Contains(s, "  was     (not on the original message)") {
+			t.Errorf("property without original:\n%s", s)
+		}
+	})
+	t.Run("long error wraps", func(t *testing.T) {
+		m := keysIn(t, onProperties(t, fake.New()), "j", "e")
+		m.edit.err = strings.Repeat("abcdefgh ", 12) + "END"
+		// inner is 74 cells: 70 for the text after the " ! " prefix.
+		s := screenText(m)
+		first := "│ ! " + strings.TrimSpace(strings.Repeat("abcdefgh ", 7)) + "         │"
+		second := "│   " + strings.Repeat("abcdefgh ", 5) + "END "
+		if !strings.Contains(s, first) || !strings.Contains(s, second) {
+			t.Errorf("error rows: want %q then %q:\n%s", first, second, s)
+		}
+	})
+	t.Run("smallest layout", func(t *testing.T) {
+		m := New(fake.New(), testOptions())
+		m = run(t, m, tea.WindowSizeMsg{Width: minWidth, Height: minHeight})
+		m = runCmd(t, m, m.Init())
+		m = keysIn(t, m, "2", "j", "j", "j", "enter", "0", "]", "j", "e")
+		screen := m.View().Content
+		requireScreenSize(t, screen, minWidth, minHeight)
+		// The popup is minWidth-4 wide: both corners and the footer show.
+		for _, l := range strings.Split(ansi.Strip(screen), "\n") {
+			if strings.Contains(l, "esc cancel") {
+				if !strings.HasPrefix(l, "│ └ enter save") || !strings.HasSuffix(l, "┘─┤") {
+					t.Errorf("footer row %q", l)
+				}
+				return
+			}
+		}
+		t.Errorf("no footer:\n%s", ansi.Strip(screen))
+	})
 }
