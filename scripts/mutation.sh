@@ -77,8 +77,8 @@ if [ -n "$since" ]; then
   base="$(git merge-base "$since" HEAD)"
   # gremlins treats an empty diff as "everything changed" and runs the full suite.
   # Untracked files are invisible to git diff: `git add -N <file>` to include a new file.
-  if git diff --quiet "$base" -- '*.go'; then
-    echo "mutation: no Go changes since $since (merge-base ${base:0:10}) — nothing to mutate."
+  if git diff --quiet "$base" -- '*.go' ':!*_test.go'; then
+    echo "mutation: no non-test Go changes since $since (merge-base ${base:0:10}) — nothing to mutate."
     exit 0
   fi
   # gremlins runs `git diff <ref>` (against the working tree, so uncommitted edits count too)
