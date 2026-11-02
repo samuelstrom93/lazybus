@@ -58,7 +58,7 @@ func (m Model) handleSearchKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	}
 	m.search.line = -1
 	if m.search.term != "" {
-		m.jumpMatch(m.mainPos(), 1, true)
+		m.jumpMatch(m.mainPos(), 1)
 	}
 	return m, nil
 }
@@ -79,7 +79,7 @@ func (m Model) nextMatch(dir int) (Model, tea.Cmd) {
 			from--
 		}
 	}
-	if !m.jumpMatch(from+dir, dir, true) {
+	if !m.jumpMatch(from+dir, dir) {
 		m.setStatus(statusInfo, "no match for /%s", m.search.term)
 	}
 	return m, nil
@@ -87,38 +87,14 @@ func (m Model) nextMatch(dir int) (Model, tea.Cmd) {
 
 // jumpMatch moves to the first matching line from line from in direction
 // dir (inclusive), wrapping around. It reports whether there was one.
-func (m *Model) jumpMatch(from, dir int, wrap bool) bool {
+func (m *Model) jumpMatch(from, dir int) bool {
 	lines, rows := m.mainContent(m.layout().mainW - 2)
 	matches := searchLines(lines, m.search.term)
 	if len(matches) == 0 {
 		m.search.line = -1
 		return false
 	}
-	at := -1
-	if dir > 0 {
-		for _, l := range matches {
-			if l >= from {
-				at = l
-				break
-			}
-		}
-		if at < 0 && wrap {
-			at = matches[0]
-		}
-	} else {
-		for i := len(matches) - 1; i >= 0; i-- {
-			if matches[i] <= from {
-				at = matches[i]
-				break
-			}
-		}
-		if at < 0 && wrap {
-			at = matches[len(matches)-1]
-		}
-	}
-	if at < 0 {
-		return false
-	}
+	at := nextMatchLine(matches, from, dir)
 	m.search.line = at
 	if len(rows) == 0 {
 		// Body: the match goes to the top of the pane.
@@ -127,14 +103,38 @@ func (m *Model) jumpMatch(from, dir int, wrap bool) bool {
 	}
 	// Properties and System: the cursor goes to the match's row (a header
 	// line selects the row after it) and the scroll follows.
-	m.mainCursor = len(rows) - 1
-	for i, r := range rows {
-		if r >= at {
-			m.mainCursor = i
-			break
+	m.mainCursor = rowAtLine(rows, at)
+	return true
+}
+
+// nextMatchLine is the first of matches (ascending, not empty) from line
+// from in direction dir, inclusive, wrapping around.
+func nextMatchLine(matches []int, from, dir int) int {
+	if dir > 0 {
+		for _, l := range matches {
+			if l >= from {
+				return l
+			}
+		}
+		return matches[0]
+	}
+	for i := len(matches) - 1; i >= 0; i-- {
+		if matches[i] <= from {
+			return matches[i]
 		}
 	}
-	return true
+	return matches[len(matches)-1]
+}
+
+// rowAtLine is the first of rows (their first lines, ascending) at or
+// after line, the last row when there is none.
+func rowAtLine(rows []int, line int) int {
+	for i, r := range rows {
+		if r >= line {
+			return i
+		}
+	}
+	return len(rows) - 1
 }
 
 // mainPos is the line the main pane is at: the top line on the Body tab,
