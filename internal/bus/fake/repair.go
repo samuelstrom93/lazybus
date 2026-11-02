@@ -268,39 +268,14 @@ func (d driver) Send(ctx context.Context, ns bus.Namespace, t bus.Target, origin
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	var src *stored
-	for _, e := range b.entities[ns.Name] {
-		for _, s := range e.deadLetter {
-			if s.token == l.token && s.msg.SequenceNumber == l.seq {
-				src = s
-			}
-		}
-	}
+	src := b.lockedOriginal(ns, l)
 	if src == nil {
 		return false, fmt.Errorf("fake: original seq %d not found", l.seq)
 	}
 	out := outgoing(src.msg, messageID, edits)
-
-	var dd *dedup
-	var dests []*entity
-	switch t.Kind {
-	case bus.TargetQueue:
-		e := b.entity(ns.Name, t.Name, bus.KindQueue)
-		if e == nil {
-			return true, &bus.Error{Kind: bus.ErrNotFound, Msg: "amqp:not-found: entity " + t.Name}
-		}
-		dd, dests = e.dedup, []*entity{e}
-	case bus.TargetTopic:
-		tp := b.topics[ns.Name][t.Name]
-		if tp == nil {
-			return true, &bus.Error{Kind: bus.ErrNotFound, Msg: "amqp:not-found: entity " + t.Name}
-		}
-		dd = tp.dedup
-		for _, e := range b.subscriptions(ns.Name, t.Name) {
-			if e.filter == nil || e.filter(out) {
-				dests = append(dests, e)
-			}
-		}
+	dd, dests, ok := b.destinations(ns, t, out)
+	if !ok {
+		return true, &bus.Error{Kind: bus.ErrNotFound, Msg: "amqp:not-found: entity " + t.Name}
 	}
 	b.events = append(b.events, Event{OpSend, t.Name, l.seq})
 	now := b.now()
@@ -317,6 +292,48 @@ func (d driver) Send(ctx context.Context, ns bus.Namespace, t bus.Target, origin
 		e.active = append(e.active, &stored{msg: m})
 	}
 	return f.Definite, f.Err // nil unless After
+}
+
+// lockedOriginal is the DLQ message l holds the lock of; nil when the
+// lock is gone. The caller holds b.mu.
+func (b *Backend) lockedOriginal(ns bus.Namespace, l *locked) *stored {
+	var src *stored
+	for _, e := range b.entities[ns.Name] {
+		for _, s := range e.deadLetter {
+			if s.token == l.token && s.msg.SequenceNumber == l.seq {
+				src = s
+			}
+		}
+	}
+	return src
+}
+
+// destinations are where target t delivers m: the queue, or each
+// subscription of the topic whose filter matches, plus the duplicate
+// detection that applies (nil when off). False when t does not exist.
+// The caller holds b.mu.
+func (b *Backend) destinations(ns bus.Namespace, t bus.Target, m bus.Message) (*dedup, []*entity, bool) {
+	switch t.Kind {
+	case bus.TargetQueue:
+		e := b.entity(ns.Name, t.Name, bus.KindQueue)
+		if e == nil {
+			return nil, nil, false
+		}
+		return e.dedup, []*entity{e}, true
+	case bus.TargetTopic:
+		tp := b.topics[ns.Name][t.Name]
+		if tp == nil {
+			return nil, nil, false
+		}
+		var dests []*entity
+		for _, e := range b.subscriptions(ns.Name, t.Name) {
+			if e.filter == nil || e.filter(m) {
+				dests = append(dests, e)
+			}
+		}
+		return tp.dedup, dests, true
+	}
+	return nil, nil, true
 }
 
 // outgoing is the copy of m that a repair sends: body, application
