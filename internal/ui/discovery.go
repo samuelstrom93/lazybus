@@ -320,75 +320,92 @@ func nsRowSegs(r nsRow, width int) []seg {
 // selected namespace, or the subscription of a placeholder row.
 func (m Model) namespaceDetails(width int) (title string, lines []string) {
 	r, ok := m.namespaces.selected()
-	if !ok {
-		var status []seg
-		switch {
-		case m.namespaces.err != nil:
-			var out []string
-			for _, l := range wrapLines("error: "+sanitize(m.namespaces.err.Error()), width-2) {
-				out = append(out, row([]seg{{" " + l, stErr}}, width, false))
-			}
-			return "Namespace", out
-		case m.namespaces.loading:
-			status = []seg{{"discovering namespaces…", stDim}}
-		case m.namespaces.filter != "":
-			status = []seg{{"no namespace matches the filter", stDim}}
-		default:
-			status = []seg{{"no namespaces: log in with az login, or use --namespace, --connection-string or --emulator", stDim}}
-		}
-		return "Namespace", []string{row(append([]seg{{" ", stPlain}}, status...), width, false)}
+	switch {
+	case !ok:
+		return "Namespace", m.noNamespaceLines(width)
+	case r.kind != rowNamespace:
+		return "Subscription", subscriptionRowLines(r, width)
 	}
-	const labelW = 16
-	field := func(label, value string, st lipgloss.Style) []string {
-		if value == "" {
-			return nil
-		}
+	return "Namespace", m.namespaceLines(r.ns, width)
+}
+
+// noNamespaceLines say why no Namespaces row is selected: an error in
+// full, discovery still running, a filter, or nothing to list.
+func (m Model) noNamespaceLines(width int) []string {
+	var status string
+	switch {
+	case m.namespaces.err != nil:
 		var out []string
-		for i, l := range wrapLines(sanitize(value), max(1, width-2-labelW-1)) {
-			lab := ""
-			if i == 0 {
-				lab = label
-			}
-			out = append(out, row([]seg{{" " + fitPlain(lab, labelW) + " ", stDim}, {l, st}}, width, false))
+		for _, l := range wrapLines("error: "+sanitize(m.namespaces.err.Error()), width-2) {
+			out = append(out, row([]seg{{" " + l, stErr}}, width, false))
 		}
 		return out
+	case m.namespaces.loading:
+		status = "discovering namespaces…"
+	case m.namespaces.filter != "":
+		status = "no namespace matches the filter"
+	default:
+		status = "no namespaces: log in with az login, or use --namespace, --connection-string or --emulator"
 	}
-	if r.kind != rowNamespace {
-		lines = append(lines, field("Subscription", r.sub.Name, stPlain)...)
-		lines = append(lines, field("Subscription ID", r.sub.ID, stPlain)...)
-		if r.kind == rowSubLoading {
-			lines = append(lines, field("Status", "listing namespaces…", stDim)...)
-		} else {
-			lines = append(lines, field("Status", "listing namespaces failed: "+r.err.Error(), stErr)...)
-		}
-		return "Subscription", lines
+	return []string{row([]seg{{" ", stPlain}, {status, stDim}}, width, false)}
+}
+
+// subscriptionRowLines are the details of a placeholder row: the
+// subscription whose namespaces are loading or failed to list.
+func subscriptionRowLines(r nsRow, width int) []string {
+	lines := detailField("Subscription", r.sub.Name, stPlain, width)
+	lines = append(lines, detailField("Subscription ID", r.sub.ID, stPlain, width)...)
+	if r.kind == rowSubLoading {
+		return append(lines, detailField("Status", "listing namespaces…", stDim, width)...)
 	}
-	ns := r.ns
-	lines = append(lines, field("Namespace", ns.Name, stPlain)...)
-	lines = append(lines, field("FQDN", ns.FQDN, stPlain)...)
-	lines = append(lines, field("Subscription", ns.Subscription, stPlain)...)
-	lines = append(lines, field("Subscription ID", ns.SubscriptionID, stPlain)...)
-	lines = append(lines, field("Resource group", ns.ResourceGroup, stPlain)...)
+	return append(lines, detailField("Status", "listing namespaces failed: "+r.err.Error(), stErr, width)...)
+}
+
+// namespaceLines are the details of namespace ns, and whether it is the
+// one open in Entities.
+func (m Model) namespaceLines(ns bus.Namespace, width int) []string {
 	sku := ns.SKU
 	if strings.EqualFold(sku, "Basic") {
 		sku += " (queues only: Basic has no topics)"
 	}
-	lines = append(lines, field("SKU", sku, stPlain)...)
-	lines = append(lines, field("Location", ns.Location, stPlain)...)
-	lines = append(lines, field("Auth", ns.Auth, stPlain)...)
+	var lines []string
+	for _, f := range []struct{ label, value string }{
+		{"Namespace", ns.Name}, {"FQDN", ns.FQDN}, {"Subscription", ns.Subscription},
+		{"Subscription ID", ns.SubscriptionID}, {"Resource group", ns.ResourceGroup},
+		{"SKU", sku}, {"Location", ns.Location}, {"Auth", ns.Auth},
+	} {
+		lines = append(lines, detailField(f.label, f.value, stPlain, width)...)
+	}
 	if ns.SubscriptionID == "" {
-		lines = append(lines, field("Source", "command line (not discovered)", stDim)...)
+		lines = append(lines, detailField("Source", "command line (not discovered)", stDim, width)...)
 	}
-	if m.openNS != nil && m.openNS.FQDN == ns.FQDN {
-		lines = append(lines, "", row([]seg{{" open in Entities", stDim}}, width, false))
-		// A failed load of the open namespace shows here in full: the
-		// panel rows and the log cut it.
-		if m.entities.err != nil || m.messages.err != nil {
-			lines = append(lines, "")
-			lines = append(lines, m.statusLines(width)...)
+	if m.openNS == nil || m.openNS.FQDN != ns.FQDN {
+		return append(lines, "", row([]seg{{" enter opens it in Entities", stDim}}, width, false))
+	}
+	lines = append(lines, "", row([]seg{{" open in Entities", stDim}}, width, false))
+	// A failed load of the open namespace shows here in full: the panel
+	// rows and the log cut it.
+	if m.entities.err != nil || m.messages.err != nil {
+		lines = append(lines, "")
+		lines = append(lines, m.statusLines(width)...)
+	}
+	return lines
+}
+
+// detailField is one labeled field of the details, wrapped in width
+// cells with the label on its first line; nothing when value is empty.
+func detailField(label, value string, st lipgloss.Style, width int) []string {
+	const labelW = 16
+	if value == "" {
+		return nil
+	}
+	var out []string
+	for i, l := range wrapLines(sanitize(value), max(1, width-2-labelW-1)) {
+		lab := ""
+		if i == 0 {
+			lab = label
 		}
-	} else {
-		lines = append(lines, "", row([]seg{{" enter opens it in Entities", stDim}}, width, false))
+		out = append(out, row([]seg{{" " + fitPlain(lab, labelW) + " ", stDim}, {l, st}}, width, false))
 	}
-	return "Namespace", lines
+	return out
 }
