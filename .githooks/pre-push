@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Full gate: tests (unit + goldens), staticcheck if installed, build.
+# Full gate: tests (unit + goldens), staticcheck if installed, the
+# complexity gate (golangci-lint, .golangci.yml), build.
 # Emulator E2E tests are excluded; run `go test -tags emulator ./...` by hand.
 #
 # Skipped only when every pushed update moves an existing ref and changes
@@ -42,5 +43,9 @@ if command -v staticcheck >/dev/null 2>&1; then
 else
   echo "pre-push: staticcheck not installed, skipping" >&2
 fi
+
+# Complexity gate: gocognit/gocyclo 20 (.golangci.yml, docs/complexity.md).
+# Pinned and fetched with go run, so it always runs.
+go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0 run ./...
 
 go build ./...

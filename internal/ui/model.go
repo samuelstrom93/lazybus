@@ -452,7 +452,7 @@ func entityLabel(e bus.Entity, sub bus.SubQueue) string {
 }
 
 // Update handles messages.
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:gocyclo // bubbletea message dispatch, one case per message type; the handling is in the called methods (cognitive complexity stays under 20)
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -709,7 +709,7 @@ func (m *Model) focus(c ContextID) {
 
 // handlePanelKey handles a key on a panel; quitAsked when the previous
 // key was a q that open marks held back.
-func (m Model) handlePanelKey(msg tea.KeyPressMsg, quitAsked bool) (Model, tea.Cmd) {
+func (m Model) handlePanelKey(msg tea.KeyPressMsg, quitAsked bool) (Model, tea.Cmd) { //nolint:gocognit,gocyclo // one flat key dispatch: ~50 guarded cases in priority order, most a one-line call to a handler; split up, the order between the guards would be lost
 	cur := m.stack.Top()
 	if m.isMove(msg) {
 		m.move(cur, msg)

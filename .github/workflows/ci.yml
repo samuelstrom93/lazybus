@@ -30,6 +30,9 @@ jobs:
       - name: Staticcheck
         run: go run honnef.co/go/tools/cmd/staticcheck@2026.2.1 ./...
 
+      - name: Complexity gate
+        run: go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0 run ./...
+
       - name: Build
         run: go build ./...
 

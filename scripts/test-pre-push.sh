@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Checks that .githooks/pre-push skips the full gate only for a push that
-# changes nothing but benchmarks/release/. Runs the hook in a scratch repo
-# with stub go/staticcheck that record their calls.
+# changes nothing but benchmarks/release/, and that the full gate includes
+# the complexity gate. Runs the hook in a scratch repo with stub
+# go/staticcheck that record their calls.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -54,6 +55,12 @@ check() { # name, want (skip|gate), stdin lines
   fi
   got=skip
   grep -q '^go test ./...$' "$TMP/calls" 2>/dev/null && got=gate
+  # The complexity gate is part of the full gate, never optional.
+  if [ "$got" = gate ] && ! grep -qxF 'go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0 run ./...' "$TMP/calls"; then
+    echo "FAIL $name: the gate ran without the complexity gate"
+    FAILED=1
+    return
+  fi
   if [ "$got" = "$want" ]; then
     echo "ok   $name: $got"
   else

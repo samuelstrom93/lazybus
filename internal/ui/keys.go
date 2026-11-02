@@ -213,7 +213,7 @@ type optionFlags struct {
 }
 
 // optionsBindings are the keys shown in the options bar for context c.
-func optionsBindings(c ContextID, f optionFlags) []key.Binding {
+func optionsBindings(c ContextID, f optionFlags) []key.Binding { //nolint:gocognit,gocyclo // flat table: one case per key with the one-line condition under which the options bar shows it
 	switch c {
 	case CtxHelp:
 		return []key.Binding{keys.HelpClose, keys.HelpUp, keys.HelpDown}

@@ -45,7 +45,7 @@ func mapErr(op string, err error) error {
 	return &bus.Error{Kind: kind, Op: op, Msg: msg, Err: err}
 }
 
-func classify(err error) (bus.ErrorKind, string) {
+func classify(err error) (bus.ErrorKind, string) { //nolint:gocyclo // flat mapping of SDK error types and codes to bus.ErrorKind, one case per code (cognitive complexity stays under 20)
 	switch {
 	case errors.Is(err, context.Canceled):
 		return bus.ErrCanceled, "canceled"

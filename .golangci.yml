@@ -1,0 +1,39 @@
+# Complexity gate (docs/complexity.md). Runs in .githooks/pre-push and CI,
+# pinned: go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0 run ./...
+# Only these three linters: staticcheck runs on its own, as before.
+version: "2"
+
+linters:
+  default: none
+  enable: [gocognit, gocyclo, nolintlint]
+  settings:
+    # Both fail a function whose complexity is strictly greater than
+    # min-complexity: 20 passes, 21 fails.
+    gocognit:
+      min-complexity: 20
+    gocyclo:
+      min-complexity: 20
+    # An exemption names the linter and says why:
+    #   func f() { //nolint:gocyclo // <concrete reason>
+    # and goes away once it no longer suppresses anything.
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+      allow-unused: false
+  exclusions:
+    rules:
+      # Table tests and their setup are long by design; the gate is for
+      # shipped code. nolintlint still checks test files.
+      - path: _test\.go
+        linters: [gocognit, gocyclo]
+    paths:
+      # Dev tooling and emulator seeding: never part of the lazybus binary.
+      - tools/
+      - internal/seed/
+
+issues:
+  # Report every offender, not the first few per linter, and both linters
+  # when one function trips both.
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  uniq-by-line: false
