@@ -9,6 +9,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armsubscriptions"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/servicebus/armservicebus"
 
 	"github.com/samuelstrom93/lazybus/internal/bus"
@@ -42,6 +43,27 @@ func TestArmNamespace(t *testing.T) {
 	}
 	if _, ok := armNamespace(&armservicebus.SBNamespace{}, sub); ok {
 		t.Fatal("namespace without a name accepted")
+	}
+}
+
+func TestArmSubscription(t *testing.T) {
+	id := "dd5f406d-6c25-497b-95eb-7e29f8840aa6"
+	for name, tc := range map[string]struct {
+		in   *armsubscriptions.Subscription
+		want bus.Subscription
+		ok   bool
+	}{
+		"named":       {&armsubscriptions.Subscription{SubscriptionID: ptr(id), DisplayName: ptr("lazybus-dev"), State: ptr(armsubscriptions.SubscriptionStateEnabled)}, bus.Subscription{ID: id, Name: "lazybus-dev"}, true},
+		"no name":     {&armsubscriptions.Subscription{SubscriptionID: ptr(id), DisplayName: ptr("")}, bus.Subscription{ID: id, Name: id}, true},
+		"warned":      {&armsubscriptions.Subscription{SubscriptionID: ptr(id), State: ptr(armsubscriptions.SubscriptionStateWarned)}, bus.Subscription{ID: id, Name: id}, true},
+		"disabled":    {&armsubscriptions.Subscription{SubscriptionID: ptr(id), State: ptr(armsubscriptions.SubscriptionStateDisabled)}, bus.Subscription{}, false},
+		"deleted":     {&armsubscriptions.Subscription{SubscriptionID: ptr(id), State: ptr(armsubscriptions.SubscriptionStateDeleted)}, bus.Subscription{}, false},
+		"without id":  {&armsubscriptions.Subscription{DisplayName: ptr("x")}, bus.Subscription{}, false},
+		"nil element": {nil, bus.Subscription{}, false},
+	} {
+		if got, ok := armSubscription(tc.in); got != tc.want || ok != tc.ok {
+			t.Errorf("%s: armSubscription = %+v %v, want %+v %v", name, got, ok, tc.want, tc.ok)
+		}
 	}
 }
 
