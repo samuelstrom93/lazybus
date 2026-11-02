@@ -330,3 +330,24 @@ func TestSearchBodyFromTheTop(t *testing.T) {
 		t.Fatalf("no match: line %d", m.search.line)
 	}
 }
+
+func TestNextMatchLine(t *testing.T) {
+	matches := []int{0, 5, 9}
+	for _, tc := range []struct{ from, dir, want int }{
+		{0, 1, 0}, {1, 1, 5}, {5, 1, 5}, {10, 1, 0}, // inclusive, wraps to the first
+		{9, -1, 9}, {8, -1, 5}, {0, -1, 0}, {-1, -1, 9}, // inclusive, wraps to the last
+	} {
+		if got := nextMatchLine(matches, tc.from, tc.dir); got != tc.want {
+			t.Errorf("nextMatchLine(%v, %d, %d) = %d, want %d", matches, tc.from, tc.dir, got, tc.want)
+		}
+	}
+}
+
+func TestRowAtLine(t *testing.T) {
+	rows := []int{1, 2, 4} // line 3 is a header: it selects the row after it
+	for line, want := range map[int]int{0: 0, 1: 0, 2: 1, 3: 2, 4: 2, 7: 2} {
+		if got := rowAtLine(rows, line); got != want {
+			t.Errorf("rowAtLine(%v, %d) = %d, want %d", rows, line, got, want)
+		}
+	}
+}
