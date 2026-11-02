@@ -28,8 +28,8 @@ linters:
         linters: [gocognit, gocyclo]
     paths:
       # Dev tooling and emulator seeding: never part of the lazybus binary.
-      - tools/
-      - internal/seed/
+      - ^tools/
+      - ^internal/seed/
 
 issues:
   # Report every offender, not the first few per linter, and both linters

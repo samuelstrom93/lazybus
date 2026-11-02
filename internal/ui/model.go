@@ -709,7 +709,7 @@ func (m *Model) focus(c ContextID) {
 
 // handlePanelKey handles a key on a panel; quitAsked when the previous
 // key was a q that open marks held back.
-func (m Model) handlePanelKey(msg tea.KeyPressMsg, quitAsked bool) (Model, tea.Cmd) { //nolint:gocognit,gocyclo // one flat key dispatch: ~50 guarded cases in priority order, most a one-line call to a handler; split up, the order between the guards would be lost
+func (m Model) handlePanelKey(msg tea.KeyPressMsg, quitAsked bool) (Model, tea.Cmd) { //nolint:gocognit,gocyclo // flat key switch: ~50 guarded cases in priority order, most a one-line call to a handler (Quit, Back, panel cycling and SubQueue have a few lines); 98% covered
 	cur := m.stack.Top()
 	if m.isMove(msg) {
 		m.move(cur, msg)
