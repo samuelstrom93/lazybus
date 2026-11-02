@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -585,5 +586,52 @@ func TestRepairOfTheOnlyFilteredRowLoadsTheNextPage(t *testing.T) {
 	m = keysIn(t, m, "r", "y")
 	if len(m.messages.all) != 99 {
 		t.Fatalf("after the repair: %d loaded, want 49 + the next 50", len(m.messages.all))
+	}
+}
+
+func TestNamespaceDetailsWithoutRow(t *testing.T) {
+	m := keysIn(t, loaded(t), "1")
+	m.namespaces.setAll(nil, nsText)
+	details := func() (string, []string) {
+		title, lines := m.namespaceDetails(40)
+		for i, l := range lines {
+			if w := ansi.StringWidth(l); w != 40 {
+				t.Fatalf("line %d is %d cells: %q", i, w, l)
+			}
+			lines[i] = strings.TrimRight(ansi.Strip(l), " ")
+		}
+		return title, lines
+	}
+	steps := []struct {
+		set  func()
+		want []string
+	}{
+		{func() {}, []string{" no namespaces: log in with az login, o…"}},
+		{func() { m.namespaces.filter = "zzz" }, []string{" no namespace matches the filter"}},
+		{func() { m.namespaces.loading = true }, []string{" discovering namespaces…"}},
+		// An error wins over loading and wraps in the pane.
+		{func() { m.namespaces.err = errors.New("GET management.azure.com: 403 AuthorizationFailed") }, []string{
+			" error: GET management.azure.com: 403",
+			" AuthorizationFailed",
+		}},
+	}
+	for i, s := range steps {
+		s.set()
+		title, lines := details()
+		if title != "Namespace" || !slices.Equal(lines, s.want) {
+			t.Fatalf("step %d: %q %q, want %q", i, title, lines, s.want)
+		}
+	}
+}
+
+func TestNamespaceDetailsBasicFromCommandLine(t *testing.T) {
+	m := keysIn(t, loaded(t), "1")
+	m.namespaces.setAll([]nsRow{{kind: rowNamespace, ns: bus.Namespace{Name: "sb-b", FQDN: "sb-b.servicebus.windows.net", SKU: "basic", Auth: "Entra ID"}}}, nsText)
+	m.namespaces.cursor = 0
+	title, lines := m.namespaceDetails(100)
+	text := ansi.Strip(strings.Join(lines, "\n"))
+	if title != "Namespace" || !strings.Contains(text, "basic (queues only: Basic has no topics)") ||
+		!strings.Contains(text, "command line (not discovered)") || !strings.Contains(text, "enter opens it in Entities") {
+		t.Fatalf("%s:\n%s", title, text)
 	}
 }

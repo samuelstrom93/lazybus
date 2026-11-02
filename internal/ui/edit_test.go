@@ -716,3 +716,30 @@ func TestEditOverlayEdges(t *testing.T) {
 		t.Errorf("no footer:\n%s", ansi.Strip(screen))
 	})
 }
+
+func TestSystemEditContentTypeAndRevert(t *testing.T) {
+	m := keysIn(t, onOrders(t, fake.New()), "0", "]", "]", "j", "j", "j", "e") // ContentType row
+	if m.stack.Top() != CtxEdit || m.edit.kind != editContentType || m.edit.value != "application/json" {
+		t.Fatalf("e on ContentType: %+v", m.edit)
+	}
+	m = typeText(t, keysIn(t, m, "ctrl+u"), "text/plain")
+	m = keysIn(t, m, "enter")
+	ed := editsOfSelected(t, m)
+	if ed.ContentType == nil || *ed.ContentType != "text/plain" || ed.Subject != nil {
+		t.Fatalf("ContentType edit: %+v", ed)
+	}
+	if !strings.Contains(m.status.text, `ContentType = "text/plain"`) || m.tab != tabSystem || m.mainCursor != 3 {
+		t.Fatalf("status %q tab %v cursor %d", m.status.text, m.tab, m.mainCursor)
+	}
+
+	// The original value again: no Pending Edit, and the status says so.
+	m = typeText(t, keysIn(t, m, "e", "ctrl+u"), "application/json")
+	m = keysIn(t, m, "enter")
+	if !editsOfSelected(t, m).IsZero() || m.status.text != "ContentType is back to its original value: no Pending Edit" {
+		t.Fatalf("revert: %+v status %q", editsOfSelected(t, m), m.status.text)
+	}
+	m = keysIn(t, m, "k", "e", "x", "enter", "e", "backspace", "enter") // Subject: OrderPlacedx, then back
+	if !editsOfSelected(t, m).IsZero() || m.status.text != "Subject is back to its original value: no Pending Edit" {
+		t.Fatalf("Subject revert: %+v status %q", editsOfSelected(t, m), m.status.text)
+	}
+}
