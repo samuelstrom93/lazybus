@@ -5,7 +5,7 @@
 [90m│[m  invoices              act  12 [33mDLQ  3[90m││[m                                                                              [90m│[m
 [90m│[m  order-events/billing  [90mact   0 [33mDLQ 12[90m││ Dead-letter markers  ✕ removed on resubmit[m                                   [90m│[m
 [90m│[m  order-events/shipping act   4 [90mDLQ  0││ DeadLetterReason            String    SchemaMismatch[m                         [90m│[m
-[90m│[m▸ order[32;1m┌[m [32;1mResubmit 1 messages[m [32;1m─────────────────────────────────────────────────────────────────────────────────┐[m       [90m│[m
+[90m│[m▸ order[32;1m┌[m [32;1mResubmit 1 message[m [32;1m──────────────────────────────────────────────────────────────────────────────────┐[m       [90m│[m
 [32;1m├[m [32;1m3 Mess│[m                                                                                                      [32;1m│[m       [90m│[m
 [32;1m│[m   3 [90m07[32;1m│[90;22m Source      [morders/$DLQ                                                                              [32;1m│[m       [90m│[m
 [32;1m│[m [36m●[m 4 [90m08[32;1m│[90;22m Target      [mqueue orders                                                                             [32;1m│[m       [90m│[m

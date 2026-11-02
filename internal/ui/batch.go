@@ -247,7 +247,7 @@ func (m Model) startBatch() (Model, tea.Cmd) {
 		// The repair consumes each message's Pending Edits.
 		req.Items = append(req.Items, bus.BatchItem{SequenceNumber: seq, Index: idx, Edits: m.editsOf(seq).Edits})
 	}
-	m.busy = busyState{text: fmt.Sprintf("checking %d messages of %s", len(seqs), entityLabel(req.Entity, bus.DeadLetter))}
+	m.busy = busyState{text: fmt.Sprintf("checking %d message%s of %s", len(seqs), plural(len(seqs)), entityLabel(req.Entity, bus.DeadLetter))}
 	m.stack.Push(CtxBusy)
 	be, timeout := m.be, m.repairTimeout()
 	plan := func() tea.Msg {
@@ -260,7 +260,7 @@ func (m Model) startBatch() (Model, tea.Cmd) {
 }
 
 func batchOp(req bus.BatchRequest) string {
-	return fmt.Sprintf("resubmit %d messages of %s", len(req.Items), entityLabel(req.Entity, bus.DeadLetter))
+	return fmt.Sprintf("resubmit %d message%s of %s", len(req.Items), plural(len(req.Items)), entityLabel(req.Entity, bus.DeadLetter))
 }
 
 func (m Model) batchPlanDone(msg batchPlanDoneMsg) (Model, tea.Cmd) {
@@ -308,7 +308,7 @@ func (m Model) executeBatch(c confirmState) (Model, tea.Cmd) {
 		req.MessageID = bus.MessageIDNew
 	}
 	t := c.batchPlan.Target
-	m.busy = busyState{fmt.Sprintf("resubmitting %d messages of %s → %s %s", len(req.Items), entityLabel(req.Entity, bus.DeadLetter), t.Kind, t.Name), true}
+	m.busy = busyState{fmt.Sprintf("resubmitting %d message%s of %s → %s %s", len(req.Items), plural(len(req.Items)), entityLabel(req.Entity, bus.DeadLetter), t.Kind, t.Name), true}
 	m.stack.Push(CtxBusy)
 	// One repair's budget plus a call per message for its send and complete.
 	be, timeout := m.be, m.repairTimeout()+time.Duration(len(req.Items))*m.opts.CallTimeout
@@ -414,7 +414,7 @@ func (m Model) batchBlocks(b *confirmBuilder) (title string, footer []seg) {
 	c := m.confirm
 	p := c.batchPlan
 	n := len(c.batch.Items)
-	title = fmt.Sprintf("Resubmit %d messages", n)
+	title = fmt.Sprintf("Resubmit %d message%s", n, plural(n))
 	b.field("Source", p.Source, statusInfo, false)
 	b.field("Target", fmt.Sprintf("%s %s", p.Target.Kind, p.Target.Name), statusInfo, false)
 	plan := map[int64]bus.BatchPlanItem{}
