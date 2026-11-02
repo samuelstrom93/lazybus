@@ -610,9 +610,9 @@ func TestNamespaceDetailsWithoutRow(t *testing.T) {
 		{func() { m.namespaces.filter = "zzz" }, []string{" no namespace matches the filter"}},
 		{func() { m.namespaces.loading = true }, []string{" discovering namespaces…"}},
 		// An error wins over loading and wraps in the pane.
-		{func() { m.namespaces.err = errors.New("GET management.azure.com: 403 AuthorizationFailed") }, []string{
-			" error: GET management.azure.com: 403",
-			" AuthorizationFailed",
+		{func() { m.namespaces.err = errors.New("dial tcp 10.1.2.3:443: connection refused") }, []string{
+			" error: dial tcp 10.1.2.3:443:",
+			" connection refused",
 		}},
 	}
 	for i, s := range steps {
