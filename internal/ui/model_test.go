@@ -310,3 +310,23 @@ func TestSpinnerTickOnlyWhileBusy(t *testing.T) {
 		t.Fatal("busy: the tick chain ended")
 	}
 }
+
+func TestSearchBodyFromTheTop(t *testing.T) {
+	// The body of invoices seq 2: "{" is on lines 0, 5 and 9.
+	m := keysIn(t, loaded(t), "3", "enter", "/", "{", "enter")
+	if m.search.line != 0 || m.mainScroll != 0 {
+		t.Fatalf("the match on the top line was skipped: line %d scroll %d", m.search.line, m.mainScroll)
+	}
+	for i, want := range []int{5, 0, 9, 5} { // n, N (no wrap), N (wraps), N
+		k := "N"
+		if i == 0 {
+			k = "n"
+		}
+		if m = run(t, m, press(k)); m.search.line != want {
+			t.Fatalf("%s: line %d, want %d", k, m.search.line, want)
+		}
+	}
+	if m = keysIn(t, m, "/", "z", "z", "z", "enter"); m.search.line != -1 {
+		t.Fatalf("no match: line %d", m.search.line)
+	}
+}

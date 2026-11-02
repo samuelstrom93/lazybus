@@ -945,3 +945,29 @@ func TestQuitWithOpenOutcomeAsksAgainAndReports(t *testing.T) {
 		t.Fatalf("OpenOutcomes = %q, want it to contain %q", got, want)
 	}
 }
+
+// TestOptionsBarFinishCleanupOnlyOnCleanupPending: c shows for a
+// CleanupPending row, not for a row with another outcome.
+func TestOptionsBarFinishCleanupOnlyOnCleanupPending(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"SendUncertain", context.DeadlineExceeded, false},
+		{"CleanupPending", nil, true},
+	} {
+		be := fake.New()
+		m := onOrders(t, be)
+		if tc.err != nil {
+			be.SetFault(fake.OpSend, fake.Fault{Err: tc.err})
+		} else {
+			be.SetFault(fake.OpComplete, fake.Fault{Err: errors.New("link detached")})
+		}
+		m = keysIn(t, m, "r", "y", "j", "k") // j k clear the status bar
+		bar := ansi.Strip(m.renderOptions())
+		if _, ok := m.markOf(selectedSeq(t, m)); !ok || strings.Contains(bar, "c finish cleanup") != tc.want {
+			t.Fatalf("%s row: %q", tc.name, bar)
+		}
+	}
+}
