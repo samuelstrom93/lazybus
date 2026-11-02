@@ -333,59 +333,18 @@ func (m Model) paste(text string) Model {
 // the popup.
 func (m Model) saveEdit() (Model, tea.Cmd) {
 	e := m.edit
-	cur := m.pending[e.target].Edits
 	label := fmt.Sprintf("%s seq %d", entityLabel(bus.Entity{Path: e.target.path}, bus.DeadLetter), e.target.seq)
 	var next bus.Edits
 	var status string
 	switch e.kind {
 	case editProperty:
-		k := strings.TrimSpace(e.key)
-		if k == "" {
-			m.edit.err, m.edit.field = "key is empty", fieldKey
+		var ok bool
+		if next, status, ok = m.propertyEdit(label); !ok {
 			return m, nil
-		}
-		v, err := bus.ParseValue(e.typ, e.value)
-		if err != nil {
-			m.edit.err, m.edit.field = e.typ.String()+": "+err.Error(), fieldValue
-			return m, nil
-		}
-		// A null property is shown as "null"; saving that text keeps the null.
-		if o, ok := findProp(e.msg.Properties, k); ok && o.Value == nil && o.Type == e.typ && e.value == propertyValue(o, m.opts.Location) {
-			v = nil
-		}
-		next, err = cur.SetProperty(e.msg.Properties, bus.PropertyEdit{Key: k, Type: e.typ, Value: v})
-		if err != nil {
-			m.edit.err = k + ": " + err.Error()
-			return m, nil
-		}
-		if _, ok := next.Property(k); ok {
-			status = fmt.Sprintf("Pending Edit on %s: %s = %s (%s)%s", label, k,
-				propertyValue(bus.Property{Type: e.typ, Value: v}, m.opts.Location), e.typ, m.resubmitHint())
-		} else {
-			status = fmt.Sprintf("%s is back to its original value: no Pending Edit", k)
 		}
 		m.tab = tabProperties
 	default:
-		orig := e.msg.Subject
-		if e.kind == editContentType {
-			orig = e.msg.ContentType
-		}
-		var val *string
-		if e.value != orig {
-			v := e.value
-			val = &v
-		}
-		next = cur
-		if e.kind == editSubject {
-			next.Subject = val
-		} else {
-			next.ContentType = val
-		}
-		if val != nil {
-			status = fmt.Sprintf("Pending Edit on %s: %s = %q%s", label, e.kind, e.value, m.resubmitHint())
-		} else {
-			status = fmt.Sprintf("%s is back to its original value: no Pending Edit", e.kind)
-		}
+		next, status = m.systemFieldEdit(label)
 		m.tab = tabSystem
 	}
 	m.setEdits(e.target, next)
@@ -394,6 +353,63 @@ func (m Model) saveEdit() (Model, tea.Cmd) {
 	m.setStatus(statusOK, "%s", status)
 	m.selectMainRow(e)
 	return m, nil
+}
+
+// propertyEdit is the message's Pending Edits with the popup's property
+// set, and the status line that says so. When the popup is not valid it
+// sets the popup's error and reports false.
+func (m *Model) propertyEdit(label string) (bus.Edits, string, bool) {
+	e := m.edit
+	k := strings.TrimSpace(e.key)
+	if k == "" {
+		m.edit.err, m.edit.field = "key is empty", fieldKey
+		return bus.Edits{}, "", false
+	}
+	v, err := bus.ParseValue(e.typ, e.value)
+	if err != nil {
+		m.edit.err, m.edit.field = e.typ.String()+": "+err.Error(), fieldValue
+		return bus.Edits{}, "", false
+	}
+	// A null property is shown as "null"; saving that text keeps the null.
+	if o, ok := findProp(e.msg.Properties, k); ok && o.Value == nil && o.Type == e.typ && e.value == propertyValue(o, m.opts.Location) {
+		v = nil
+	}
+	next, err := m.pending[e.target].Edits.SetProperty(e.msg.Properties, bus.PropertyEdit{Key: k, Type: e.typ, Value: v})
+	if err != nil {
+		m.edit.err = k + ": " + err.Error()
+		return bus.Edits{}, "", false
+	}
+	if _, ok := next.Property(k); !ok {
+		return next, fmt.Sprintf("%s is back to its original value: no Pending Edit", k), true
+	}
+	return next, fmt.Sprintf("Pending Edit on %s: %s = %s (%s)%s", label, k,
+		propertyValue(bus.Property{Type: e.typ, Value: v}, m.opts.Location), e.typ, m.resubmitHint()), true
+}
+
+// systemFieldEdit is the message's Pending Edits with the popup's Subject
+// or ContentType, none when it is the original value again, and the
+// status line that says so.
+func (m Model) systemFieldEdit(label string) (bus.Edits, string) {
+	e := m.edit
+	orig := e.msg.Subject
+	if e.kind == editContentType {
+		orig = e.msg.ContentType
+	}
+	var val *string
+	if e.value != orig {
+		v := e.value
+		val = &v
+	}
+	next := m.pending[e.target].Edits
+	if e.kind == editSubject {
+		next.Subject = val
+	} else {
+		next.ContentType = val
+	}
+	if val == nil {
+		return next, fmt.Sprintf("%s is back to its original value: no Pending Edit", e.kind)
+	}
+	return next, fmt.Sprintf("Pending Edit on %s: %s = %q%s", label, e.kind, e.value, m.resubmitHint())
 }
 
 // selectMainRow puts the main pane cursor on the row an edit changed.
