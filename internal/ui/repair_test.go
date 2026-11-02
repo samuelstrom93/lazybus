@@ -252,6 +252,32 @@ func TestConfirmKeepsWarningsOnSmallScreen(t *testing.T) {
 	}
 }
 
+// TestBatchConfirmCutsListOnSmallScreen: at the smallest layout a long
+// pick list is cut to "… N more lines"; source, target, MessageId and the
+// stop note stay.
+func TestBatchConfirmCutsListOnSmallScreen(t *testing.T) {
+	be := fake.New()
+	m := New(be, testOptions())
+	m = run(t, m, tea.WindowSizeMsg{Width: minWidth, Height: minHeight})
+	m = runCmd(t, m, m.Init())
+	m = keysIn(t, m, "2", "j", "j", "j", "enter", "v")
+	for range 19 {
+		m = keysIn(t, m, "j")
+	}
+	m = keysIn(t, m, "v", "r")
+	if m.confirm.kind != confirmBatch || len(m.confirm.batch.Items) != 20 {
+		t.Fatalf("setup: kind %v, %d items", m.confirm.kind, len(m.confirm.batch.Items))
+	}
+	screen := m.View().Content
+	requireScreenSize(t, screen, minWidth, minHeight)
+	text := stripBoxes(screen)
+	for _, want := range []string{"Resubmit 20 messages", "Source", "Target", "Messages", "… 14 more lines", "MessageId", "one by one after one scan"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("confirm at %dx%d lacks %q:\n%s", minWidth, minHeight, want, ansi.Strip(screen))
+		}
+	}
+}
+
 // stripBoxes joins the screen's text without box characters, so wrapped
 // words can be searched.
 func stripBoxes(screen string) string {
@@ -736,6 +762,21 @@ func TestRepairGoldens(t *testing.T) {
 			be := fake.New()
 			be.SetFault(fake.OpTargetInfo, fake.Fault{Err: &bus.Error{Kind: bus.ErrUnauthorized, Op: "get topic order-events", Msg: "HTTP 401"}})
 			return keysIn(t, startWith(t, be), "2", "j", "enter", "r")
+		}},
+		{"confirm-batch", func(t *testing.T) Model {
+			// Three picks: one with a Pending Edit, one gone, one refused.
+			be := fake.New()
+			m := onOrders(t, be)
+			gone := selectedSeq(t, m)
+			m = keysIn(t, m, "space", "j", "j")
+			m = keysIn(t, addProp(t, m, "region", "eu-north"), "space", "j")
+			be.SetUnsupported(m.openNS.Name, m.openEntity.Path, m.openEntity.Kind, selectedSeq(t, m), "AMQP sequence body")
+			m = keysIn(t, m, "space")
+			removeOutOfBand(t, be, m, gone)
+			return keysIn(t, m, "r")
+		}},
+		{"confirm-batch-dedup-keep", func(t *testing.T) Model {
+			return keysIn(t, startWith(t, fake.New()), "3", "space", "j", "space", "r", "m")
 		}},
 		{"executing", func(t *testing.T) Model {
 			m := keysIn(t, onOrders(t, fake.New()), "r")
