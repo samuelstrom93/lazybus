@@ -195,20 +195,9 @@ func backend(c config, newCred func() (azcore.TokenCredential, error)) (bus.Back
 		return nil, nil, err
 	}
 	// opened is the namespace --entity applies to (parseFlags allows one).
-	var opened bus.Namespace
-	if c.emulator {
-		ns, err := b.AddConnectionString(azure.EmulatorConnectionString("localhost", c.emulatorAMQPPort), c.emulatorAdminPort)
-		if err != nil {
-			return fail(err)
-		}
-		opened = ns
-	}
-	if c.connectionString != "" {
-		ns, err := b.AddConnectionString(c.connectionString, c.emulatorAdminPort)
-		if err != nil {
-			return fail(err)
-		}
-		opened = ns
+	opened, err := addConnectionStrings(b, c)
+	if err != nil {
+		return fail(err)
 	}
 	useEntities := func() (bus.Backend, func(), error) {
 		if err := b.UseEntities(opened, c.entities); err != nil {
@@ -244,6 +233,28 @@ func backend(c config, newCred func() (azcore.TokenCredential, error)) (bus.Back
 		return useEntities()
 	}
 	return b, closeFn, nil
+}
+
+// addConnectionStrings adds the --emulator and --connection-string
+// namespaces to b and returns the last one added (none when neither is
+// given).
+func addConnectionStrings(b *azure.Backend, c config) (bus.Namespace, error) {
+	var opened bus.Namespace
+	if c.emulator {
+		ns, err := b.AddConnectionString(azure.EmulatorConnectionString("localhost", c.emulatorAMQPPort), c.emulatorAdminPort)
+		if err != nil {
+			return bus.Namespace{}, err
+		}
+		opened = ns
+	}
+	if c.connectionString != "" {
+		ns, err := b.AddConnectionString(c.connectionString, c.emulatorAdminPort)
+		if err != nil {
+			return bus.Namespace{}, err
+		}
+		opened = ns
+	}
+	return opened, nil
 }
 
 // recentStore is where the ctrl-r entities are kept; nil (none kept) for
