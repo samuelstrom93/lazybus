@@ -174,6 +174,8 @@ Install the git hooks once per clone:
 - `pre-commit`: `gofmt -l .` must be empty, `go vet ./...`.
 - `pre-push`: `go test ./...` (unit tests and golden screens), `staticcheck ./...` if installed, `go build ./...`. Skipped for a push that only changes `benchmarks/release/` (the snapshot commit of a release).
 
+`go test ./...` includes architecture tests (`internal/archtest`) for the package layering. Mutation testing (`scripts/mutation.sh`, [`docs/mutation-testing.md`](docs/mutation-testing.md)) and a CRAP report (`scripts/crap.sh`, [`docs/crap-report.md`](docs/crap-report.md)) run on demand only. Coding agents: see [`AGENTS.md`](AGENTS.md).
+
 Golden screens live in `internal/ui/testdata/*.golden`. Regenerate them after an intended UI change and inspect the diff before committing:
 
 ```sh
