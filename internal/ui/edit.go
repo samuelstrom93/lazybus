@@ -692,11 +692,11 @@ func (e editState) typeSegs() []seg {
 			segs = append(segs, seg{" ", stPlain})
 		}
 		st := stDim
-		switch {
-		case t == e.typ && e.field == fieldType:
-			st = stSelected
-		case t == e.typ:
+		if t == e.typ {
 			st = stBold
+			if e.field == fieldType {
+				st = stSelected
+			}
 		}
 		segs = append(segs, seg{" " + t.String() + " ", st})
 	}
@@ -714,14 +714,13 @@ func (e editState) hint() string {
 
 // wasText is the original value, or what its absence means.
 func (e editState) wasText() string {
-	switch {
-	case e.was != "":
+	if e.was != "" {
 		return e.was
-	case e.kind == editProperty:
-		return "(not on the original message)"
-	default:
-		return "—"
 	}
+	if e.kind == editProperty {
+		return "(not on the original message)"
+	}
+	return "—"
 }
 
 // footer is the edit popup's key line.
