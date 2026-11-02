@@ -65,6 +65,8 @@ uncommitted edits; a new file that is not `git add`-ed is invisible to it, so ru
 | `internal/ui` | 940 | 222 | 208 | 80.9 % |
 | `cmd/lazybus` | 37 | 4 | 11 | 90.2 % |
 
+Killed includes 7 TIMED OUT (6 in `internal/ui`, 1 in `internal/bus`).
+
 Many UI survivors are layout arithmetic (widths, padding, truncation) in `view.go`,
 `search.go`, `jump.go` and the popups, where the golden screens cover the common sizes only.
 In the repair flow (`internal/bus/repair.go`, `batch.go`, `internal/ui/repair.go`,

@@ -76,9 +76,10 @@ if [ -n "$since" ]; then
   # Diff from the merge-base, so commits that landed on main after you branched don't count.
   base="$(git merge-base "$since" HEAD)"
   # gremlins treats an empty diff as "everything changed" and runs the full suite.
+  # Test files, tools/ and internal/seed are never mutated, so they do not count.
   # Untracked files are invisible to git diff: `git add -N <file>` to include a new file.
-  if git diff --quiet "$base" -- '*.go' ':!*_test.go'; then
-    echo "mutation: no non-test Go changes since $since (merge-base ${base:0:10}) — nothing to mutate."
+  if git diff --quiet "$base" -- '*.go' ':!*_test.go' ':!tools/' ':!internal/seed/'; then
+    echo "mutation: no mutable Go changes since $since (merge-base ${base:0:10}) — nothing to mutate."
     exit 0
   fi
   # gremlins runs `git diff <ref>` (against the working tree, so uncommitted edits count too)

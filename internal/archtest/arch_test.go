@@ -20,6 +20,7 @@
 package archtest
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -54,22 +55,18 @@ func graph(t *testing.T) map[string][]string {
 }
 
 func load() (map[string][]string, error) {
-	out, err := exec.Command("go", "list", "-m", "-f", "{{.Path}} {{.Dir}}").Output()
+	out, err := goList("-m", "-f", "{{.Path}} {{.Dir}}")
 	if err != nil {
-		return nil, fmt.Errorf("go list -m: %w", err)
+		return nil, err
 	}
 	module, dir, _ := strings.Cut(strings.TrimSpace(string(out)), " ")
 	if err := trackSources(dir); err != nil {
 		return nil, fmt.Errorf("walk module sources: %w", err)
 	}
 
-	cmd := exec.Command("go", "list", "-json=ImportPath,Imports", module+"/...")
-	stdout, err := cmd.StdoutPipe()
+	out, err = goList("-json=ImportPath,Imports", module+"/...")
 	if err != nil {
 		return nil, err
-	}
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("go list: %w", err)
 	}
 	g := map[string][]string{}
 	rel := func(p string) string {
@@ -78,7 +75,7 @@ func load() (map[string][]string, error) {
 		}
 		return strings.TrimPrefix(p, module+"/")
 	}
-	dec := json.NewDecoder(stdout)
+	dec := json.NewDecoder(bytes.NewReader(out))
 	for {
 		var p pkg
 		if err := dec.Decode(&p); errors.Is(err, io.EOF) {
@@ -92,16 +89,25 @@ func load() (map[string][]string, error) {
 		}
 		g[rel(p.ImportPath)] = imports
 	}
-	if err := cmd.Wait(); err != nil {
-		return nil, fmt.Errorf("go list: %w", err)
-	}
 	// A rule or allow-list entry naming a package that no longer exists would pass vacuously.
-	for _, want := range []string{"cmd/lazybus", busPkg, azurePkg, fakePkg, recentPkg, uiPkg, seedPkg, "tools/seed"} {
+	for _, want := range []string{"cmd/lazybus", busPkg, azurePkg, fakePkg, recentPkg, uiPkg, seedPkg} {
 		if _, ok := g[want]; !ok {
 			return nil, fmt.Errorf("package %s not found in the import graph; update the rules in arch_test.go", want)
 		}
 	}
 	return g, nil
+}
+
+// goList runs `go list args...`; a failure carries go list's stderr.
+func goList(args ...string) ([]byte, error) {
+	out, err := exec.Command("go", append([]string{"list"}, args...)...).Output()
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return nil, fmt.Errorf("go list %s: %w: %s", strings.Join(args, " "), err, bytes.TrimSpace(ee.Stderr))
+	} else if err != nil {
+		return nil, fmt.Errorf("go list %s: %w", strings.Join(args, " "), err)
+	}
+	return out, nil
 }
 
 // trackSources stats every Go file of the module from this process. go test caches
@@ -187,18 +193,21 @@ func TestTransportsImportOnlyBus(t *testing.T) {
 }
 
 // TestOnlyEntrypointsImportTransports: choosing Azure or fake is wiring, done by
-// cmd/lazybus. Everything else depends on the bus.Backend interface.
+// cmd/lazybus (tools/* may wire one too). Everything else depends on the bus.Backend
+// interface.
 func TestOnlyEntrypointsImportTransports(t *testing.T) {
 	allowed := map[string][]string{
 		azurePkg: {
 			"cmd/lazybus",
 			// The emulator seeder reuses the transport's emulator admin client and connection-string checks.
 			seedPkg,
-			"tools/seed",
 		},
 		fakePkg: {"cmd/lazybus"},
 	}
 	for p, imports := range graph(t) {
+		if hasPathPrefix(p, "tools") {
+			continue
+		}
 		for transport, ok := range allowed {
 			if slices.Contains(imports, transport) && !slices.Contains(ok, p) {
 				t.Errorf("%s imports %s. Only %v may import a concrete transport: depend on "+
@@ -250,6 +259,16 @@ func TestAzureSDKOnlyInAzureTransport(t *testing.T) {
 	}
 }
 
+// isCharmV1TUI matches the pre-v2 import paths of the same framework.
+func isCharmV1TUI(p string) bool {
+	for _, m := range []string{"bubbletea", "bubbles", "lipgloss"} {
+		if hasPathPrefix(p, "github.com/charmbracelet/"+m) {
+			return true
+		}
+	}
+	return false
+}
+
 // TestTUIFrameworkOnlyInUI: bubbletea, bubbles and lipgloss stay in internal/ui;
 // cmd/lazybus only starts the program.
 func TestTUIFrameworkOnlyInUI(t *testing.T) {
@@ -263,7 +282,7 @@ func TestTUIFrameworkOnlyInUI(t *testing.T) {
 			continue
 		}
 		for _, imp := range imports {
-			if hasPathPrefix(imp, "charm.land") {
+			if hasPathPrefix(imp, "charm.land") || isCharmV1TUI(imp) {
 				t.Errorf("%s imports %s. The TUI framework belongs in %s: return data or a bus type "+
 					"and let the UI render it.", p, imp, uiPkg)
 			}
