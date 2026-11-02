@@ -23,7 +23,8 @@ fetched with `go run`.
 ## How to use it
 
 The report is a **list of where tests help most**, not a gate: no threshold, and it never
-runs in pre-push. High CRAP in `tools/*` weighs less than in `internal/bus` or `internal/ui`.
+runs in pre-push (complexity alone is gated: see [complexity.md](complexity.md)). High CRAP
+in `tools/*` weighs less than in `internal/bus` or `internal/ui`.
 
 Coverage only says the code *ran*. Whether the tests would have *noticed* a bug is what
 mutation testing answers: `scripts/mutation.sh` (see [mutation-testing.md](mutation-testing.md)).
