@@ -606,115 +606,145 @@ type confirmBlock struct {
 // confirmBlocks builds the confirm popup body: label/value rows and
 // warnings, wrapped to inner cells.
 func (m Model) confirmBlocks(inner int) (title string, blocks []confirmBlock, footer []seg) {
+	b := newConfirmBuilder(inner)
+	switch m.confirm.kind {
+	case confirmBatch:
+		title, footer = m.batchBlocks(b)
+	case confirmDiscard:
+		title, footer = m.discardBlocks(b)
+	case confirmCleanup:
+		title, footer = m.cleanupBlocks(b)
+	default:
+		title, footer = m.resubmitBlocks(b)
+	}
+	return title, b.blocks, footer
+}
+
+// confirmBuilder collects the blocks of a confirm popup, wrapped to inner
+// cells.
+type confirmBuilder struct {
+	inner, valW int
+	blocks      []confirmBlock
+}
+
+// confirmLabelW is the label column of a confirm popup field.
+const confirmLabelW = 12
+
+func newConfirmBuilder(inner int) *confirmBuilder {
+	return &confirmBuilder{inner: inner, valW: max(10, inner-2-confirmLabelW)}
+}
+
+// field adds a label/value block; the value wraps under the label.
+func (b *confirmBuilder) field(label, value string, level statusLevel, optional bool) {
+	var lines []string
+	for i, l := range wrapLines(sanitize(value), b.valW) {
+		lab := ""
+		if i == 0 {
+			lab = label
+		}
+		lines = append(lines, row([]seg{{" " + fitPlain(lab, confirmLabelW), stDim}, {l, levelStyle(level)}}, b.inner, false))
+	}
+	b.blocks = append(b.blocks, confirmBlock{lines: lines, optional: optional})
+}
+
+// more is the row that stands for hidden lines of a cut block.
+func (b *confirmBuilder) more(hidden int) string {
+	return row([]seg{{" " + fitPlain("", confirmLabelW), stDim}, {fmt.Sprintf("… %d more lines", hidden), stDim}}, b.inner, false)
+}
+
+// edits adds a field per Pending Edit line; a long one is cut, not what
+// follows it.
+func (b *confirmBuilder) edits(diff []diffLine) {
+	for _, d := range diff {
+		b.field(d.label, d.text, d.level, d.optional)
+		b.blocks[len(b.blocks)-1].more = b.more
+	}
+}
+
+// list adds one block of values, one per row, each cut to the value
+// column; the block is cut on a short terminal.
+func (b *confirmBuilder) list(label string, values []string) {
+	var lines []string
+	for i, v := range values {
+		lab := ""
+		if i == 0 {
+			lab = label
+		}
+		lines = append(lines, row([]seg{{" " + fitPlain(lab, confirmLabelW), stDim}, {fitPlain(v, b.valW), stPlain}}, b.inner, false))
+	}
+	b.blocks = append(b.blocks, confirmBlock{lines: lines, more: b.more})
+}
+
+// note adds a warning.
+func (b *confirmBuilder) note(text string, level statusLevel) {
+	var lines []string
+	for i, l := range wrapLines(sanitize(text), b.inner-4) {
+		prefix := "   "
+		if i == 0 {
+			prefix = " ! "
+		}
+		lines = append(lines, row([]seg{{prefix + l, levelStyle(level)}}, b.inner, false))
+	}
+	b.blocks = append(b.blocks, confirmBlock{lines: lines})
+}
+
+// gap adds a blank row, dropped first on a short terminal.
+func (b *confirmBuilder) gap() {
+	b.blocks = append(b.blocks, confirmBlock{lines: []string{strings.Repeat(" ", b.inner)}, optional: true})
+}
+
+func planSource(p bus.RepairPlan) string { return fmt.Sprintf("%s seq %d", p.Source, p.SequenceNumber) }
+func planTarget(p bus.RepairPlan) string { return fmt.Sprintf("%s %s", p.Target.Kind, p.Target.Name) }
+
+// discardBlocks is the confirm popup of x: discard a message's Pending
+// Edits.
+func (m Model) discardBlocks(b *confirmBuilder) (title string, footer []seg) {
 	c := m.confirm
 	p := c.plan
-	const labelW = 12
-	valW := max(10, inner-2-labelW)
-	field := func(label, value string, level statusLevel, optional bool) {
-		var lines []string
-		for i, l := range wrapLines(sanitize(value), valW) {
-			lab := ""
-			if i == 0 {
-				lab = label
-			}
-			lines = append(lines, row([]seg{{" " + fitPlain(lab, labelW), stDim}, {l, levelStyle(level)}}, inner, false))
-		}
-		blocks = append(blocks, confirmBlock{lines: lines, optional: optional})
-	}
-	// edits lists the Pending Edits; a long one is cut, not what follows it.
-	more := func(hidden int) string {
-		return row([]seg{{" " + fitPlain("", labelW), stDim}, {fmt.Sprintf("… %d more lines", hidden), stDim}}, inner, false)
-	}
-	edits := func(e bus.Edits) {
-		for _, d := range m.editDiff(p.Message, e) {
-			field(d.label, d.text, d.level, d.optional)
-			blocks[len(blocks)-1].more = more
-		}
-	}
-	note := func(text string, level statusLevel) {
-		var lines []string
-		for i, l := range wrapLines(sanitize(text), inner-4) {
-			prefix := "   "
-			if i == 0 {
-				prefix = " ! "
-			}
-			lines = append(lines, row([]seg{{prefix + l, levelStyle(level)}}, inner, false))
-		}
-		blocks = append(blocks, confirmBlock{lines: lines})
-	}
-	if c.kind == confirmBatch {
-		list := func(label string, values []string) {
-			var lines []string
-			for i, v := range values {
-				lab := ""
-				if i == 0 {
-					lab = label
-				}
-				lines = append(lines, row([]seg{{" " + fitPlain(lab, labelW), stDim}, {fitPlain(v, valW), stPlain}}, inner, false))
-			}
-			blocks = append(blocks, confirmBlock{lines: lines, more: more})
-		}
-		title, footer = m.batchBlocks(field, list, note)
-		return title, blocks, footer
-	}
-	src := fmt.Sprintf("%s seq %d", p.Source, p.SequenceNumber)
-	target := fmt.Sprintf("%s %s", p.Target.Kind, p.Target.Name)
+	b.field("Message", planSource(p)+" (MessageId "+p.Message.MessageID+")", statusInfo, false)
+	b.edits(m.editDiff(p.Message, c.req.Edits))
+	b.note("the edits live only in memory: discarded edits can't be restored", statusWarn)
+	return "Discard Pending Edits", []seg{{"y", stKey}, {" discard  ", stDim}, {"n", stKey}, {" cancel", stDim}}
+}
 
-	if c.kind == confirmDiscard {
-		title = "Discard Pending Edits"
-		field("Message", src+" (MessageId "+p.Message.MessageID+")", statusInfo, false)
-		edits(c.req.Edits)
-		note("the edits live only in memory: discarded edits can't be restored", statusWarn)
-		footer = []seg{{"y", stKey}, {" discard  ", stDim}, {"n", stKey}, {" cancel", stDim}}
-		return title, blocks, footer
+// cleanupBlocks is the confirm popup of a Finish Cleanup.
+func (m Model) cleanupBlocks(b *confirmBuilder) (title string, footer []seg) {
+	p := m.confirm.plan
+	b.field("Remove", planSource(p)+" (MessageId "+p.Message.MessageID+")", statusInfo, false)
+	if p.Target.Name != "" {
+		b.field("Copy", "already in "+planTarget(p), statusInfo, false)
 	}
-	if c.kind == confirmCleanup {
-		title = "Finish Cleanup"
-		field("Remove", src+" (MessageId "+p.Message.MessageID+")", statusInfo, false)
-		if p.Target.Name != "" {
-			field("Copy", "already in "+target, statusInfo, false)
-		}
-		field("Send", "nothing is sent", statusInfo, false)
-		field("Scan", p.ScanCost, statusInfo, true)
-		footer = []seg{{"y", stKey}, {" remove  ", stDim}, {"n", stKey}, {" cancel", stDim}}
-		return title, blocks, footer
-	}
+	b.field("Send", "nothing is sent", statusInfo, false)
+	b.field("Scan", p.ScanCost, statusInfo, true)
+	return "Finish Cleanup", []seg{{"y", stKey}, {" remove  ", stDim}, {"n", stKey}, {" cancel", stDim}}
+}
 
-	title = "Resubmit"
-	field("Source", src, statusInfo, false)
-	field("Target", target, statusInfo, false)
+// resubmitBlocks is the confirm popup of a Repair.
+func (m Model) resubmitBlocks(b *confirmBuilder) (title string, footer []seg) {
+	c := m.confirm
+	p := c.plan
+	b.field("Source", planSource(p), statusInfo, false)
+	b.field("Target", planTarget(p), statusInfo, false)
 	if !c.req.Edits.BodyEdited {
-		field("Body", bodySummary("unchanged", p.Message.Body), statusInfo, true)
+		b.field("Body", bodySummary("unchanged", p.Message.Body), statusInfo, true)
 	}
 	if c.req.Edits.IsZero() {
-		field("Edits", "none (properties, Subject and ContentType unchanged)", statusInfo, true)
+		b.field("Edits", "none (properties, Subject and ContentType unchanged)", statusInfo, true)
 	}
 	// Every Pending Edit is listed (what y sends); per-property lines give
 	// way on a short terminal, the count stays, and a long value is cut.
-	edits(c.req.Edits)
-	field("Markers", "removed: "+strings.Join(p.MarkersRemoved, ", "), statusInfo, true)
-	same := ""
-	if c.uncertain {
-		same = ", as the previous attempt"
-	}
-	if c.newID {
-		field("MessageId", fmt.Sprintf("new %s (was %s)%s", p.NewMessageID, p.Message.MessageID, same), statusInfo, false)
-	} else {
-		level := statusInfo
-		if p.DuplicateDetection && !c.uncertain {
-			level = statusWarn
-		}
-		field("MessageId", "kept "+p.Message.MessageID+same, level, false)
-	}
-	field("Scan", p.ScanCost, statusInfo, true)
+	b.edits(m.editDiff(p.Message, c.req.Edits))
+	b.field("Markers", "removed: "+strings.Join(p.MarkersRemoved, ", "), statusInfo, true)
+	b.field("MessageId", m.messageIDText(), m.messageIDLevel(), false)
+	b.field("Scan", p.ScanCost, statusInfo, true)
 	if len(p.Warnings) > 0 || c.uncertain {
-		blocks = append(blocks, confirmBlock{lines: []string{strings.Repeat(" ", inner)}, optional: true})
+		b.gap()
 	}
 	for _, w := range p.Warnings {
-		note(w, statusWarn)
+		b.note(w, statusWarn)
 	}
 	if c.uncertain {
-		note("the previous attempt may have delivered a copy — check the target first", statusErr)
+		b.note("the previous attempt may have delivered a copy — check the target first", statusErr)
 	}
 	footer = []seg{{"y", stKey}, {" resubmit  ", stDim}, {"n", stKey}, {" cancel", stDim}}
 	if !c.uncertain {
@@ -724,7 +754,32 @@ func (m Model) confirmBlocks(inner int) (title string, blocks []confirmBlock, fo
 		}
 		footer = append(footer, seg{"  ", stDim}, seg{"m", stKey}, seg{" " + keep, stDim})
 	}
-	return title, blocks, footer
+	return "Resubmit", footer
+}
+
+// messageIDText is the MessageId row of the Repair popup: new or kept,
+// and whether it repeats the previous attempt's.
+func (m Model) messageIDText() string {
+	c := m.confirm
+	p := c.plan
+	same := ""
+	if c.uncertain {
+		same = ", as the previous attempt"
+	}
+	if c.newID {
+		return fmt.Sprintf("new %s (was %s)%s", p.NewMessageID, p.Message.MessageID, same)
+	}
+	return "kept " + p.Message.MessageID + same
+}
+
+// messageIDLevel warns when a kept MessageId may be dropped by duplicate
+// detection (not on a retry, where keeping it is the point).
+func (m Model) messageIDLevel() statusLevel {
+	c := m.confirm
+	if !c.newID && c.plan.DuplicateDetection && !c.uncertain {
+		return statusWarn
+	}
+	return statusInfo
 }
 
 // fitBlocks returns the lines of blocks in at most n rows: optional

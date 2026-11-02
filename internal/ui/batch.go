@@ -405,15 +405,13 @@ func batchFailed(msg batchDoneMsg) bool {
 }
 
 // batchBlocks is the confirm popup of a bulk resubmit.
-// field adds a label/value block, list one block of several values (cut
-// with "… N more lines" on a short terminal), note a warning.
-func (m Model) batchBlocks(field func(label, value string, level statusLevel, optional bool), list func(label string, values []string), note func(text string, level statusLevel)) (title string, footer []seg) {
+func (m Model) batchBlocks(b *confirmBuilder) (title string, footer []seg) {
 	c := m.confirm
 	p := c.batchPlan
 	n := len(c.batch.Items)
 	title = fmt.Sprintf("Resubmit %d messages", n)
-	field("Source", p.Source, statusInfo, false)
-	field("Target", fmt.Sprintf("%s %s", p.Target.Kind, p.Target.Name), statusInfo, false)
+	b.field("Source", p.Source, statusInfo, false)
+	b.field("Target", fmt.Sprintf("%s %s", p.Target.Kind, p.Target.Name), statusInfo, false)
 	plan := map[int64]bus.BatchPlanItem{}
 	for _, it := range p.Items {
 		plan[it.SequenceNumber] = it
@@ -427,7 +425,7 @@ func (m Model) batchBlocks(field func(label, value string, level statusLevel, op
 		}
 		lines = append(lines, line)
 	}
-	list("Messages", lines)
+	b.list("Messages", lines)
 	var skipped []string
 	for _, it := range p.Items {
 		switch {
@@ -438,22 +436,22 @@ func (m Model) batchBlocks(field func(label, value string, level statusLevel, op
 		}
 	}
 	if len(skipped) > 0 {
-		field("Skipped", strings.Join(skipped, "; "), statusWarn, false)
+		b.field("Skipped", strings.Join(skipped, "; "), statusWarn, false)
 	}
-	field("Markers", "removed: "+strings.Join(p.MarkersRemoved, ", "), statusInfo, true)
+	b.field("Markers", "removed: "+strings.Join(p.MarkersRemoved, ", "), statusInfo, true)
 	if c.newID {
-		field("MessageId", "a new one for each copy", statusInfo, false)
+		b.field("MessageId", "a new one for each copy", statusInfo, false)
 	} else {
 		level := statusInfo
 		if p.DuplicateDetection {
 			level = statusWarn
 		}
-		field("MessageId", "kept (each copy keeps its original)", level, false)
+		b.field("MessageId", "kept (each copy keeps its original)", level, false)
 	}
-	field("Scan", p.ScanCost, statusInfo, true)
-	note("one by one after one scan; stops at the first SendUncertain or CleanupPending, and the rest are not sent", statusInfo)
+	b.field("Scan", p.ScanCost, statusInfo, true)
+	b.note("one by one after one scan; stops at the first SendUncertain or CleanupPending, and the rest are not sent", statusInfo)
 	for _, w := range p.Warnings {
-		note(w, statusWarn)
+		b.note(w, statusWarn)
 	}
 	keep := "new MessageIds"
 	if c.newID {
