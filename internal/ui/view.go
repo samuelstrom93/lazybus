@@ -417,7 +417,7 @@ func (m Model) renderMain(l layout) []string {
 	}
 	inner := l.mainW - 2
 
-	tabs := m.tabTitle(focused)
+	tabs := m.tabBar(focused)
 	lines, scroll := m.mainLines(inner), m.mainScroll
 	if m.stack.Root() == CtxNamespaces {
 		// Namespaces focused: the main pane shows the selected namespace.
@@ -446,8 +446,8 @@ func (m Model) renderMain(l layout) []string {
 	return append(out, hBorder(l.mainW, "└", "┘", nil, stBorder))
 }
 
-// tabTitle is the main pane's tab bar, the current tab highlighted.
-func (m Model) tabTitle(focused bool) []seg {
+// tabBar is the main pane's tab bar, the current tab highlighted.
+func (m Model) tabBar(focused bool) []seg {
 	var tabs []seg
 	for t := range tabCount {
 		if t > 0 {

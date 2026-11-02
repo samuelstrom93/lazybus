@@ -339,12 +339,12 @@ func (m Model) saveEdit() (Model, tea.Cmd) {
 	switch e.kind {
 	case editProperty:
 		var ok bool
-		if next, status, ok = m.propertyEdit(label); !ok {
+		if next, status, ok = m.pendingWithProperty(label); !ok {
 			return m, nil
 		}
 		m.tab = tabProperties
 	default:
-		next, status = m.systemFieldEdit(label)
+		next, status = m.pendingWithSystemField(label)
 		m.tab = tabSystem
 	}
 	m.setEdits(e.target, next)
@@ -355,10 +355,10 @@ func (m Model) saveEdit() (Model, tea.Cmd) {
 	return m, nil
 }
 
-// propertyEdit is the message's Pending Edits with the popup's property
+// pendingWithProperty is the message's Pending Edits with the popup's property
 // set, and the status line that says so. When the popup is not valid it
 // sets the popup's error and reports false.
-func (m *Model) propertyEdit(label string) (bus.Edits, string, bool) {
+func (m *Model) pendingWithProperty(label string) (bus.Edits, string, bool) {
 	e := m.edit
 	k := strings.TrimSpace(e.key)
 	if k == "" {
@@ -386,10 +386,10 @@ func (m *Model) propertyEdit(label string) (bus.Edits, string, bool) {
 		propertyValue(bus.Property{Type: e.typ, Value: v}, m.opts.Location), e.typ, m.resubmitHint()), true
 }
 
-// systemFieldEdit is the message's Pending Edits with the popup's Subject
+// pendingWithSystemField is the message's Pending Edits with the popup's Subject
 // or ContentType, none when it is the original value again, and the
 // status line that says so.
-func (m Model) systemFieldEdit(label string) (bus.Edits, string) {
+func (m Model) pendingWithSystemField(label string) (bus.Edits, string) {
 	e := m.edit
 	orig := e.msg.Subject
 	if e.kind == editContentType {
