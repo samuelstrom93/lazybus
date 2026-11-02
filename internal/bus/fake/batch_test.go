@@ -177,3 +177,59 @@ func TestPlanBatch(t *testing.T) {
 		t.Fatalf("the plan locked something: %v", b.Events())
 	}
 }
+
+func TestBatchNotFoundInScan(t *testing.T) {
+	b := New(WithDeadLetters(prod, "orders", 120))
+	orders := queue("orders")
+	// Seq 80 at row index 0 (stale list): the scan of 50 misses it, seq 2 goes.
+	res := repairBatch(t, b, batchReq(orders, item(2, 0), item(80, 0)))
+	if res.Items[0].Outcome != bus.Resubmitted {
+		t.Fatalf("seq 2: %v (%s)", res.Items[0].Outcome, res.Items[0].Detail)
+	}
+	if r := res.Items[1]; r.Outcome != bus.NotFound || r.NotFound != bus.NotFoundScan || !strings.Contains(r.Detail, "first 50 messages") {
+		t.Fatalf("seq 80: %v %v (%s)", r.Outcome, r.NotFound, r.Detail)
+	}
+	if res.Stopped != 0 {
+		t.Fatalf("stopped %d", res.Stopped)
+	}
+}
+
+func TestBatchEveryItemGoneLocksNothing(t *testing.T) {
+	b := New()
+	res := repairBatch(t, b, batchReq(queue("orders"), item(998, 0), item(999, 1)))
+	for i, r := range res.Items {
+		if r.Outcome != bus.NotFound || r.NotFound != bus.NotFoundGone || r.SequenceNumber != int64(998+i) {
+			t.Fatalf("item %d: %+v", i, r)
+		}
+	}
+	if len(b.Events()) != 0 || res.Locked != 0 {
+		t.Fatalf("nothing to scan, but: events %v locked %d", b.Events(), res.Locked)
+	}
+}
+
+func TestBatchErrorsSendNothing(t *testing.T) {
+	boom := &bus.Error{Kind: bus.ErrConnection, Msg: "dial tcp: refused"}
+	for _, op := range []Op{OpTargetInfo, OpPeek, OpReceive} {
+		t.Run(op.String(), func(t *testing.T) {
+			b := New()
+			orders := queue("orders")
+			b.SetFault(op, Fault{Err: boom})
+			before := len(dlq(b, orders))
+			res, err := b.RepairBatch(context.Background(), batchReq(orders, item(2, 0), item(4, 2)))
+			if bus.KindOf(err) != bus.ErrConnection {
+				t.Fatalf("err %v", err)
+			}
+			if len(res.Items) != 2 || res.Items[1].SequenceNumber != 4 || res.Items[1].Target.Name != "orders" {
+				t.Fatalf("items %+v", res.Items)
+			}
+			for _, e := range b.Events() {
+				if e.Op != OpReceive {
+					t.Fatalf("a failed batch settled or sent: %v", b.Events())
+				}
+			}
+			if got := len(dlq(b, orders)); got != before {
+				t.Fatalf("DLQ %d → %d", before, got)
+			}
+		})
+	}
+}
