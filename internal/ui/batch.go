@@ -88,6 +88,11 @@ func (m Model) isPicked(i int) bool {
 
 // pickedSeqs are the picked loaded rows, in list order.
 func (m Model) pickedSeqs() []int64 {
+	// View calls this every frame: with nothing picked, skip the walk over
+	// every loaded row.
+	if len(m.picks.rows) == 0 && !m.picks.ranging {
+		return nil
+	}
 	if _, ok := m.markKeyOf(0); !ok {
 		return nil
 	}
