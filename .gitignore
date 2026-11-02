@@ -7,3 +7,6 @@ dist/
 
 # local emulator secrets
 emulator/.env
+
+# local scratch output (gate log, mutation and CRAP reports)
+.tmp/
