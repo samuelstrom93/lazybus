@@ -613,30 +613,16 @@ func tailFit(s string, width int) string {
 	return "…" + t
 }
 
+// editLabelW is the label column of the edit popup.
+const editLabelW = 8
+
 func (m Model) overlayEdit(screen string) string {
 	e := m.edit
 	w := min(m.width-4, 76)
 	inner := w - 2
-	const labelW = 8
-	valW := inner - 2 - labelW - 1
-	src := fmt.Sprintf("%s/$DLQ seq %d", e.target.path, e.target.seq)
-	var title string
-	switch {
-	case e.kind != editProperty:
-		title = "Edit " + e.kind.String()
-	case e.adding:
-		title = "Add property"
-	default:
-		title = "Edit property"
-	}
-	labelStyle := func(f editField) lipgloss.Style {
-		if f == e.field {
-			return stTitleFocus
-		}
-		return stDim
-	}
+	valW := inner - 2 - editLabelW - 1
 	textRow := func(label string, f editField, text string, editable bool) string {
-		segs := []seg{{"  " + fitPlain(label, labelW), labelStyle(f)}}
+		segs := []seg{{"  " + fitPlain(label, editLabelW), e.labelStyle(f)}}
 		switch {
 		case f == e.field:
 			segs = append(segs, seg{tailFit(text, valW-1), stPlain}, seg{"▏", stTitleFocus})
@@ -650,38 +636,12 @@ func (m Model) overlayEdit(screen string) string {
 	blank := strings.Repeat(" ", inner)
 	body := []string{blank}
 	if e.kind == editProperty {
-		body = append(body, textRow("Key", fieldKey, e.key, e.adding))
-		segs := []seg{{"  " + fitPlain("Type", labelW), labelStyle(fieldType)}}
-		for i, t := range bus.PropertyTypes() {
-			if i > 0 {
-				segs = append(segs, seg{" ", stPlain})
-			}
-			st := stDim
-			if t == e.typ {
-				st = stBold
-				if e.field == fieldType {
-					st = stSelected
-				}
-			}
-			segs = append(segs, seg{" " + t.String() + " ", st})
-		}
-		body = append(body, row(segs, inner, false))
+		body = append(body, textRow("Key", fieldKey, e.key, e.adding), row(e.typeSegs(), inner, false))
 	}
 	body = append(body, textRow("Value", fieldValue, e.value, true))
-	hint := typeHints[e.typ]
-	if e.kind != editProperty {
-		hint = "empty = no " + e.kind.String() + " on the copy"
-	}
-	body = append(body, row([]seg{{"  " + strings.Repeat(" ", labelW) + hint, stDim}}, inner, false))
+	body = append(body, row([]seg{{"  " + strings.Repeat(" ", editLabelW) + e.hint(), stDim}}, inner, false))
 	if e.was != "" || !e.adding {
-		was := e.was
-		if was == "" {
-			was = "—"
-			if e.kind == editProperty {
-				was = "(not on the original message)"
-			}
-		}
-		body = append(body, row([]seg{{"  " + fitPlain("was", labelW), stDim}, {was, stDim}}, inner, false))
+		body = append(body, row([]seg{{"  " + fitPlain("was", editLabelW), stDim}, {e.wasText(), stDim}}, inner, false))
 	}
 	if e.err != "" {
 		for i, l := range wrapLines(sanitize(e.err), inner-4) {
@@ -694,10 +654,78 @@ func (m Model) overlayEdit(screen string) string {
 	}
 	body = append(body, blank)
 
-	lines := []string{hBorder(w, "┌", "┐", []seg{{title, stTitleFocus}, {"  " + src, stDim}}, stBorderFocus)}
+	src := fmt.Sprintf("%s/$DLQ seq %d", e.target.path, e.target.seq)
+	lines := []string{hBorder(w, "┌", "┐", []seg{{e.title(), stTitleFocus}, {"  " + src, stDim}}, stBorderFocus)}
 	for _, l := range body {
 		lines = append(lines, boxRow(l, stBorderFocus))
 	}
+	lines = append(lines, hBorder(w, "└", "┘", e.footer(), stBorderFocus))
+	return m.overlay(screen, lines, w)
+}
+
+// title is the edit popup's title.
+func (e editState) title() string {
+	switch {
+	case e.kind != editProperty:
+		return "Edit " + e.kind.String()
+	case e.adding:
+		return "Add property"
+	default:
+		return "Edit property"
+	}
+}
+
+// labelStyle highlights the label of the focused field.
+func (e editState) labelStyle(f editField) lipgloss.Style {
+	if f == e.field {
+		return stTitleFocus
+	}
+	return stDim
+}
+
+// typeSegs is the Type row of a Property Edit: every type, the chosen one
+// bold (selected while the row has focus).
+func (e editState) typeSegs() []seg {
+	segs := []seg{{"  " + fitPlain("Type", editLabelW), e.labelStyle(fieldType)}}
+	for i, t := range bus.PropertyTypes() {
+		if i > 0 {
+			segs = append(segs, seg{" ", stPlain})
+		}
+		st := stDim
+		switch {
+		case t == e.typ && e.field == fieldType:
+			st = stSelected
+		case t == e.typ:
+			st = stBold
+		}
+		segs = append(segs, seg{" " + t.String() + " ", st})
+	}
+	return segs
+}
+
+// hint is the line under the value: what the type accepts, or what an
+// empty Subject or ContentType means.
+func (e editState) hint() string {
+	if e.kind != editProperty {
+		return "empty = no " + e.kind.String() + " on the copy"
+	}
+	return typeHints[e.typ]
+}
+
+// wasText is the original value, or what its absence means.
+func (e editState) wasText() string {
+	switch {
+	case e.was != "":
+		return e.was
+	case e.kind == editProperty:
+		return "(not on the original message)"
+	default:
+		return "—"
+	}
+}
+
+// footer is the edit popup's key line.
+func (e editState) footer() []seg {
 	footer := []seg{{"enter", stKey}, {" save  ", stDim}}
 	if len(e.fields()) > 1 {
 		footer = append(footer, seg{"tab", stKey}, seg{" next field  ", stDim})
@@ -705,7 +733,5 @@ func (m Model) overlayEdit(screen string) string {
 	if e.field == fieldType {
 		footer = append(footer, seg{"← →", stKey}, seg{" type  ", stDim})
 	}
-	footer = append(footer, seg{"esc", stKey}, seg{" cancel", stDim})
-	lines = append(lines, hBorder(w, "└", "┘", footer, stBorderFocus))
-	return m.overlay(screen, lines, w)
+	return append(footer, seg{"esc", stKey}, seg{" cancel", stDim})
 }
