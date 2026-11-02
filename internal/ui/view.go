@@ -878,14 +878,15 @@ func (m Model) renderOptions() string {
 // optionsBarBindings are the keys the options bar offers for the top
 // context and the selected message, before fitting them to the width.
 func (m Model) optionsBarBindings() []key.Binding {
-	switch top := m.stack.Top(); {
-	case top == CtxFilter || top == CtxJump || top == CtxSearch || top == CtxRecent:
+	top := m.stack.Top()
+	if top == CtxFilter || top == CtxJump || top == CtxSearch || top == CtxRecent {
 		return contextBindings(top)
-	case top == CtxConfirm && m.confirm.kind == confirmRepair && !m.confirm.uncertain:
-		return append(optionsBindings(top, m.barFlags()), keys.ToggleID)
-	default:
-		return optionsBindings(top, m.barFlags())
 	}
+	bindings := optionsBindings(top, m.barFlags())
+	if top == CtxConfirm && m.confirm.kind == confirmRepair && !m.confirm.uncertain {
+		bindings = append(bindings, keys.ToggleID)
+	}
+	return bindings
 }
 
 // barFlags say which of the context's keys apply to the selected

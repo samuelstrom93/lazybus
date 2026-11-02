@@ -320,10 +320,10 @@ func nsRowSegs(r nsRow, width int) []seg {
 // selected namespace, or the subscription of a placeholder row.
 func (m Model) namespaceDetails(width int) (title string, lines []string) {
 	r, ok := m.namespaces.selected()
-	switch {
-	case !ok:
+	if !ok {
 		return "Namespace", m.noNamespaceLines(width)
-	case r.kind != rowNamespace:
+	}
+	if r.kind != rowNamespace {
 		return "Subscription", subscriptionRowLines(r, width)
 	}
 	return "Namespace", m.namespaceLines(r.ns, width)
