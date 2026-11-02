@@ -56,18 +56,9 @@ func (b *Backend) Subscriptions(ctx context.Context) ([]bus.Subscription, error)
 				return err
 			}
 			for _, s := range page.Value {
-				if s == nil || s.SubscriptionID == nil {
-					continue
+				if sub, ok := armSubscription(s); ok {
+					out = append(out, sub)
 				}
-				// Disabled and deleted subscriptions can't list resources.
-				if s.State != nil && (*s.State == armsubscriptions.SubscriptionStateDisabled || *s.State == armsubscriptions.SubscriptionStateDeleted) {
-					continue
-				}
-				name := *s.SubscriptionID
-				if s.DisplayName != nil && *s.DisplayName != "" {
-					name = *s.DisplayName
-				}
-				out = append(out, bus.Subscription{ID: *s.SubscriptionID, Name: name})
 			}
 		}
 		return nil
@@ -83,6 +74,22 @@ func (b *Backend) Subscriptions(ctx context.Context) ([]bus.Subscription, error)
 		return out[i].ID < out[j].ID
 	})
 	return out, nil
+}
+
+// armSubscription converts an ARM subscription; disabled and deleted ones,
+// which can't list resources, are left out. The name falls back to the ID.
+func armSubscription(s *armsubscriptions.Subscription) (bus.Subscription, bool) {
+	if s == nil || s.SubscriptionID == nil {
+		return bus.Subscription{}, false
+	}
+	if s.State != nil && (*s.State == armsubscriptions.SubscriptionStateDisabled || *s.State == armsubscriptions.SubscriptionStateDeleted) {
+		return bus.Subscription{}, false
+	}
+	name := *s.SubscriptionID
+	if s.DisplayName != nil && *s.DisplayName != "" {
+		name = *s.DisplayName
+	}
+	return bus.Subscription{ID: *s.SubscriptionID, Name: name}, true
 }
 
 // SubscriptionNamespaces implements bus.Discovery: the Service Bus

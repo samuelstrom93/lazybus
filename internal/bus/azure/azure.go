@@ -325,29 +325,7 @@ func (c *conn) namedEntities(ctx context.Context) ([]bus.Entity, error) {
 	for i := range out {
 		e := &out[i]
 		g.Go(func() error {
-			_ = Safe("get runtime properties "+e.Path, func() error {
-				var active, dead int32
-				switch e.Kind {
-				case bus.KindQueue:
-					q, err := c.admin.GetQueueRuntimeProperties(gctx, e.Path, nil)
-					if err != nil || q == nil { // (nil, nil) for a missing entity
-						return err
-					}
-					active, dead = q.ActiveMessageCount, q.DeadLetterMessageCount
-				case bus.KindSubscription:
-					i := strings.LastIndex(e.Path, "/")
-					if i <= 0 {
-						return nil
-					}
-					s, err := c.admin.GetSubscriptionRuntimeProperties(gctx, e.Path[:i], e.Path[i+1:], nil)
-					if err != nil || s == nil {
-						return err
-					}
-					active, dead = s.ActiveMessageCount, s.DeadLetterMessageCount
-				}
-				e.CountsKnown, e.ActiveCount, e.DeadLetterCount = true, int64(active), int64(dead)
-				return nil
-			})
+			_ = Safe("get runtime properties "+e.Path, func() error { return c.runtimeCounts(gctx, e) })
 			return nil
 		})
 	}
@@ -356,6 +334,32 @@ func (c *conn) namedEntities(ctx context.Context) ([]bus.Entity, error) {
 		return nil, mapErr("list entities "+c.ns.Name, err)
 	}
 	return out, nil
+}
+
+// runtimeCounts sets the counts of e from its runtime properties. They
+// stay unknown when the call fails or the entity is missing.
+func (c *conn) runtimeCounts(ctx context.Context, e *bus.Entity) error {
+	var active, dead int32
+	switch e.Kind {
+	case bus.KindQueue:
+		q, err := c.admin.GetQueueRuntimeProperties(ctx, e.Path, nil)
+		if err != nil || q == nil { // (nil, nil) for a missing entity
+			return err
+		}
+		active, dead = q.ActiveMessageCount, q.DeadLetterMessageCount
+	case bus.KindSubscription:
+		i := strings.LastIndex(e.Path, "/")
+		if i <= 0 {
+			return nil
+		}
+		s, err := c.admin.GetSubscriptionRuntimeProperties(ctx, e.Path[:i], e.Path[i+1:], nil)
+		if err != nil || s == nil {
+			return err
+		}
+		active, dead = s.ActiveMessageCount, s.DeadLetterMessageCount
+	}
+	e.CountsKnown, e.ActiveCount, e.DeadLetterCount = true, int64(active), int64(dead)
+	return nil
 }
 
 // maxParallelTopics bounds the concurrent per-topic subscription listings.
