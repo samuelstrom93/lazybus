@@ -157,6 +157,29 @@ func (s *Service) PlanBatch(ctx context.Context, req BatchRequest) (BatchPlan, e
 	return p, nil
 }
 
+// precheckItems pre-checks every item into items: one already gone is
+// NotFound, a refused one Skipped. It returns the sequence numbers left to
+// scan for and the highest row index among them, which bounds the scan.
+func (s *Service) precheckItems(ctx context.Context, req BatchRequest, items []BatchItemResult) (want map[int64]bool, maxIndex int, err error) {
+	want = map[int64]bool{}
+	for i, it := range req.Items {
+		ir := &items[i]
+		_, found, why, err := s.precheckItem(ctx, req, it)
+		switch {
+		case err != nil:
+			return nil, 0, err
+		case !found:
+			ir.Outcome, ir.NotFound, ir.Detail = NotFound, NotFoundGone, "already gone (nothing locked)"
+		case why != "":
+			ir.Skipped = why
+		default:
+			want[it.SequenceNumber] = true
+			maxIndex = max(maxIndex, it.Index)
+		}
+	}
+	return want, maxIndex, nil
+}
+
 // RepairBatch implements BatchRepairer: the pre-checks, one scan that finds
 // every item still there, then send and complete each in request order. A
 // SendUncertain or CleanupPending stops the batch: the items after it are
@@ -181,25 +204,9 @@ func (s *Service) RepairBatch(ctx context.Context, req BatchRequest) (res BatchR
 		return res, gerr
 	}
 
-	want := map[int64]bool{}
-	maxIndex := 0
-	for i, it := range req.Items {
-		ir := &res.Items[i]
-		_, found, why, err := s.precheckItem(ctx, req, it)
-		switch {
-		case err != nil:
-			return res, err
-		case !found:
-			ir.Outcome, ir.NotFound, ir.Detail = NotFound, NotFoundGone, "already gone (nothing locked)"
-		case why != "":
-			ir.Skipped = why
-		default:
-			want[it.SequenceNumber] = true
-			maxIndex = max(maxIndex, it.Index)
-		}
-	}
-	if len(want) == 0 {
-		return res, nil
+	want, maxIndex, err := s.precheckItems(ctx, req, res.Items)
+	if err != nil || len(want) == 0 {
+		return res, err
 	}
 
 	r0 := RepairRequest{Namespace: req.Namespace, Entity: req.Entity, SubQueue: req.SubQueue}
