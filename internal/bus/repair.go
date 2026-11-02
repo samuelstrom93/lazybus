@@ -697,7 +697,7 @@ func (s *Service) scanOne(ctx context.Context, rcv DeadLetterReceiver, req Repai
 func (s *Service) scan(ctx context.Context, rcv DeadLetterReceiver, want map[int64]bool, limit int, res *RepairResult) (map[int64]Locked, string, error) {
 	st := &scanState{want: want, matches: map[int64]Locked{}}
 	defer s.endScan(ctx, rcv, res, st)
-	stop, err := s.fill(ctx, rcv, st, limit, res)
+	stop, err := s.receiveUntilFound(ctx, rcv, st, limit, res)
 	if err != nil {
 		st.fail()
 		return st.matches, "", err
@@ -737,9 +737,9 @@ func (s *Service) endScan(ctx context.Context, rcv DeadLetterReceiver, res *Repa
 	s.abandon(ctx, rcv, res, st.held)
 }
 
-// fill receives into st until every wanted message is locked. stop says
-// why it ended before that.
-func (s *Service) fill(ctx context.Context, rcv DeadLetterReceiver, st *scanState, limit int, res *RepairResult) (string, error) {
+// receiveUntilFound receives into st until every wanted message is
+// locked. The string says why it ended before that.
+func (s *Service) receiveUntilFound(ctx context.Context, rcv DeadLetterReceiver, st *scanState, limit int, res *RepairResult) (string, error) {
 	for len(st.all) < limit {
 		wait, ok := s.nextWait(st.deadline)
 		if !ok {

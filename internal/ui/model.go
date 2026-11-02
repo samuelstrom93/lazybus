@@ -593,6 +593,8 @@ func (m Model) messagesLoaded(msg messagesLoadedMsg) (Model, tea.Cmd) {
 	return m.firstPageLoaded(msg, label)
 }
 
+// nextPageLoaded appends a next page; a pending refresh or cursor move
+// applies once it is in.
 func (m Model) nextPageLoaded(msg messagesLoadedMsg, label string) (Model, tea.Cmd) {
 	// Appended in place, amortized: older Model copies only see
 	// their own length, and only the current Model pages on.
@@ -611,6 +613,7 @@ func (m Model) nextPageLoaded(msg messagesLoadedMsg, label string) (Model, tea.C
 	return m, nil
 }
 
+// firstPageLoaded replaces the list with a first page.
 func (m Model) firstPageLoaded(msg messagesLoadedMsg, label string) (Model, tea.Cmd) {
 	m.clearLines()
 	// Clipped: the first append copies, so paging never writes into

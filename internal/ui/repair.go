@@ -696,12 +696,17 @@ func (b *confirmBuilder) gap() {
 func planSource(p bus.RepairPlan) string { return fmt.Sprintf("%s seq %d", p.Source, p.SequenceNumber) }
 func planTarget(p bus.RepairPlan) string { return fmt.Sprintf("%s %s", p.Target.Kind, p.Target.Name) }
 
+// planMessage is the source and MessageId of p's message.
+func planMessage(p bus.RepairPlan) string {
+	return planSource(p) + " (MessageId " + p.Message.MessageID + ")"
+}
+
 // discardBlocks is the confirm popup of x: discard a message's Pending
 // Edits.
 func (m Model) discardBlocks(b *confirmBuilder) (title string, footer []seg) {
 	c := m.confirm
 	p := c.plan
-	b.field("Message", planSource(p)+" (MessageId "+p.Message.MessageID+")", statusInfo, false)
+	b.field("Message", planMessage(p), statusInfo, false)
 	b.edits(m.editDiff(p.Message, c.req.Edits))
 	b.note("the edits live only in memory: discarded edits can't be restored", statusWarn)
 	return "Discard Pending Edits", []seg{{"y", stKey}, {" discard  ", stDim}, {"n", stKey}, {" cancel", stDim}}
@@ -710,7 +715,7 @@ func (m Model) discardBlocks(b *confirmBuilder) (title string, footer []seg) {
 // cleanupBlocks is the confirm popup of a Finish Cleanup.
 func (m Model) cleanupBlocks(b *confirmBuilder) (title string, footer []seg) {
 	p := m.confirm.plan
-	b.field("Remove", planSource(p)+" (MessageId "+p.Message.MessageID+")", statusInfo, false)
+	b.field("Remove", planMessage(p), statusInfo, false)
 	if p.Target.Name != "" {
 		b.field("Copy", "already in "+planTarget(p), statusInfo, false)
 	}
@@ -735,7 +740,7 @@ func (m Model) resubmitBlocks(b *confirmBuilder) (title string, footer []seg) {
 	// way on a short terminal, the count stays, and a long value is cut.
 	b.edits(m.editDiff(p.Message, c.req.Edits))
 	b.field("Markers", "removed: "+strings.Join(p.MarkersRemoved, ", "), statusInfo, true)
-	b.field("MessageId", m.messageIDText(), m.messageIDLevel(), false)
+	b.field("MessageId", c.messageIDText(), c.messageIDLevel(), false)
 	b.field("Scan", p.ScanCost, statusInfo, true)
 	if len(p.Warnings) > 0 || c.uncertain {
 		b.gap()
@@ -759,8 +764,7 @@ func (m Model) resubmitBlocks(b *confirmBuilder) (title string, footer []seg) {
 
 // messageIDText is the MessageId row of the Repair popup: new or kept,
 // and whether it repeats the previous attempt's.
-func (m Model) messageIDText() string {
-	c := m.confirm
+func (c confirmState) messageIDText() string {
 	p := c.plan
 	same := ""
 	if c.uncertain {
@@ -774,8 +778,7 @@ func (m Model) messageIDText() string {
 
 // messageIDLevel warns when a kept MessageId may be dropped by duplicate
 // detection (not on a retry, where keeping it is the point).
-func (m Model) messageIDLevel() statusLevel {
-	c := m.confirm
+func (c confirmState) messageIDLevel() statusLevel {
 	if !c.newID && c.plan.DuplicateDetection && !c.uncertain {
 		return statusWarn
 	}
