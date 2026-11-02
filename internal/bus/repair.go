@@ -692,62 +692,116 @@ func (s *Service) scanOne(ctx context.Context, rcv DeadLetterReceiver, req Repai
 // once, the post-match siblings included, and every abandon is awaited.
 // The scan stops after limit messages, or LockMargin before the first held
 // lock expires. matches holds the ones found, still locked; stop says why
-// the others were not.
-func (s *Service) scan(ctx context.Context, rcv DeadLetterReceiver, want map[int64]bool, limit int, res *RepairResult) (matches map[int64]Locked, stop string, err error) {
-	matches = map[int64]Locked{}
-	var held, all []Locked
-	var deadline time.Time
-	defer func() {
-		if len(all) > 0 {
-			res.logf(false, "receive (peek-lock) %s → locked seq %s", res.Source, seqList(all))
-		} else if err == nil {
-			res.logf(false, "receive (peek-lock) %s → nothing", res.Source)
+// the others were not. On an error nothing stays locked: the matches are
+// abandoned too.
+func (s *Service) scan(ctx context.Context, rcv DeadLetterReceiver, want map[int64]bool, limit int, res *RepairResult) (map[int64]Locked, string, error) {
+	st := &scanState{want: want, matches: map[int64]Locked{}}
+	defer s.endScan(ctx, rcv, res, st)
+	stop, err := s.fill(ctx, rcv, st, limit, res)
+	if err != nil {
+		st.fail()
+		return st.matches, "", err
+	}
+	return st.matches, stop, nil
+}
+
+// scanState is what one scan has locked so far.
+type scanState struct {
+	want    map[int64]bool
+	matches map[int64]Locked // the first delivery of each wanted message
+	held    []Locked         // the rest, abandoned when the scan ends
+	all     []Locked         // every message locked, in delivery order
+	// deadline is the first lock's lockDeadline; zero until one is held.
+	deadline time.Time
+	failed   bool
+}
+
+// fail moves the matches to held, so endScan abandons them too.
+func (st *scanState) fail() {
+	st.failed = true
+	for _, m := range st.matches {
+		st.held = append(st.held, m)
+	}
+	st.matches = map[int64]Locked{}
+}
+
+// endScan runs when scan returns, on every path: it logs what was locked
+// and abandons everything held.
+func (s *Service) endScan(ctx context.Context, rcv DeadLetterReceiver, res *RepairResult, st *scanState) {
+	if len(st.all) > 0 {
+		res.logf(false, "receive (peek-lock) %s → locked seq %s", res.Source, seqList(st.all))
+	} else if !st.failed {
+		res.logf(false, "receive (peek-lock) %s → nothing", res.Source)
+	}
+	res.Locked = len(st.all)
+	s.abandon(ctx, rcv, res, st.held)
+}
+
+// fill receives into st until every wanted message is locked. stop says
+// why it ended before that.
+func (s *Service) fill(ctx context.Context, rcv DeadLetterReceiver, st *scanState, limit int, res *RepairResult) (string, error) {
+	for len(st.all) < limit {
+		wait, ok := s.nextWait(st.deadline)
+		if !ok {
+			return fmt.Sprintf("not found before the first lock got within %s of expiring", LockMargin), nil
 		}
-		res.Locked = len(all)
+		got, err := receiveWithin(ctx, rcv, wait, min(ScanBatch, limit-len(st.all)))
 		if err != nil {
-			for _, m := range matches {
-				held = append(held, m)
-			}
-			matches = map[int64]Locked{}
-		}
-		s.abandon(ctx, rcv, res, held)
-	}()
-	for len(all) < limit {
-		wait := ScanReceiveWait
-		if !deadline.IsZero() {
-			left := deadline.Sub(s.now())
-			if left <= 0 {
-				return matches, fmt.Sprintf("not found before the first lock got within %s of expiring", LockMargin), nil
-			}
-			wait = min(wait, left)
-		}
-		rctx, cancel := context.WithTimeout(ctx, wait)
-		got, err := rcv.Receive(rctx, min(ScanBatch, limit-len(all)))
-		timedOut := rctx.Err() != nil && ctx.Err() == nil
-		cancel()
-		if err != nil && !timedOut {
 			res.logf(true, "receive (peek-lock) %s → error: %s", res.Source, errMsg(err))
-			return matches, "", err
+			return "", err
 		}
 		if len(got) == 0 {
-			return matches, fmt.Sprintf("not found: the DLQ delivered nothing more after %d messages", len(all)), nil
+			return fmt.Sprintf("not found: the DLQ delivered nothing more after %d messages", len(st.all)), nil
 		}
-		for _, m := range got {
-			all = append(all, m)
-			if deadline.IsZero() {
-				deadline = s.lockDeadline(m)
-			}
-			if seq := m.SequenceNumber(); want[seq] && matches[seq] == nil {
-				matches[seq] = m
-			} else {
-				held = append(held, m)
-			}
-		}
-		if len(matches) == len(want) {
-			return matches, "", nil
+		s.collect(st, got)
+		if len(st.matches) == len(st.want) {
+			return "", nil
 		}
 	}
-	return matches, fmt.Sprintf("not within the first %d messages (scan limit)", limit), nil
+	return fmt.Sprintf("not within the first %d messages (scan limit)", limit), nil
+}
+
+// nextWait is how long the next receive may wait: ScanReceiveWait, cut
+// to the time left before deadline (zero: no lock held yet). ok is false
+// once that time is up.
+func (s *Service) nextWait(deadline time.Time) (wait time.Duration, ok bool) {
+	if deadline.IsZero() {
+		return ScanReceiveWait, true
+	}
+	left := deadline.Sub(s.now())
+	if left <= 0 {
+		return 0, false
+	}
+	return min(ScanReceiveWait, left), true
+}
+
+// receiveWithin receives up to n messages, waiting at most wait. A
+// receive that runs out its wait is not an error; the caller's cancel is.
+func receiveWithin(ctx context.Context, rcv DeadLetterReceiver, wait time.Duration, n int) ([]Locked, error) {
+	rctx, cancel := context.WithTimeout(ctx, wait)
+	defer cancel()
+	got, err := rcv.Receive(rctx, n)
+	if rctx.Err() != nil && ctx.Err() == nil { // timed out, not cancelled
+		err = nil
+	}
+	return got, err
+}
+
+// collect adds got to st: the first delivery of each wanted sequence
+// number is a match, everything else is held. The first lock sets the
+// deadline.
+func (s *Service) collect(st *scanState, got []Locked) {
+	for _, m := range got {
+		st.all = append(st.all, m)
+		if st.deadline.IsZero() {
+			st.deadline = s.lockDeadline(m)
+		}
+		if seq := m.SequenceNumber(); st.want[seq] && st.matches[seq] == nil {
+			st.matches[seq] = m
+		} else {
+			st.held = append(st.held, m)
+		}
+	}
 }
 
 // abandon abandons ms at once and awaits every abandon, on a context the
