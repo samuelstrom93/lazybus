@@ -468,95 +468,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m = m.subNamespacesLoaded(msg)
 
 	case entitiesLoadedMsg:
-		if msg.req != m.entities.req {
-			break
-		}
-		m.entities.loading = false
-		m.entities.cancel = nil
-		var partial *bus.PartialError
-		if errors.As(msg.err, &partial) {
-			// A usable list with a part missing (Basic tier: no topics).
-			m.logf(true, "%s", errText("list topics "+msg.ns.Name, partial.Err))
-			msg.err = nil
-		}
-		m.entities.err = msg.err
-		after := m.afterEntities
-		m.afterEntities = nil
-		if msg.err != nil {
-			m.logf(true, "%s", errText("list entities "+msg.ns.Name, msg.err))
-			break
-		}
-		prev, hadPrev := m.entities.selected()
-		m.entities.setAll(sortEntities(msg.items, m.sortDLQ), m.entityText)
-		if msg.keep && hadPrev {
-			m.selectEntity(prev)
-		} else {
-			m.entities.offset = 0
-			m.entities.move(0)
-		}
-		m.logf(false, "list entities %s → %d", msg.ns.Name, len(msg.items))
-		if after != nil {
-			m, cmd = m.openRecentEntity(*after)
-			break
-		}
-		if ent, ok := m.entities.selected(); ok && msg.cascade {
-			m.openEntity = &ent
-			cmd = tea.Batch(m.peek(msg.ns, ent, m.subQueue), m.remember(msg.ns, ent))
-		}
+		m, cmd = m.entitiesLoaded(msg)
 
 	case messagesLoadedMsg:
-		if msg.req != m.messages.req {
-			break
-		}
-		m.messages.loading = false
-		m.messages.cancel = nil
-		m.messages.err = msg.err
-		label := entityLabel(msg.ent, msg.sub)
-		if msg.err != nil {
-			// A failed next page keeps the rows and `more`, so moving onto
-			// the last row again retries.
-			if m.isSessionful(msg.err) {
-				m.logf(false, "peek %s: %s", label, shortErr(msg.err))
-			} else {
-				m.logf(true, "%s", errText("peek "+label, msg.err))
-			}
-			m.hasAfterPage, m.hasKeepIndex = false, false
-			break
-		}
-		m.messages.more = len(msg.items) > 0
-		if msg.from > 0 {
-			// Appended in place, amortized: older Model copies only see
-			// their own length, and only the current Model pages on.
-			m.messages.setAll(append(m.messages.all, msg.items...), m.messageText)
-			m.msgCols = m.msgCols.add(msg.items)
-			m.logf(false, "peek %s from %d → %d", label, msg.from, len(msg.items))
-			if m.hasKeepIndex {
-				cmd = m.keepIndexOrLoad()
-				break
-			}
-			if m.hasAfterPage {
-				m.hasAfterPage = false
-				m.messages.move(m.afterPage)
-				m.resetMain()
-			}
-			break
-		}
-		m.clearLines()
-		// Clipped: the first append copies, so paging never writes into
-		// spare capacity of the backend's slice.
-		m.messages.setAll(msg.items[:len(msg.items):len(msg.items)], m.messageText)
-		m.msgCols = msgCols{}.add(msg.items)
-		// A first page replaces the list: a cursor move pending for a next
-		// page no longer applies.
-		m.hasAfterPage = false
-		m.logf(false, "peek %s → %d", label, len(msg.items))
-		if m.hasKeepIndex {
-			cmd = m.keepIndexOrLoad()
-			break
-		}
-		m.messages.offset = 0
-		m.messages.move(0)
-		m.resetMain()
+		m, cmd = m.messagesLoaded(msg)
 
 	case planDoneMsg:
 		m, cmd = m.planDone(msg)
@@ -608,6 +523,112 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	m.clampScroll()
 	return m, cmd
+}
+
+// entitiesLoaded applies the entity list of the current request.
+func (m Model) entitiesLoaded(msg entitiesLoadedMsg) (Model, tea.Cmd) {
+	if msg.req != m.entities.req {
+		return m, nil
+	}
+	m.entities.loading = false
+	m.entities.cancel = nil
+	var partial *bus.PartialError
+	if errors.As(msg.err, &partial) {
+		// A usable list with a part missing (Basic tier: no topics).
+		m.logf(true, "%s", errText("list topics "+msg.ns.Name, partial.Err))
+		msg.err = nil
+	}
+	m.entities.err = msg.err
+	after := m.afterEntities
+	m.afterEntities = nil
+	if msg.err != nil {
+		m.logf(true, "%s", errText("list entities "+msg.ns.Name, msg.err))
+		return m, nil
+	}
+	prev, hadPrev := m.entities.selected()
+	m.entities.setAll(sortEntities(msg.items, m.sortDLQ), m.entityText)
+	if msg.keep && hadPrev {
+		m.selectEntity(prev)
+	} else {
+		m.entities.offset = 0
+		m.entities.move(0)
+	}
+	m.logf(false, "list entities %s → %d", msg.ns.Name, len(msg.items))
+	if after != nil {
+		return m.openRecentEntity(*after)
+	}
+	if ent, ok := m.entities.selected(); ok && msg.cascade {
+		m.openEntity = &ent
+		cmd := tea.Batch(m.peek(msg.ns, ent, m.subQueue), m.remember(msg.ns, ent))
+		return m, cmd
+	}
+	return m, nil
+}
+
+// messagesLoaded applies a page of messages of the current request: a
+// first page replaces the list, a next page (from > 0) is appended.
+func (m Model) messagesLoaded(msg messagesLoadedMsg) (Model, tea.Cmd) {
+	if msg.req != m.messages.req {
+		return m, nil
+	}
+	m.messages.loading = false
+	m.messages.cancel = nil
+	m.messages.err = msg.err
+	label := entityLabel(msg.ent, msg.sub)
+	if msg.err != nil {
+		// A failed next page keeps the rows and `more`, so moving onto
+		// the last row again retries.
+		if m.isSessionful(msg.err) {
+			m.logf(false, "peek %s: %s", label, shortErr(msg.err))
+		} else {
+			m.logf(true, "%s", errText("peek "+label, msg.err))
+		}
+		m.hasAfterPage, m.hasKeepIndex = false, false
+		return m, nil
+	}
+	m.messages.more = len(msg.items) > 0
+	if msg.from > 0 {
+		return m.nextPageLoaded(msg, label)
+	}
+	return m.firstPageLoaded(msg, label)
+}
+
+func (m Model) nextPageLoaded(msg messagesLoadedMsg, label string) (Model, tea.Cmd) {
+	// Appended in place, amortized: older Model copies only see
+	// their own length, and only the current Model pages on.
+	m.messages.setAll(append(m.messages.all, msg.items...), m.messageText)
+	m.msgCols = m.msgCols.add(msg.items)
+	m.logf(false, "peek %s from %d → %d", label, msg.from, len(msg.items))
+	if m.hasKeepIndex {
+		cmd := m.keepIndexOrLoad()
+		return m, cmd
+	}
+	if m.hasAfterPage {
+		m.hasAfterPage = false
+		m.messages.move(m.afterPage)
+		m.resetMain()
+	}
+	return m, nil
+}
+
+func (m Model) firstPageLoaded(msg messagesLoadedMsg, label string) (Model, tea.Cmd) {
+	m.clearLines()
+	// Clipped: the first append copies, so paging never writes into
+	// spare capacity of the backend's slice.
+	m.messages.setAll(msg.items[:len(msg.items):len(msg.items)], m.messageText)
+	m.msgCols = msgCols{}.add(msg.items)
+	// A first page replaces the list: a cursor move pending for a next
+	// page no longer applies.
+	m.hasAfterPage = false
+	m.logf(false, "peek %s → %d", label, len(msg.items))
+	if m.hasKeepIndex {
+		cmd := m.keepIndexOrLoad()
+		return m, cmd
+	}
+	m.messages.offset = 0
+	m.messages.move(0)
+	m.resetMain()
+	return m, nil
 }
 
 // handleKey routes a key to the top context only.
