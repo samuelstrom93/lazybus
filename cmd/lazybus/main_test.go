@@ -181,6 +181,13 @@ func TestBackendWiring(t *testing.T) {
 	if _, _, err := backend(config{connectionString: "garbage"}, cred); err == nil {
 		t.Fatal("bad connection string accepted")
 	}
+	if _, _, err := backend(config{namespace: " "}, cred); err == nil || !strings.Contains(err.Error(), "empty name") {
+		t.Fatalf("blank --namespace: %v", err)
+	}
+	// --entity needs a namespace to apply to (parseFlags makes sure of it).
+	if _, _, err := backend(config{entities: []bus.Entity{{Path: "orders", Kind: bus.KindQueue}}}, noCred); err == nil {
+		t.Fatal("--entity without a namespace accepted")
+	}
 	noAz := func() (azcore.TokenCredential, error) { return nil, errNoToken }
 	if _, _, err := backend(config{}, noAz); !errors.Is(err, errNoToken) {
 		t.Fatalf("credential error = %v", err)
