@@ -417,20 +417,7 @@ func (m Model) renderMain(l layout) []string {
 	}
 	inner := l.mainW - 2
 
-	var tabs []seg
-	for t := range tabCount {
-		if t > 0 {
-			tabs = append(tabs, seg{" │ ", stDim})
-		}
-		st := stDim
-		if t == m.tab {
-			st = stBold
-			if focused {
-				st = stTitleFocus
-			}
-		}
-		tabs = append(tabs, seg{t.String(), st})
-	}
+	tabs := m.tabTitle(focused)
 	lines, scroll := m.mainLines(inner), m.mainScroll
 	if m.stack.Root() == CtxNamespaces {
 		// Namespaces focused: the main pane shows the selected namespace.
@@ -453,22 +440,49 @@ func (m Model) renderMain(l layout) []string {
 		out = append(out, boxRow(fitStyled(s, inner), edge))
 	}
 	out = append(out, hBorder(l.mainW, "├", "┤", []seg{{"Log", stPlain}}, edge))
-	start := max(0, len(m.log)-l.logRows)
-	for i := range l.logRows {
-		var r string
+	for _, r := range m.logLines(l.logRows, inner) {
+		out = append(out, boxRow(r, stBorder))
+	}
+	return append(out, hBorder(l.mainW, "└", "┘", nil, stBorder))
+}
+
+// tabTitle is the main pane's tab bar, the current tab highlighted.
+func (m Model) tabTitle(focused bool) []seg {
+	var tabs []seg
+	for t := range tabCount {
+		if t > 0 {
+			tabs = append(tabs, seg{" │ ", stDim})
+		}
+		st := stDim
+		if t == m.tab {
+			st = stBold
+			if focused {
+				st = stTitleFocus
+			}
+		}
+		tabs = append(tabs, seg{t.String(), st})
+	}
+	return tabs
+}
+
+// logLines are the last n log entries, one per row of width cells, blank
+// rows below when there are fewer.
+func (m Model) logLines(n, width int) []string {
+	out := make([]string, n)
+	start := max(0, len(m.log)-n)
+	for i := range n {
 		if j := start + i; j < len(m.log) {
 			e := m.log[j]
 			st := stPlain
 			if e.err {
 				st = stErr
 			}
-			r = row([]seg{{" " + e.at.In(m.opts.Location).Format("15:04") + " ", stDim}, {e.text, st}}, inner, false)
+			out[i] = row([]seg{{" " + e.at.In(m.opts.Location).Format("15:04") + " ", stDim}, {e.text, st}}, width, false)
 		} else {
-			r = strings.Repeat(" ", inner)
+			out[i] = strings.Repeat(" ", width)
 		}
-		out = append(out, boxRow(r, stBorder))
 	}
-	return append(out, hBorder(l.mainW, "└", "┘", nil, stBorder))
+	return out
 }
 
 // fitStyled truncates or pads an already styled line to width cells.
@@ -848,23 +862,7 @@ func (m Model) renderOptions() string {
 		r, _ := renderSegs(right, rw, nil)
 		return l + " " + r
 	}
-	f := optionFlags{tab: m.tab, search: m.search.term != ""}
-	if msg, ok := m.selectedMessage(); ok && m.subQueue == bus.DeadLetter {
-		mark, marked := m.markOf(msg.SequenceNumber)
-		f.cleanup = marked && mark.outcome == bus.CleanupPending
-		f.edit = true
-		f.discard = !m.editsOf(msg.SequenceNumber).IsZero()
-	}
-	f.repair = !m.opts.ReadOnly && m.subQueue == bus.DeadLetter
-	f.cleanup = f.cleanup && f.repair
-	bindings := optionsBindings(m.stack.Top(), f)
-	if m.stack.Top() == CtxFilter || m.stack.Top() == CtxJump || m.stack.Top() == CtxSearch || m.stack.Top() == CtxRecent {
-		bindings = contextBindings(m.stack.Top())
-	}
-	if m.stack.Top() == CtxConfirm && m.confirm.kind == confirmRepair && !m.confirm.uncertain {
-		bindings = append(bindings, keys.ToggleID)
-	}
-	bindings = fitBindings(bindings, max(0, m.width-rw-2))
+	bindings := fitBindings(m.optionsBarBindings(), max(0, m.width-rw-2))
 	for i, b := range bindings {
 		if i > 0 {
 			left = append(left, seg{"  ", stPlain})
@@ -875,6 +873,34 @@ func (m Model) renderOptions() string {
 	l := row(left, max(0, m.width-rw-1), false)
 	r, _ := renderSegs(right, rw, nil)
 	return l + " " + r
+}
+
+// optionsBarBindings are the keys the options bar offers for the top
+// context and the selected message, before fitting them to the width.
+func (m Model) optionsBarBindings() []key.Binding {
+	switch top := m.stack.Top(); {
+	case top == CtxFilter || top == CtxJump || top == CtxSearch || top == CtxRecent:
+		return contextBindings(top)
+	case top == CtxConfirm && m.confirm.kind == confirmRepair && !m.confirm.uncertain:
+		return append(optionsBindings(top, m.barFlags()), keys.ToggleID)
+	default:
+		return optionsBindings(top, m.barFlags())
+	}
+}
+
+// barFlags say which of the context's keys apply to the selected
+// message.
+func (m Model) barFlags() optionFlags {
+	f := optionFlags{tab: m.tab, search: m.search.term != ""}
+	if msg, ok := m.selectedMessage(); ok && m.subQueue == bus.DeadLetter {
+		mark, marked := m.markOf(msg.SequenceNumber)
+		f.cleanup = marked && mark.outcome == bus.CleanupPending
+		f.edit = true
+		f.discard = !m.editsOf(msg.SequenceNumber).IsZero()
+	}
+	f.repair = !m.opts.ReadOnly && m.subQueue == bus.DeadLetter
+	f.cleanup = f.cleanup && f.repair
+	return f
 }
 
 // optionsDropOrder are the options bar keys left out first when the bar
