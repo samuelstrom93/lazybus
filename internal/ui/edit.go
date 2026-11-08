@@ -660,7 +660,13 @@ func (m Model) overlayEdit(screen string) string {
 		body = append(body, row([]seg{{"  " + fitPlain("was", editLabelW), stDim}, {e.wasText(), stDim}}, inner, false))
 	}
 	if e.err != "" {
-		for i, l := range wrapLines(sanitize(e.err), inner-4) {
+		errLines := wrapLines(sanitize(e.err), inner-4)
+		// Keep the popup inside its area: borders and the blank row below.
+		if room := max(1, m.popupH()-len(body)-3); len(errLines) > room {
+			errLines = errLines[:room]
+			errLines[room-1] = ansi.Truncate(errLines[room-1], inner-5, "") + "…"
+		}
+		for i, l := range errLines {
 			prefix := "   "
 			if i == 0 {
 				prefix = " ! "

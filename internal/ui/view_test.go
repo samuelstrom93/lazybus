@@ -77,8 +77,19 @@ func TestMainTitleIdentity(t *testing.T) {
 func TestMainTitleKeepsSeq(t *testing.T) {
 	m := resized(t, keysIn(t, loaded(t), "2", "j", "enter"), 80, 24)
 	top := strings.SplitN(screenText(m), "\n", 2)[0]
-	if !strings.Contains(top, "System · order-events/") || !strings.Contains(top, "… seq 2 ─") {
+	// The cut path fills the title: no border dash is left before ┐.
+	if !strings.Contains(top, "System · order-events/") || !strings.HasSuffix(top, "… seq 2 ┐") {
 		t.Errorf("80 columns: %q", top)
+	}
+}
+
+// The MessageId is kept when it fits exactly.
+func TestMainTitleIdentityExactFit(t *testing.T) {
+	m := keysIn(t, loaded(t), "3")
+	full := " · invoices/$DLQ seq 2 · inv-1002"
+	w := ansi.StringWidth(full)
+	if got := m.messageIdentity(10, 10+w); len(got) != 1 || got[0].text != full {
+		t.Errorf("exact fit: %v", got)
 	}
 }
 
@@ -133,6 +144,24 @@ func TestPopupOverMainPaneWithGutter(t *testing.T) {
 	}
 	if row[x-1] != ' ' || strings.TrimSpace(string([]rune(lines[top-1])[x-1:x+maxPopupW+1])) != "" {
 		t.Errorf("no gutter around the popup:\n%s\n%s", lines[top-1], lines[top])
+	}
+}
+
+// A long edit error is cut so the edit popup stays above the Log rule.
+func TestEditPopupLongErrorStaysInMainPane(t *testing.T) {
+	m := resized(t, keysIn(t, onProperties(t, fake.New()), "j", "e"), 80, 24)
+	m.edit.err = strings.Repeat("abcdefgh ", 80)
+	footer, logRule := -1, -1
+	for i, l := range strings.Split(screenText(m), "\n") {
+		if strings.Contains(l, "└ enter save") {
+			footer = i
+		}
+		if strings.Contains(l, "├ Log ") {
+			logRule = i
+		}
+	}
+	if footer < 0 || logRule < 0 || footer >= logRule {
+		t.Errorf("popup footer row %d, Log rule row %d:\n%s", footer, logRule, screenText(m))
 	}
 }
 

@@ -271,7 +271,7 @@ func TestBatchConfirmCutsListOnSmallScreen(t *testing.T) {
 	screen := m.View().Content
 	requireScreenSize(t, screen, minWidth, minHeight)
 	text := stripBoxes(screen)
-	for _, want := range []string{"Resubmit 20 messages", "Source", "Target", "Messages", "… 14 more lines", "MessageId", "one by one after one scan"} {
+	for _, want := range []string{"Resubmit 20 messages", "Source", "Target", "Messages", "… 16 more lines", "MessageId", "one by one after one scan"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("confirm at %dx%d lacks %q:\n%s", minWidth, minHeight, want, ansi.Strip(screen))
 		}

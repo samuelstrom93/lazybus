@@ -498,7 +498,7 @@ func (m Model) messageIdentity(used, width int) []seg {
 	}
 	label := sanitize(entityLabel(*m.openEntity, m.subQueue))
 	seq := fmt.Sprintf(" seq %d", msg.SequenceNumber)
-	room := width - used - len(" · ") - len(seq)
+	room := width - used - ansi.StringWidth(" · ") - len(seq)
 	text := " · " + label + seq
 	switch id := " · " + sanitize(msg.MessageID); {
 	case msg.MessageID != "" && ansi.StringWidth(label+id) <= room:
@@ -1085,14 +1085,15 @@ type rect struct{ x, y, w, h int }
 
 // popupArea is where popups are drawn: the main pane's interior, below
 // its title and above the Log rule, so the side panels and the log stay
-// in view. Below 80 columns it is the screen above the options bar,
-// inside the outer borders.
+// in view. Below 80 columns it is the whole screen inside the outer
+// borders, side panels included.
 func (m Model) popupArea() rect {
 	l := m.layout()
 	if a := (rect{l.leftW + 1, 1, l.mainW - 2, l.mainRows}); a.w-2 >= minPopupW {
 		return a
 	}
-	return rect{1, 0, m.width - 2, m.height - 1}
+	// Rows 0 and height-2 are the outer borders; height-1 the options bar.
+	return rect{1, 1, m.width - 2, m.height - 3}
 }
 
 // popupW is the width of a popup that would like want cells.
