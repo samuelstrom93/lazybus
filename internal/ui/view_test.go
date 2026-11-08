@@ -147,6 +147,44 @@ func TestEditGoldens80x24(t *testing.T) {
 	}
 }
 
+// The narrow edit popup footer shortens its labels, then drops the tab
+// hint, before it ever cuts "esc cancel".
+func TestEditFooterKeepsEscCancel(t *testing.T) {
+	for name, setup := range map[string]func() Model{
+		"value field": func() Model { return keysIn(t, onProperties(t, fake.New()), "j", "e") },
+		"type field": func() Model {
+			return keysIn(t, typeText(t, keysIn(t, onProperties(t, fake.New()), "a"), "region"), "tab")
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := resized(t, setup(), 80, 24)
+			var footer string
+			for _, l := range strings.Split(ansi.Strip(m.View().Content), "\n") {
+				if strings.Contains(l, "└ enter save") {
+					footer = l
+				}
+			}
+			// The trailing space is hBorder's padding: "cancel" is not cut.
+			if !strings.Contains(footer, "esc cancel ") {
+				t.Errorf("footer %q, want esc cancel whole", footer)
+			}
+		})
+	}
+	e := keysIn(t, typeText(t, keysIn(t, onProperties(t, fake.New()), "a"), "region"), "tab").edit
+	if got := segsText(e.footer(36)); got != "enter save  ←→ type  esc cancel" {
+		t.Errorf("footer(36) = %q, want the tab hint dropped", got)
+	}
+}
+
+// segsText is the plain text of segs.
+func segsText(segs []seg) string {
+	var b strings.Builder
+	for _, s := range segs {
+		b.WriteString(s.text)
+	}
+	return b.String()
+}
+
 // The reason column keeps its full width; the MessageId gives way.
 func TestMessageReasonBeforeID(t *testing.T) {
 	s := screenText(loaded(t))

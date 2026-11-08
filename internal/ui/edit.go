@@ -681,7 +681,7 @@ func (m Model) overlayEdit(screen string) string {
 	for _, l := range body {
 		lines = append(lines, boxRow(l, stBorderFocus))
 	}
-	lines = append(lines, hBorder(w, "└", "┘", e.footer(), stBorderFocus))
+	lines = append(lines, hBorder(w, "└", "┘", e.footer(w-4), stBorderFocus))
 	return m.overlay(screen, lines, w)
 }
 
@@ -752,14 +752,28 @@ func (e editState) wasText() string {
 	return "—"
 }
 
-// footer is the edit popup's key line.
-func (e editState) footer() []seg {
+// footer is the edit popup's key line in width cells: the full labels,
+// else short ones, else without the tab hint, so "esc cancel" is never cut.
+func (e editState) footer(width int) []seg {
+	full := e.footerSegs("next field", "← →")
+	if segsWidth(full) <= width {
+		return full
+	}
+	if short := e.footerSegs("field", "←→"); segsWidth(short) <= width {
+		return short
+	}
+	return e.footerSegs("", "←→")
+}
+
+// footerSegs is the edit popup's key line with the given tab and type
+// labels; an empty tabLabel leaves the tab hint out.
+func (e editState) footerSegs(tabLabel, typeKeys string) []seg {
 	footer := []seg{{"enter", stKey}, {" save  ", stDim}}
-	if len(e.fields()) > 1 {
-		footer = append(footer, seg{"tab", stKey}, seg{" next field  ", stDim})
+	if tabLabel != "" && len(e.fields()) > 1 {
+		footer = append(footer, seg{"tab", stKey}, seg{" " + tabLabel + "  ", stDim})
 	}
 	if e.field == fieldType {
-		footer = append(footer, seg{"← →", stKey}, seg{" type  ", stDim})
+		footer = append(footer, seg{typeKeys, stKey}, seg{" type  ", stDim})
 	}
 	return append(footer, seg{"esc", stKey}, seg{" cancel", stDim})
 }

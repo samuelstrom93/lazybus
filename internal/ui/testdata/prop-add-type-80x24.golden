@@ -10,7 +10,7 @@
 [90m│[m▸  2 [90m06:00 [mSchemaMismat…[90m│[32;1m│[m [32;1m│[90;22m  Value   [m                                      [32;1m│[m [32;1m│[m
 [90m│[m   3 [90m07:00 [mMaxDeliveryC…[90m│[32;1m│[m [32;1m│[90;22m          RFC 3339, e.g. 2026-09-18T22:15:00Z[m   [32;1m│[m [32;1m│[m
 [90m│[m   4 [90m08:00 [mDownstreamTi…[90m│[32;1m│[m [32;1m│[m                                                [32;1m│[m [32;1m│[m
-[90m│[m   5 [90m09:00 [mSchemaMismat…[90m│[32;1m│[m [32;1m└[m [36menter[90m save  [36mtab[90m next field  [36m← →[90m type  [36mesc[90m can…[m [32;1m┘[m [32;1m│[m
+[90m│[m   5 [90m09:00 [mSchemaMismat…[90m│[32;1m│[m [32;1m└[m [36menter[90m save  [36mtab[90m field  [36m←→[90m type  [36mesc[90m cancel[m [32;1m────┘[m [32;1m│[m
 [90m│[m   6 [90m10:00 [mPoisonMessage[90m│[32;1m│[m                                                    [32;1m│[m
 [90m│[m   7 [90m11:00 [mSchemaMismat…[90m│[32;1m│[90;22m DeadLetterReason   String    [mSchemaMismatch        [32;1m│[m
 [90m│[m   8 [90m12:00 [mMaxDeliveryC…[90m│[32;1m│[90;22m DeadLetterErrorD…  String    [mRequired property 'cu…[32;1m│[m
