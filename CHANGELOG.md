@@ -15,10 +15,11 @@ All notable changes to lazybus are listed here. The format follows [Keep a Chang
 ### Changed
 
 - A dead-lettered message shows its DeadLetterReason and DeadLetterErrorDescription, wrapped (up to six lines), above every main pane tab, not only dimmed and cut at the bottom of Properties; the Properties tab shows the marker values in plain colour.
-- The main pane title names the message (`orders/$DLQ seq 2 · ord-4002`); the MessageId gives way first on a narrow screen.
+- The main pane title names the message (`orders/$DLQ seq 2 · ord-4002`); on a narrow screen the MessageId gives way first, then the entity path is cut so `seq N` stays.
 - The Messages panel keeps the full DeadLetterReason or Subject and drops the MessageId column when there is no room for both.
 - A focused side panel takes only the rows its items need; the rows left over show more of the other panels, Messages first.
-- Popups are at most 72 columns wide, sit over the main pane so the selected side panel rows stay visible, and keep a blank cell between their frame and the text under them.
+- Popups are at most 72 columns wide and stay inside the main pane, between its title and the Log, so the side panels and the log stay in view; the main pane is blanked around them, so no text under a popup shows beside its frame. Below 80 columns they use the whole screen.
+- The confirm popup shows at most six lines of one long Pending Edit, then "… N more lines".
 - The options bar shows `[ ] details` for the main pane tabs (`ö ä` stay in `?`), drops `space pick` before the navigation keys on a narrow screen, leaves out keys a popup already lists, and says `working…` while a call runs.
 - A transient send rejection (server-busy, resource-limit-exceeded, entity-disabled) is now SendUncertain, not SendFailed: after a dropped link the SDK retries once, and the first attempt may have delivered the copy.
 

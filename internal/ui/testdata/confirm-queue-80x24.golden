@@ -1,0 +1,24 @@
+[90m┌[m 1 Namespaces [90m──────────┐┌[m [1mBody[90;22m │ Properties │ System · orders/$DLQ seq 2[m [90m────┐[m
+[90m│[m▸ sb-prod-weu           [90m││[m                                                    [90m│[m
+[90m│[m  sb-test-weu           [90m││[m [32;1m┌[m [32;1mResubmit[m [32;1m──────────────────────────────────────┐[m [90m│[m
+[90m├[m 2 Entities [90m────────────┤│[m [32;1m│[m                                                [32;1m│[m [90m│[m
+[90m│[m  invoices        [33mDLQ  3[90m││[m [32;1m│[90;22m Source      [morders/$DLQ seq 2                  [32;1m│[m [90m│[m
+[90m│[m  order-events/b… [33mDLQ 12[90m││[m [32;1m│[90;22m Target      [mqueue orders                       [32;1m│[m [90m│[m
+[90m│[m  order-events/s… [90mDLQ  0││[m [32;1m│[90;22m Body        [munchanged, 15 lines, JSON          [32;1m│[m [90m│[m
+[90m│[m▸ orders          [33mDLQ 37[90m││[m [32;1m│[90;22m Edits       [mnone (properties, Subject and      [32;1m│[m [90m│[m
+[32;1m├[m [32;1m3 Messages[m  [32;1mDLQ[90;22m│Active[m [32;1m┤[90;22m│[m [32;1m│[90;22m             [mContentType unchanged)             [32;1m│[m [90m│[m
+[32;1m│[39;44m▸  2 06:00 SchemaMismat…[32;49m│[90;22m│[m [32;1m│[90;22m Markers     [mremoved: DeadLetterReason,         [32;1m│[m [90m│[m
+[32;1m│[m   3 [90m07:00 [mMaxDeliveryC…[32;1m│[90;22m│[m [32;1m│[90;22m             [mDeadLetterErrorDescription         [32;1m│[m [90m│[m
+[32;1m│[m   4 [90m08:00 [mDownstreamTi…[32;1m│[90;22m│[m [32;1m│[90;22m MessageId   [mkept ord-4002                      [32;1m│[m [90m│[m
+[32;1m│[m   5 [90m09:00 [mSchemaMismat…[32;1m│[90;22m│[m [32;1m│[90;22m Scan        [mlocks up to 50 messages ahead of   [32;1m│[m [90m│[m
+[32;1m│[m   6 [90m10:00 [mPoisonMessage[32;1m│[90;22m│[m [32;1m│[90;22m             [mit briefly; their DeliveryCount    [32;1m│[m [90m│[m
+[32;1m│[m   7 [90m11:00 [mSchemaMismat…[32;1m│[90;22m│[m [32;1m│[90;22m             [mdoes not change                    [32;1m│[m [90m│[m
+[32;1m│[m   8 [90m12:00 [mMaxDeliveryC…[32;1m│[90;22m│[m [32;1m│[m                                                [32;1m│[m [90m│[m
+[32;1m│[m   9 [90m13:00 [mDownstreamTi…[32;1m│[90;22m│[m [32;1m└[m [36my[90m resubmit  [36mn[90m cancel  [36mm[90m new MessageId[m [32;1m─────────┘[m [90m│[m
+[32;1m│[m  10 [90m14:00 [mSchemaMismat…[32;1m│[90;22m│[m                                                    [90m│[m
+[32;1m│[m  11 [90m15:00 [mPoisonMessage[32;1m│[90;22m├[m Log [90m───────────────────────────────────────────────┤[m
+[32;1m│[m  12 [90m16:00 [mSchemaMismat…[32;1m│[90;22m│ 16:00 [mlist entities sb-prod-weu → 4                [90m│[m
+[32;1m│[m  13 [90m17:00 [mMaxDeliveryC…[32;1m│[90;22m│ 16:00 [mpeek invoices/$DLQ → 3                       [90m│[m
+[32;1m│[m  14 [90m18:00 [mDownstreamTi…[32;1m│[90;22m│ 16:00 [mpeek orders/$DLQ → 37                        [90m│[m
+[32;1m└────────────────────────┘[90;22m└────────────────────────────────────────────────────┘[m
+                                                                                

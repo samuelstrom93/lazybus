@@ -50,6 +50,7 @@ func TestGoldens(t *testing.T) {
 		{name: "read-only", w: 120, h: 30, opts: func(o *Options) { o.ReadOnly = true }},
 		{name: "initial", w: 80, h: 24},
 		{name: "focus-messages", w: 80, h: 24, keys: "3]"},
+		{name: "help-open", w: 80, h: 24, keys: "3?"},
 	}
 	for _, tc := range cases {
 		name := fmt.Sprintf("%s-%dx%d", tc.name, tc.w, tc.h)

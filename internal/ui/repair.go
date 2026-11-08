@@ -572,7 +572,13 @@ func markStyleOf(o bus.Outcome) statusLevel {
 // outcome of a marked message, then why it was dead-lettered, then a
 // blank row. Nil when there is neither.
 func (m Model) bannerLines(msg bus.Message, width int) []string {
-	out := append(m.markLines(msg.SequenceNumber, width), failureLines(msg, width)...)
+	out := m.markLines(msg.SequenceNumber, width)
+	if fail := failureLines(msg, width); fail != nil {
+		if out != nil {
+			out = append(out, "")
+		}
+		out = append(out, fail...)
+	}
 	if out == nil {
 		return nil
 	}
@@ -663,12 +669,23 @@ func (b *confirmBuilder) more(hidden int) string {
 	return row([]seg{{" " + fitPlain("", confirmLabelW), stDim}, {fmt.Sprintf("… %d more lines", hidden), stDim}}, b.inner, false)
 }
 
+// editPreviewLines caps one Pending Edit line in the confirm popup,
+// "… N more lines" included, so a long value leaves room for the rest.
+const editPreviewLines = 6
+
 // edits adds a field per Pending Edit line; a long one is cut, not what
-// follows it.
+// follows it: to editPreviewLines always, and further on a short
+// terminal.
 func (b *confirmBuilder) edits(diff []diffLine) {
 	for _, d := range diff {
 		b.field(d.label, d.text, d.level, d.optional)
-		b.blocks[len(b.blocks)-1].more = b.more
+		blk := &b.blocks[len(b.blocks)-1]
+		blk.more = b.more
+		if capped := len(blk.lines) - (editPreviewLines - 1); capped > 1 {
+			blk.lines = append(blk.lines[:editPreviewLines-1], b.more(capped))
+			// fitBlocks hides the summary row first when it cuts more.
+			blk.more = func(hidden int) string { return b.more(hidden - 1 + capped) }
+		}
 	}
 }
 
@@ -838,9 +855,9 @@ func (m Model) overlayConfirm(screen string) string {
 	w := m.popupW(104)
 	inner := w - 2
 	title, blocks, footer := m.confirmBlocks(inner)
-	// Rows between the borders: the screen minus the options bar and the
-	// two borders; a blank row above and below when they fit.
-	room := max(1, m.height-1-2)
+	// Rows between the borders: the popup area minus the two borders; a
+	// blank row above and below when they fit.
+	room := max(1, m.popupArea().h-2)
 	body := fitBlocks(blocks, room)
 	pad := len(body)+2 <= room
 	blank := boxRow(strings.Repeat(" ", inner), stBorderFocus)

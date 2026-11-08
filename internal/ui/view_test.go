@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -72,6 +73,15 @@ func TestMainTitleIdentity(t *testing.T) {
 	}
 }
 
+// A long entity path is cut so "seq N" stays in the title at 80 columns.
+func TestMainTitleKeepsSeq(t *testing.T) {
+	m := resized(t, keysIn(t, loaded(t), "2", "j", "enter"), 80, 24)
+	top := strings.SplitN(screenText(m), "\n", 2)[0]
+	if !strings.Contains(top, "System · order-events/") || !strings.Contains(top, "… seq 2 ─") {
+		t.Errorf("80 columns: %q", top)
+	}
+}
+
 // The reason column keeps its full width; the MessageId gives way.
 func TestMessageReasonBeforeID(t *testing.T) {
 	s := screenText(loaded(t))
@@ -126,7 +136,33 @@ func TestPopupOverMainPaneWithGutter(t *testing.T) {
 	}
 }
 
-// At 80×24 the confirm popup is as wide as the main pane and still shows
+// A long Pending Edit shows editPreviewLines rows in the confirm popup;
+// cut further on a short terminal, the summary still counts every hidden
+// line.
+func TestConfirmCapsALongEdit(t *testing.T) {
+	b := newConfirmBuilder(40)
+	b.edits([]diffLine{{label: "Properties", text: strings.Repeat("abcdefghi ", 40), level: statusWarn}})
+	all := len(wrapLines(strings.TrimSpace(strings.Repeat("abcdefghi ", 40)), b.valW))
+	text := func(lines []string) string { return ansi.Strip(lines[len(lines)-1]) }
+	lines := fitBlocks(b.blocks, 20)
+	if len(lines) != editPreviewLines || !strings.Contains(text(lines), fmt.Sprintf("… %d more lines", all-editPreviewLines+1)) {
+		t.Errorf("capped: %d lines, last %q", len(lines), text(lines))
+	}
+	lines = fitBlocks(b.blocks, 3)
+	if len(lines) != 3 || !strings.Contains(text(lines), fmt.Sprintf("… %d more lines", all-2)) {
+		t.Errorf("cut to 3: %d lines, last %q", len(lines), text(lines))
+	}
+}
+
+// The confirm popup at 80×24 stays inside the main pane: the side panels
+// and their right border are untouched.
+func TestConfirmGolden80x24(t *testing.T) {
+	screen := resized(t, keysIn(t, onOrders(t, fake.New()), "r"), 80, 24).View().Content
+	requireScreenSize(t, screen, 80, 24)
+	requireGolden(t, "confirm-queue-80x24", screen)
+}
+
+// At 80×24 the confirm popup fits in the main pane and still shows
 // every field, the optional ones too.
 func TestConfirmFitsAt80x24(t *testing.T) {
 	m := resized(t, keysIn(t, onOrders(t, fake.New()), "r"), 80, 24)

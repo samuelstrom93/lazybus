@@ -283,11 +283,7 @@ func TestBatchConfirmCutsListOnSmallScreen(t *testing.T) {
 func stripBoxes(screen string) string {
 	var b strings.Builder
 	for _, l := range strings.Split(ansi.Strip(screen), "\n") {
-		l = strings.Trim(strings.TrimSpace(l), "│ ")
-		// A popup at the right edge: drop the side panel text left of it.
-		if i := strings.LastIndex(l, "│"); i >= 0 {
-			l = l[i+len("│"):]
-		}
+		l = strings.Trim(strings.TrimSpace(l), "│├┤ ")
 		b.WriteString(l + " ")
 	}
 	return strings.Join(strings.Fields(b.String()), " ")

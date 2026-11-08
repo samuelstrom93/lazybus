@@ -134,7 +134,7 @@ func (m Model) overlayJump(screen string) string {
 	w := m.popupW(64)
 	inner := w - 2
 	matches := m.jumpMatches()
-	n := max(1, min(jumpRows, m.height-1-6))
+	n := max(1, min(jumpRows, m.popupH()-4))
 	cursor := max(0, min(m.jump.cursor, len(matches)-1))
 	offset := max(0, cursor-n+1)
 

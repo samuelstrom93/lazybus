@@ -704,11 +704,12 @@ func TestEditOverlayEdges(t *testing.T) {
 		m = keysIn(t, m, "2", "j", "j", "j", "enter", "0", "]", "j", "e")
 		screen := m.View().Content
 		requireScreenSize(t, screen, minWidth, minHeight)
-		// The popup is minPopupW wide, wider than the main pane, so it keeps
-		// to the right edge: both corners and the footer show.
+		// The main pane is too narrow for it, so the popup is centred on
+		// the screen inside the outer borders: both corners and the footer
+		// show.
 		for _, l := range strings.Split(ansi.Strip(screen), "\n") {
 			if strings.Contains(l, "esc cancel") {
-				if !strings.Contains(l, " └ enter save") || !strings.HasSuffix(l, "┘") || ansi.StringWidth(l) != minWidth {
+				if !strings.HasPrefix(l, "│ └ enter save") || !strings.HasSuffix(l, "┘ ┤") {
 					t.Errorf("footer row %q", l)
 				}
 				return

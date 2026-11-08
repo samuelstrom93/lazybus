@@ -490,15 +490,21 @@ func (m Model) tabBar(focused bool) []seg {
 // messageIdentity is the dim end of the main pane title that says which
 // message it shows: " · orders/$DLQ seq 2 · ord-4002". used cells of the
 // width are taken; the MessageId goes first when it does not fit, then
-// the rest is cut.
+// the entity path is cut so "seq N" stays.
 func (m Model) messageIdentity(used, width int) []seg {
 	msg, ok := m.selectedMessage()
 	if !ok || m.openEntity == nil {
 		return nil
 	}
-	text := fmt.Sprintf(" · %s seq %d", entityLabel(*m.openEntity, m.subQueue), msg.SequenceNumber)
-	if id := " · " + sanitize(msg.MessageID); msg.MessageID != "" && used+ansi.StringWidth(text+id) <= width {
+	label := sanitize(entityLabel(*m.openEntity, m.subQueue))
+	seq := fmt.Sprintf(" seq %d", msg.SequenceNumber)
+	room := width - used - len(" · ") - len(seq)
+	text := " · " + label + seq
+	switch id := " · " + sanitize(msg.MessageID); {
+	case msg.MessageID != "" && ansi.StringWidth(label+id) <= room:
 		text += id
+	case ansi.StringWidth(label) > room && room > 1:
+		text = " · " + ansi.Truncate(label, room, "…") + seq
 	}
 	return []seg{{text, stDim}}
 }
@@ -1029,9 +1035,7 @@ func fitBindings(bs []key.Binding, width int) []key.Binding {
 func (m Model) helpBox() (w, h, listRows int) {
 	w = m.popupW(56)
 	entries := len(m.helpEntries())
-	// Two rows short of the screen above the options bar, so the blank
-	// gutter around it does not cover the main pane's top border.
-	h = min(m.height-6, max(entries, 3)+4)
+	h = min(m.popupH(), max(entries, 3)+4)
 	return w, h, h - 4
 }
 
@@ -1068,33 +1072,52 @@ func (m Model) overlayHelp(screen string) string {
 	return m.overlay(screen, lines, w)
 }
 
-// Popup widths: at most maxPopupW and the main pane, but never under
-// minPopupW (the main pane at the smallest layout is narrower), so a
-// confirm popup's fields still fit.
+// Popup widths: at most maxPopupW, with a blank cell either side inside
+// the popup area. A main pane whose interior cannot hold minPopupW plus
+// those cells (under 80 columns) is too narrow to be the popup area.
 const (
 	maxPopupW = 72
-	minPopupW = 54
+	minPopupW = 50
 )
+
+// rect is a screen region in cells.
+type rect struct{ x, y, w, h int }
+
+// popupArea is where popups are drawn: the main pane's interior, below
+// its title and above the Log rule, so the side panels and the log stay
+// in view. Below 80 columns it is the screen above the options bar,
+// inside the outer borders.
+func (m Model) popupArea() rect {
+	l := m.layout()
+	if a := (rect{l.leftW + 1, 1, l.mainW - 2, l.mainRows}); a.w-2 >= minPopupW {
+		return a
+	}
+	return rect{1, 0, m.width - 2, m.height - 1}
+}
 
 // popupW is the width of a popup that would like want cells.
 func (m Model) popupW(want int) int {
-	return min(want, maxPopupW, max(m.layout().mainW, minPopupW))
+	return min(want, maxPopupW, m.popupArea().w-2)
 }
 
-// overlay draws a popup of width w above the options bar, centred over
-// the main pane so the side panels' selected rows stay visible; one wider
-// than the main pane keeps to the right edge. A one-cell blank gutter
-// around the frame keeps the text under it off the border.
+// popupH is the most rows a popup has with a blank row above and below
+// it in the popup area.
+func (m Model) popupH() int {
+	return max(3, m.popupArea().h-2)
+}
+
+// overlay draws a popup of width w centred in the popup area. The area's
+// full width is blanked for the popup's rows and one row above and below
+// (inside the area), so no text under it shows beside the frame.
 func (m Model) overlay(screen string, lines []string, w int) string {
-	l := m.layout()
+	a := m.popupArea()
 	h := len(lines)
-	x := max(0, min(l.leftW+(l.mainW-w)/2, m.width-w))
-	y := max(0, (m.height-1-h)/2)
-	gx, gy := max(0, x-1), max(0, y-1)
-	gw, gh := min(m.width, x+w+1)-gx, min(m.height-1, y+h+1)-gy
-	blank := strings.TrimSuffix(strings.Repeat(strings.Repeat(" ", gw)+"\n", gh), "\n")
+	x := a.x + max(0, (a.w-w)/2)
+	y := a.y + max(0, (a.h-h)/2)
+	top, bottom := max(a.y, y-1), min(a.y+a.h, y+h+1)
+	blank := strings.TrimSuffix(strings.Repeat(strings.Repeat(" ", a.w)+"\n", max(0, bottom-top)), "\n")
 	base := lipgloss.NewLayer(screen)
-	gutter := lipgloss.NewLayer(blank).X(gx).Y(gy).Z(1)
+	gutter := lipgloss.NewLayer(blank).X(a.x).Y(top).Z(1)
 	popup := lipgloss.NewLayer(strings.Join(lines, "\n")).X(x).Y(y).Z(2)
 	// The compositor trims trailing blanks; pad back to full width.
 	out := strings.Split(lipgloss.NewCompositor(base, gutter, popup).Render(), "\n")
