@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -39,6 +40,41 @@ func TestFailureStrip(t *testing.T) {
 	if got := mainText(m, 1); got != "{" {
 		t.Errorf("Active message starts %q, want the body", got)
 	}
+}
+
+// The cached failure strip follows the width, the selection and the
+// message's own markers, and drawing a frame never writes into it.
+func TestFailureStripCacheFollowsChanges(t *testing.T) {
+	check := func(step string, m Model, want string) {
+		t.Helper()
+		msg, _ := m.selectedMessage()
+		width := m.layout().mainW - 2
+		fail := failureLines(msg, width)
+		got := m.mainLines(width)
+		if len(got) < len(fail) || !slices.Equal(got[:len(fail)], fail) {
+			t.Errorf("%s: strip %q, want %q", step, got[:min(len(got), len(fail))], fail)
+		}
+		if want != "" && !strings.Contains(mainText(m, len(fail)), want) {
+			t.Errorf("%s: strip %q lacks %q", step, mainText(m, len(fail)), want)
+		}
+		if c := m.strip.lines; len(c) == 0 || len(c) != cap(c) || c[len(c)-1] != "" {
+			t.Errorf("%s: cached banner %q, cap %d: want a blank last row and no spare capacity", step, c, cap(c))
+		}
+	}
+	m := keysIn(t, loaded(t), "3")
+	check("120 columns", m, "SchemaMismatch")
+	m = resized(t, m, 80, 24)
+	check("80 columns", m, "SchemaMismatch")
+	before, _ := m.selectedMessage()
+	m = keysIn(t, m, "j")
+	if after, _ := m.selectedMessage(); after.DeadLetterReason == before.DeadLetterReason {
+		t.Fatalf("setup: next message has the same reason %q", after.DeadLetterReason)
+	}
+	check("next message", m, "")
+	m.messages.items[m.messages.cursor].DeadLetterErrorDescription = "a brand new description"
+	check("changed description", m, "a brand new description")
+	m.messages.items[m.messages.cursor].DeadLetterReason = "BrandNewReason"
+	check("changed reason", m, "BrandNewReason")
 }
 
 func TestFailureStripCapsAnEnormousDescription(t *testing.T) {

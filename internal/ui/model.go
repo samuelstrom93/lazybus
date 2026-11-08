@@ -271,6 +271,9 @@ type Model struct {
 	// large body is not re-formatted on every keystroke. A pointer: the
 	// Model is copied by value on every Update.
 	lines *linesCache
+	// strip caches the failure strip of the selected message, which every
+	// frame shows on every tab. A pointer for the same reason as lines.
+	strip *stripCache
 }
 
 // New returns the root model for backend be.
@@ -286,6 +289,7 @@ func New(be bus.Backend, opts Options) Model {
 	}
 	m := Model{
 		lines:      &linesCache{},
+		strip:      &stripCache{},
 		be:         be,
 		opts:       opts,
 		stack:      NewContextStack(CtxNamespaces),

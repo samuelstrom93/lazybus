@@ -688,6 +688,37 @@ func (m Model) bodyLines(msg bus.Message, width int) []string {
 	return out
 }
 
+// stripCache holds the failure banner for one (reason, description,
+// width), all that failureLines reads, so it never goes stale.
+type stripCache struct {
+	key   stripKey
+	lines []string
+}
+
+type stripKey struct {
+	reason, desc string
+	width        int
+}
+
+// failureBanner is failureLines(msg, width) and a blank row, or nil, from
+// the cache when it matches. Callers must not write its elements; its
+// capacity is its length, so appending to it never writes into the cache.
+// The zero key needs no flag: its strip is nil either way.
+func (m Model) failureBanner(msg bus.Message, width int) []string {
+	key := stripKey{msg.DeadLetterReason, msg.DeadLetterErrorDescription, width}
+	if m.strip != nil && m.strip.key == key {
+		return m.strip.lines
+	}
+	lines := failureLines(msg, width)
+	if lines != nil {
+		lines = slices.Clip(append(lines, ""))
+	}
+	if m.strip != nil {
+		*m.strip = stripCache{key: key, lines: lines}
+	}
+	return lines
+}
+
 // failureMaxLines caps the failure strip; a longer description is cut
 // with "…" (the Properties tab and y have it in full).
 const failureMaxLines = 6

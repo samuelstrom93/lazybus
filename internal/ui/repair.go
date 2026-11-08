@@ -572,17 +572,16 @@ func markStyleOf(o bus.Outcome) statusLevel {
 // outcome of a marked message, then why it was dead-lettered, then a
 // blank row. Nil when there is neither.
 func (m Model) bannerLines(msg bus.Message, width int) []string {
+	fail := m.failureBanner(msg, width) // ends in the blank row
 	out := m.markLines(msg.SequenceNumber, width)
-	if fail := failureLines(msg, width); fail != nil {
-		if out != nil {
-			out = append(out, "")
-		}
-		out = append(out, fail...)
+	switch {
+	case out == nil:
+		return fail
+	case fail != nil:
+		return append(append(out, ""), fail...)
+	default:
+		return append(out, "")
 	}
-	if out == nil {
-		return nil
-	}
-	return append(out, "")
 }
 
 // markLines say what the outcome of a marked message leaves to do.
