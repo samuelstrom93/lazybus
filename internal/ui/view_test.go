@@ -88,8 +88,53 @@ func TestMainTitleIdentityExactFit(t *testing.T) {
 	m := keysIn(t, loaded(t), "3")
 	full := " · invoices/$DLQ seq 2 · inv-1002"
 	w := ansi.StringWidth(full)
-	if got := m.messageIdentity(10, 10+w); len(got) != 1 || got[0].text != full {
+	if got := m.titleTail(nil, 10, 10+w); len(got) != 1 || got[0].text != full {
 		t.Errorf("exact fit: %v", got)
+	}
+}
+
+// While searching at 80 columns the search and the long path are both cut
+// so "seq N" stays.
+func TestMainTitleKeepsSeqWhileSearching(t *testing.T) {
+	m := keysIn(t, loaded(t), "2", "j", "enter", "0", "/", "c", "u", "s", "t", "o", "m", "e", "r", "enter")
+	top := strings.SplitN(screenText(resized(t, m, 80, 24)), "\n", 2)[0]
+	if !strings.Contains(top, "System  /cu") || !strings.Contains(top, " · order-") || !strings.HasSuffix(top, "… seq 2 ┐") {
+		t.Errorf("80 columns: %q", top)
+	}
+}
+
+// The Type row lists every type when it fits, else the chosen one with
+// its cycle keys.
+func TestEditTypeRowFits(t *testing.T) {
+	e := editState{kind: editProperty, typ: bus.TypeDateTime, field: fieldType}
+	full := ansi.Strip(row(e.typeSegs(80), 80, false))
+	if !strings.Contains(full, "String") || !strings.Contains(full, "DateTime") {
+		t.Errorf("wide row: %q", full)
+	}
+	compact := ansi.Strip(row(e.typeSegs(48), 48, false))
+	if strings.Contains(compact, "String") || !strings.Contains(compact, "Type    ← DateTime →") {
+		t.Errorf("narrow row: %q", compact)
+	}
+}
+
+// The edit popups at 80×24: the Type row is compact and inside the frame.
+func TestEditGoldens80x24(t *testing.T) {
+	for name, setup := range map[string]func() Model{
+		"prop-edit-80x24": func() Model { return keysIn(t, onProperties(t, fake.New()), "j", "e") },
+		"prop-add-type-80x24": func() Model {
+			m := keysIn(t, typeText(t, keysIn(t, onProperties(t, fake.New()), "a"), "region"), "tab")
+			return keysIn(t, m, "left") // String wraps back to DateTime
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := resized(t, setup(), 80, 24)
+			if name == "prop-add-type-80x24" && m.edit.typ != bus.TypeDateTime {
+				t.Fatalf("type %v, want DateTime", m.edit.typ)
+			}
+			screen := m.View().Content
+			requireScreenSize(t, screen, 80, 24)
+			requireGolden(t, name, screen)
+		})
 	}
 }
 

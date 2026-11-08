@@ -652,7 +652,7 @@ func (m Model) overlayEdit(screen string) string {
 	blank := strings.Repeat(" ", inner)
 	body := []string{blank}
 	if e.kind == editProperty {
-		body = append(body, textRow("Key", fieldKey, e.key, e.adding), row(e.typeSegs(), inner, false))
+		body = append(body, textRow("Key", fieldKey, e.key, e.adding), row(e.typeSegs(inner), inner, false))
 	}
 	body = append(body, textRow("Value", fieldValue, e.value, true))
 	body = append(body, row([]seg{{"  " + strings.Repeat(" ", editLabelW) + e.hint(), stDim}}, inner, false))
@@ -706,23 +706,30 @@ func (e editState) labelStyle(f editField) lipgloss.Style {
 }
 
 // typeSegs is the Type row of a Property Edit: every type, the chosen one
-// bold (selected while the row has focus).
-func (e editState) typeSegs() []seg {
-	segs := []seg{{"  " + fitPlain("Type", editLabelW), e.labelStyle(fieldType)}}
+// bold (selected while the row has focus), in width cells.
+func (e editState) typeSegs(width int) []seg {
+	label := seg{"  " + fitPlain("Type", editLabelW), e.labelStyle(fieldType)}
+	chosen := stBold
+	if e.field == fieldType {
+		chosen = stSelected
+	}
+	segs := []seg{label}
 	for i, t := range bus.PropertyTypes() {
 		if i > 0 {
 			segs = append(segs, seg{" ", stPlain})
 		}
 		st := stDim
 		if t == e.typ {
-			st = stBold
-			if e.field == fieldType {
-				st = stSelected
-			}
+			st = chosen
 		}
 		segs = append(segs, seg{" " + t.String() + " ", st})
 	}
-	return segs
+	if segsWidth(segs) <= width {
+		return segs
+	}
+	// Too narrow for every type (80 columns): the chosen one, with the
+	// keys that cycle it.
+	return []seg{label, {"←", stDim}, {" " + e.typ.String() + " ", chosen}, {"→", stDim}}
 }
 
 // hint is the line under the value: what the type accepts, or what an

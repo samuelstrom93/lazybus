@@ -446,8 +446,7 @@ func (m Model) renderMain(l layout) []string {
 		title, lines = m.namespaceDetails(inner)
 		tabs, scroll = []seg{{title, stBold}}, 0
 	} else {
-		tabs = append(tabs, m.searchTitle(lines)...)
-		tabs = append(tabs, m.messageIdentity(segsWidth(tabs), inner-2)...)
+		tabs = append(tabs, m.titleTail(m.searchTitle(lines), segsWidth(tabs), inner-2)...)
 	}
 
 	out := []string{hBorder(l.mainW, "┌", "┐", tabs, edge)}
@@ -487,26 +486,53 @@ func (m Model) tabBar(focused bool) []seg {
 	return tabs
 }
 
-// messageIdentity is the dim end of the main pane title that says which
-// message it shows: " · orders/$DLQ seq 2 · ord-4002". used cells of the
-// width are taken; the MessageId goes first when it does not fit, then
-// the entity path is cut so "seq N" stays.
-func (m Model) messageIdentity(used, width int) []seg {
+// titleTail is the main pane title after the tabs: the search (its
+// segments) and a dim identity of the message, " · orders/$DLQ seq 2 ·
+// ord-4002". used cells of the width are taken. "seq N" always keeps its
+// room; the MessageId goes first when the rest does not fit, then the
+// entity path and the search are cut, each to at least half of what is
+// left.
+func (m Model) titleTail(search []seg, used, width int) []seg {
 	msg, ok := m.selectedMessage()
 	if !ok || m.openEntity == nil {
-		return nil
+		return search
 	}
+	const sep = " · "
 	label := sanitize(entityLabel(*m.openEntity, m.subQueue))
 	seq := fmt.Sprintf(" seq %d", msg.SequenceNumber)
-	room := width - used - ansi.StringWidth(" · ") - len(seq)
-	text := " · " + label + seq
-	switch id := " · " + sanitize(msg.MessageID); {
-	case msg.MessageID != "" && ansi.StringWidth(label+id) <= room:
-		text += id
-	case ansi.StringWidth(label) > room && room > 1:
-		text = " · " + ansi.Truncate(label, room, "…") + seq
+	rest := width - used - ansi.StringWidth(sep) - len(seq) // for the search and the path
+	sw, lw := segsWidth(search), ansi.StringWidth(label)
+	if id := sep + sanitize(msg.MessageID); msg.MessageID != "" && sw+lw+ansi.StringWidth(id) <= rest {
+		return append(search, seg{sep + label + seq + id, stDim})
 	}
-	return []seg{{text, stDim}}
+	if sw+lw > rest && rest > 1 {
+		if keep := max(1, rest/2, rest-sw); keep < lw {
+			label = ansi.Truncate(label, keep, "…")
+		}
+		search = cutSegs(search, rest-ansi.StringWidth(label))
+	}
+	return append(search, seg{sep + label + seq, stDim})
+}
+
+// cutSegs cuts segs to width cells, the last one kept ending in "…".
+func cutSegs(segs []seg, width int) []seg {
+	if segsWidth(segs) <= width {
+		return segs
+	}
+	var out []seg
+	for _, s := range segs {
+		w := ansi.StringWidth(s.text)
+		if w < width {
+			out = append(out, s)
+			width -= w
+			continue
+		}
+		if width > 0 {
+			out = append(out, seg{ansi.Truncate(s.text, width, "…"), s.style})
+		}
+		break
+	}
+	return out
 }
 
 // logLines are the last n log entries, one per row of width cells, blank
