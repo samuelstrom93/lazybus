@@ -41,20 +41,36 @@ func (m Model) layout() layout {
 	l.mainRows = max(1, frameH-3-l.logRows)
 
 	// Side panels share borders: top, two separators, bottom.
-	total := max(3, frameH-4)
-	unit := max(1, total/4)
 	counts := [3]int{len(m.namespaces.items), len(m.entities.items), len(m.messages.items)}
-	expanded := int(m.focusedSide() - CtxNamespaces)
-	rest := total
-	for i := range l.side {
-		if i == expanded {
-			continue
-		}
-		l.side[i] = max(1, min(counts[i], unit))
-		rest -= l.side[i]
-	}
-	l.side[expanded] = max(1, rest)
+	l.side = sideRows(max(3, frameH-4), counts, int(m.focusedSide()-CtxNamespaces))
 	return l
+}
+
+// sideRows splits total rows between the three side panels with counts
+// items. A collapsed panel gets up to a quarter, the expanded one up to
+// its content; rows left over show more of the other panels, Messages
+// first, and what is still left pads Messages. Every panel keeps a row.
+func sideRows(total int, counts [3]int, expanded int) [3]int {
+	var side [3]int
+	unit := max(1, total/4)
+	rest := total
+	for i := range side {
+		if i != expanded {
+			side[i] = max(1, min(counts[i], unit))
+			rest -= side[i]
+		}
+	}
+	side[expanded] = max(1, min(counts[expanded], rest))
+	rest -= side[expanded]
+	for _, i := range []int{2, 1, 0} {
+		if i != expanded {
+			grow := max(0, min(rest, counts[i]-side[i]))
+			side[i] += grow
+			rest -= grow
+		}
+	}
+	side[2] += rest
+	return side
 }
 
 func (m Model) render() string {
@@ -342,11 +358,13 @@ func (m Model) messageRows(width, n int) []string {
 	if m.subQueue == bus.Active {
 		reasonMax = m.msgCols.subject
 	}
-	// cursor(2) seq " " time(5) " " reason " " id
+	// cursor(2) seq " " time(5) " " reason " " id. The reason is what tells
+	// the rows apart: it keeps its full width, the id gets what is left
+	// and goes when that is under minMsgIDW.
 	rest := width - 2 - digits - 1 - 5 - 1
-	reasonW := min(reasonMax, max(10, rest*3/5))
+	reasonW := min(reasonMax, rest)
 	idW := rest - reasonW - 1
-	if idW < 4 {
+	if idW < minMsgIDW {
 		reasonW, idW = rest, 0
 	}
 	now := m.opts.Now()
@@ -380,6 +398,9 @@ func (m Model) messageRows(width, n int) []string {
 			return segs
 		})
 }
+
+// minMsgIDW is the narrowest MessageId column the Messages panel shows.
+const minMsgIDW = 4
 
 // msgCols are the widest values of the message list's columns: the
 // sequence number's digits and the sanitized reason for both
@@ -426,6 +447,7 @@ func (m Model) renderMain(l layout) []string {
 		tabs, scroll = []seg{{title, stBold}}, 0
 	} else {
 		tabs = append(tabs, m.searchTitle(lines)...)
+		tabs = append(tabs, m.messageIdentity(segsWidth(tabs), inner-2)...)
 	}
 
 	out := []string{hBorder(l.mainW, "┌", "┐", tabs, edge)}
@@ -463,6 +485,22 @@ func (m Model) tabBar(focused bool) []seg {
 		tabs = append(tabs, seg{t.String(), st})
 	}
 	return tabs
+}
+
+// messageIdentity is the dim end of the main pane title that says which
+// message it shows: " · orders/$DLQ seq 2 · ord-4002". used cells of the
+// width are taken; the MessageId goes first when it does not fit, then
+// the rest is cut.
+func (m Model) messageIdentity(used, width int) []seg {
+	msg, ok := m.selectedMessage()
+	if !ok || m.openEntity == nil {
+		return nil
+	}
+	text := fmt.Sprintf(" · %s seq %d", entityLabel(*m.openEntity, m.subQueue), msg.SequenceNumber)
+	if id := " · " + sanitize(msg.MessageID); msg.MessageID != "" && used+ansi.StringWidth(text+id) <= width {
+		text += id
+	}
+	return []seg{{text, stDim}}
 }
 
 // logLines are the last n log entries, one per row of width cells, blank
@@ -535,7 +573,7 @@ func (m Model) mainContent(width int) (lines []string, rows []int) {
 	default:
 		lines = m.cachedLines(msg, width)
 	}
-	if banner := m.bannerLines(msg.SequenceNumber, width); banner != nil {
+	if banner := m.bannerLines(msg, width); banner != nil {
 		for i := range rows {
 			rows[i] += len(banner)
 		}
@@ -614,6 +652,56 @@ func (m Model) bodyLines(msg bus.Message, width int) []string {
 	}
 	for _, l := range wrapLines(text, width-2) {
 		out = append(out, " "+l)
+	}
+	return out
+}
+
+// failureMaxLines caps the failure strip; a longer description is cut
+// with "…" (the Properties tab and y have it in full).
+const failureMaxLines = 6
+
+// failureLines are the failure strip of a message with Dead-letter
+// Markers: the DeadLetterReason in warning colour, then the
+// DeadLetterErrorDescription, wrapped to width, not cut.
+func failureLines(msg bus.Message, width int) []string {
+	reason := strings.TrimSpace(sanitize(msg.DeadLetterReason))
+	desc := strings.TrimSpace(sanitize(msg.DeadLetterErrorDescription))
+	if reason == "" && desc == "" {
+		return nil
+	}
+	w := width - 2
+	// The reason leads the first line and the description follows on it;
+	// wrapping keeps a line's start, so a reason that fits stays whole. A
+	// wider reason gets its own lines.
+	var lines []string
+	reasonRows := 0 // leading lines that are all reason
+	if ansi.StringWidth(reason) <= w {
+		lines = wrapLines(strings.TrimSpace(reason+"  "+desc), w)
+	} else {
+		lines = wrapLines(reason, w)
+		reasonRows = len(lines)
+		if desc != "" {
+			lines = append(lines, wrapLines(desc, w)...)
+		}
+	}
+	if len(lines) > failureMaxLines {
+		lines = lines[:failureMaxLines]
+		last := lines[len(lines)-1]
+		if ansi.StringWidth(last) >= w {
+			last = ansi.Truncate(last, w-1, "")
+		}
+		lines[len(lines)-1] = last + "…"
+	}
+	out := make([]string, len(lines))
+	for i, l := range lines {
+		segs := []seg{{" " + l, stPlain}}
+		switch {
+		case i < reasonRows:
+			segs = []seg{{" " + l, stFailure}}
+		case i == 0 && reason != "" && strings.HasPrefix(l, reason):
+			segs = []seg{{" " + reason, stFailure}, {l[len(reason):], stPlain}}
+		}
+		out[i] = row(segs, width, false)
 	}
 	return out
 }
@@ -722,7 +810,7 @@ func (m Model) propertyLines(msg bus.Message, width int) ([]string, []int) {
 	// Each row: cursor, Pending Edit marker, key, type, value. The marker
 	// column is there only while the message has Pending Edits, so the
 	// values keep their full width otherwise. Markers go in their own
-	// dimmed section under one "✕ removed on resubmit" label, so their
+	// section under one dimmed "✕ removed on resubmit" label, so their
 	// values (often the only error text there is) keep the full column
 	// instead of sharing it with a per-row suffix.
 	pad := " "
@@ -767,7 +855,8 @@ func (m Model) propertyLines(msg bus.Message, width int) ([]string, []int) {
 		}
 		rows = append(rows, len(out))
 		out = append(out, row([]seg{
-			{mark + pad[1:] + fitPlain(p.key, keyW) + "  " + fitPlain(p.typ, typeW) + "  " + p.val, stDim},
+			{mark + pad[1:] + fitPlain(p.key, keyW) + "  " + fitPlain(p.typ, typeW) + "  ", stDim},
+			{p.val, stPlain},
 		}, width, sel))
 	}
 	return out, rows
@@ -862,6 +951,9 @@ func (m Model) renderOptions() string {
 		r, _ := renderSegs(right, rw, nil)
 		return l + " " + r
 	}
+	if m.stack.Top() == CtxBusy {
+		left = append(left, seg{"working…", stDim})
+	}
 	bindings := fitBindings(m.optionsBarBindings(), max(0, m.width-rw-2))
 	for i, b := range bindings {
 		if i > 0 {
@@ -879,14 +971,10 @@ func (m Model) renderOptions() string {
 // context and the selected message, before fitting them to the width.
 func (m Model) optionsBarBindings() []key.Binding {
 	top := m.stack.Top()
-	if top == CtxFilter || top == CtxJump || top == CtxSearch || top == CtxRecent {
+	if top == CtxFilter || top == CtxSearch {
 		return contextBindings(top)
 	}
-	bindings := optionsBindings(top, m.barFlags())
-	if top == CtxConfirm && m.confirm.kind == confirmRepair && !m.confirm.uncertain {
-		bindings = append(bindings, keys.ToggleID)
-	}
-	return bindings
+	return optionsBindings(top, m.barFlags())
 }
 
 // barFlags say which of the context's keys apply to the selected
@@ -905,9 +993,10 @@ func (m Model) barFlags() optionFlags {
 }
 
 // optionsDropOrder are the options bar keys left out first when the bar
-// is too narrow, so the context's own keys and ? / q stay visible.
+// is too narrow, so the context's own keys and ? / q stay visible:
+// bulk picking first, inspect and tab navigation last.
 var optionsDropOrder = []key.Help{
-	keys.FocusMainOp.Help(), keys.Jump.Help(), keys.Filter.Help(), keys.Search.Help(), {Key: "[ ]/ö ä", Desc: "tab"}, keys.SubQueue.Help(), keys.Pick.Help(),
+	keys.Pick.Help(), keys.Jump.Help(), keys.Filter.Help(), keys.Search.Help(), keys.FocusMainOp.Help(), keys.SubQueue.Help(), tabsHint.Help(),
 }
 
 // fitBindings drops bindings in optionsDropOrder until they fit in width
@@ -937,9 +1026,11 @@ func fitBindings(bs []key.Binding, width int) []key.Binding {
 
 // helpBox returns the popup size and list rows for the `?` menu.
 func (m Model) helpBox() (w, h, listRows int) {
-	w = min(m.width-4, 56)
+	w = m.popupW(56)
 	entries := len(m.helpEntries())
-	h = min(m.height-4, max(entries, 3)+4)
+	// Two rows short of the screen above the options bar, so the blank
+	// gutter around it does not cover the main pane's top border.
+	h = min(m.height-6, max(entries, 3)+4)
 	return w, h, h - 4
 }
 
@@ -976,15 +1067,36 @@ func (m Model) overlayHelp(screen string) string {
 	return m.overlay(screen, lines, w)
 }
 
-// overlay draws a popup of width w, centred over the screen above the
-// options bar.
+// Popup widths: at most maxPopupW and the main pane, but never under
+// minPopupW (the main pane at the smallest layout is narrower), so a
+// confirm popup's fields still fit.
+const (
+	maxPopupW = 72
+	minPopupW = 54
+)
+
+// popupW is the width of a popup that would like want cells.
+func (m Model) popupW(want int) int {
+	return min(want, maxPopupW, max(m.layout().mainW, minPopupW), m.width-4)
+}
+
+// overlay draws a popup of width w above the options bar, centred over
+// the main pane so the side panels' selected rows stay visible; one wider
+// than the main pane keeps to the right edge. A one-cell blank gutter
+// around the frame keeps the text under it off the border.
 func (m Model) overlay(screen string, lines []string, w int) string {
-	x := (m.width - w) / 2
-	y := max(0, (m.height-1-len(lines))/2)
+	l := m.layout()
+	h := len(lines)
+	x := max(0, min(l.leftW+(l.mainW-w)/2, m.width-w))
+	y := max(0, (m.height-1-h)/2)
+	gx, gy := max(0, x-1), max(0, y-1)
+	gw, gh := min(m.width, x+w+1)-gx, min(m.height-1, y+h+1)-gy
+	blank := strings.TrimSuffix(strings.Repeat(strings.Repeat(" ", gw)+"\n", gh), "\n")
 	base := lipgloss.NewLayer(screen)
-	popup := lipgloss.NewLayer(strings.Join(lines, "\n")).X(x).Y(y).Z(1)
+	gutter := lipgloss.NewLayer(blank).X(gx).Y(gy).Z(1)
+	popup := lipgloss.NewLayer(strings.Join(lines, "\n")).X(x).Y(y).Z(2)
 	// The compositor trims trailing blanks; pad back to full width.
-	out := strings.Split(lipgloss.NewCompositor(base, popup).Render(), "\n")
+	out := strings.Split(lipgloss.NewCompositor(base, gutter, popup).Render(), "\n")
 	for i, l := range out {
 		out[i] = fitStyled(l, m.width)
 	}

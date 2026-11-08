@@ -131,7 +131,7 @@ func fuzzyScore(query, target string) (int, bool) {
 }
 
 func (m Model) overlayJump(screen string) string {
-	w := min(m.width-4, 64)
+	w := m.popupW(64)
 	inner := w - 2
 	matches := m.jumpMatches()
 	n := max(1, min(jumpRows, m.height-1-6))

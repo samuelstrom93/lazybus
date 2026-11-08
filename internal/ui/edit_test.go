@@ -664,7 +664,7 @@ func TestConfirmManyEditsKeepsWarnings(t *testing.T) {
 	screen := m.View().Content
 	requireScreenSize(t, screen, minWidth, minHeight)
 	text := stripBoxes(screen)
-	for _, want := range []string{"Source", "Target", "12 property edits", "MessageId", "no match = dropped", "previous attempt may have delivered"} {
+	for _, want := range []string{"Source", "Target", "12 property edits", "MessageId", "fans out to 2 subscriptions", "previous attempt may have delivered"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("confirm at %dx%d lacks %q:\n%s", minWidth, minHeight, want, ansi.Strip(screen))
 		}
@@ -689,9 +689,9 @@ func TestEditOverlayEdges(t *testing.T) {
 	t.Run("long error wraps", func(t *testing.T) {
 		m := keysIn(t, onProperties(t, fake.New()), "j", "e")
 		m.edit.err = strings.Repeat("abcdefgh ", 12) + "END"
-		// inner is 74 cells: 70 for the text after the " ! " prefix.
+		// inner is 70 cells: 66 for the text after the " ! " prefix.
 		s := screenText(m)
-		first := "│ ! " + strings.TrimSpace(strings.Repeat("abcdefgh ", 7)) + "         │"
+		first := "│ ! " + strings.TrimSpace(strings.Repeat("abcdefgh ", 7)) + "     │"
 		second := "│   " + strings.Repeat("abcdefgh ", 5) + "END "
 		if !strings.Contains(s, first) || !strings.Contains(s, second) {
 			t.Errorf("error rows: want %q then %q:\n%s", first, second, s)
@@ -704,10 +704,11 @@ func TestEditOverlayEdges(t *testing.T) {
 		m = keysIn(t, m, "2", "j", "j", "j", "enter", "0", "]", "j", "e")
 		screen := m.View().Content
 		requireScreenSize(t, screen, minWidth, minHeight)
-		// The popup is minWidth-4 wide: both corners and the footer show.
+		// The popup is minPopupW wide, wider than the main pane, so it keeps
+		// to the right edge: both corners and the footer show.
 		for _, l := range strings.Split(ansi.Strip(screen), "\n") {
 			if strings.Contains(l, "esc cancel") {
-				if !strings.HasPrefix(l, "│ └ enter save") || !strings.HasSuffix(l, "┘─┤") {
+				if !strings.Contains(l, " └ enter save") || !strings.HasSuffix(l, "┘") || ansi.StringWidth(l) != minWidth {
 					t.Errorf("footer row %q", l)
 				}
 				return

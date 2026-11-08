@@ -245,7 +245,7 @@ func TestConfirmKeepsWarningsOnSmallScreen(t *testing.T) {
 	screen := m.View().Content
 	requireScreenSize(t, screen, minWidth, minHeight)
 	text := stripBoxes(screen)
-	for _, want := range []string{"Source", "Target", "MessageId", "no match = dropped", "previous attempt may have delivered"} {
+	for _, want := range []string{"Source", "Target", "MessageId", "fans out to 2 subscriptions", "previous attempt may have delivered"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("confirm at %dx%d lacks %q:\n%s", minWidth, minHeight, want, ansi.Strip(screen))
 		}

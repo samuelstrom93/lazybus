@@ -1,4 +1,4 @@
-[90m┌[m 1 Namespaces [90m────────────────────────┐[m[90m┌[m [1mBody[m[90m │ [m[90mProperties[m[90m │ [m[90mSystem[m [90m──────────────────────────────────────────────────┐[m
+[90m┌[m 1 Namespaces [90m────────────────────────┐[m[90m┌[m [1mBody[m[90m │ [m[90mProperties[m[90m │ [m[90mSystem[m[90m · orders seq 39 · ord-4039[m [90m───────────────────────┐[m
 [90m│[m▸ sb-prod-weu                         [90m│[m[90m│[m {                                                                            [90m│[m
 [90m│[m  sb-test-weu                         [90m│[m[90m│[m   "orderId": 4039,                                                           [90m│[m
 [90m├[m 2 Entities [90m──────────────────────────┤[m[90m│[m   "status": "new"                                                            [90m│[m

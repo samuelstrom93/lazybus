@@ -212,16 +212,19 @@ type optionFlags struct {
 	tab     mainTab // main pane tab: which edit keys it takes
 }
 
-// optionsBindings are the keys shown in the options bar for context c.
+// tabsHint is the options bar entry for the main pane tabs ([ ] and
+// ö ä; the ? menu lists both).
+var tabsHint = key.NewBinding(key.WithKeys("[", "]"), key.WithHelp("[ ]", "details"))
+
+// optionsBindings are the keys shown in the options bar for context c. A
+// popup's bar leaves out the keys its own bottom border lists.
 func optionsBindings(c ContextID, f optionFlags) []key.Binding { //nolint:gocognit,gocyclo // flat table: one case per key with the one-line condition under which the options bar shows it
 	switch c {
 	case CtxHelp:
-		return []key.Binding{keys.HelpClose, keys.HelpUp, keys.HelpDown}
-	case CtxConfirm:
-		return []key.Binding{keys.Confirm, keys.Cancel}
-	case CtxEdit:
-		return []key.Binding{keys.EditSave, keys.EditNext, keys.EditCancel}
-	case CtxBusy:
+		return []key.Binding{keys.HelpUp, keys.HelpDown}
+	case CtxJump, CtxRecent:
+		return []key.Binding{keys.JumpUp, keys.JumpDown}
+	case CtxConfirm, CtxEdit, CtxBusy:
 		return nil
 	}
 	var out []key.Binding
@@ -264,8 +267,7 @@ func optionsBindings(c ContextID, f optionFlags) []key.Binding { //nolint:gocogn
 		}
 		out = append(out, b)
 	}
-	tab := key.NewBinding(key.WithKeys("[", "]", "ö", "ä"), key.WithHelp("[ ]/ö ä", "tab"))
-	out = append(out, tab)
+	out = append(out, tabsHint)
 	if c.isSide() {
 		out = append(out, keys.Filter)
 	}

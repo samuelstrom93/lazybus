@@ -297,9 +297,9 @@ func TestBackendPanicBecomesError(t *testing.T) {
 func TestBodyLinesCached(t *testing.T) {
 	m := keysIn(t, loaded(t), "3", "j")
 	w := m.layout().mainW - 2
-	first := m.mainLines(w)
+	first := selectedBody(t, m, w)
 	m = keysIn(t, m, "0", "j")
-	if again := m.mainLines(w); &first[0] != &again[0] {
+	if again := selectedBody(t, m, w); &first[0] != &again[0] {
 		t.Fatal("body lines re-rendered for the same message, tab and width")
 	}
 	m = keysIn(t, m, "]")
@@ -308,15 +308,26 @@ func TestBodyLinesCached(t *testing.T) {
 	}
 }
 
+// selectedBody is the Body tab of the selected message, without the
+// banner mainLines puts above it.
+func selectedBody(t *testing.T, m Model, width int) []string {
+	t.Helper()
+	msg, ok := m.selectedMessage()
+	if !ok {
+		t.Fatal("no message selected")
+	}
+	return m.cachedLines(msg, width)
+}
+
 // TestLinesCacheClearedOnReload reopens the entity: the new list's first
 // message has the same key (sequence number, tab, width) as the cached
 // one, but its lines must be rendered from the new list.
 func TestLinesCacheClearedOnReload(t *testing.T) {
 	m := loaded(t)
 	w := m.layout().mainW - 2
-	before := m.mainLines(w)
+	before := selectedBody(t, m, w)
 	m = keysIn(t, m, "2", "enter")
-	if after := m.mainLines(w); &after[0] == &before[0] {
+	if after := selectedBody(t, m, w); &after[0] == &before[0] {
 		t.Fatal("cache kept after the message list was replaced")
 	}
 }

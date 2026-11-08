@@ -29,6 +29,7 @@ var (
 	stKey         = lipgloss.NewStyle().Foreground(colCyan)
 	stErr         = lipgloss.NewStyle().Foreground(colRed)
 	stWarn        = lipgloss.NewStyle().Foreground(colYellow)
+	stFailure     = lipgloss.NewStyle().Foreground(colYellow).Bold(true) // DeadLetterReason in the failure strip
 	stReadOnly    = lipgloss.NewStyle().Foreground(colRed).Bold(true)
 )
 

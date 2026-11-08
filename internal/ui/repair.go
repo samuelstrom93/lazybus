@@ -568,8 +568,19 @@ func markStyleOf(o bus.Outcome) statusLevel {
 	return statusWarn
 }
 
-// bannerLines are the main pane lines above a marked message.
-func (m Model) bannerLines(seq int64, width int) []string {
+// bannerLines are the main pane lines above msg on every tab: the
+// outcome of a marked message, then why it was dead-lettered, then a
+// blank row. Nil when there is neither.
+func (m Model) bannerLines(msg bus.Message, width int) []string {
+	out := append(m.markLines(msg.SequenceNumber, width), failureLines(msg, width)...)
+	if out == nil {
+		return nil
+	}
+	return append(out, "")
+}
+
+// markLines say what the outcome of a marked message leaves to do.
+func (m Model) markLines(seq int64, width int) []string {
 	mark, ok := m.markOf(seq)
 	if !ok {
 		return nil
@@ -590,7 +601,7 @@ func (m Model) bannerLines(seq int64, width int) []string {
 	for _, l := range wrapLines(text, width-2) {
 		out = append(out, row([]seg{{" " + l, st}}, width, false))
 	}
-	return append(out, "")
+	return out
 }
 
 // confirmBlock is one item of the confirm popup: a field or a warning.
@@ -824,7 +835,7 @@ func fitBlocks(blocks []confirmBlock, n int) []string {
 }
 
 func (m Model) overlayConfirm(screen string) string {
-	w := min(m.width-4, 104)
+	w := m.popupW(104)
 	inner := w - 2
 	title, blocks, footer := m.confirmBlocks(inner)
 	// Rows between the borders: the screen minus the options bar and the
@@ -853,7 +864,7 @@ func (m Model) overlayBusy(screen string) string {
 	if m.busy.changes {
 		footer = "locks are released before this returns"
 	}
-	w := min(m.width-4, max(44, len([]rune(text))+8))
+	w := m.popupW(max(44, len([]rune(text))+8))
 	inner := w - 2
 	lines := []string{
 		hBorder(w, "┌", "┐", []seg{{"Working", stTitleFocus}}, stBorderFocus),

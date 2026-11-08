@@ -126,7 +126,7 @@ func (m Model) recentHint(e recent.Entry) string {
 }
 
 func (m Model) overlayRecent(screen string) string {
-	w := min(m.width-4, 80)
+	w := m.popupW(80)
 	inner := w - 2
 	n := max(1, min(len(m.recents), m.height-1-6))
 	cursor := max(0, min(m.recent.cursor, len(m.recents)-1))

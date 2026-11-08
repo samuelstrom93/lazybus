@@ -312,12 +312,13 @@ func TestSpinnerTickOnlyWhileBusy(t *testing.T) {
 }
 
 func TestSearchBodyFromTheTop(t *testing.T) {
-	// The body of invoices seq 2: "{" is on lines 0, 5 and 9.
+	// The body of invoices seq 2: "{" is on lines 2, 7 and 11, under the
+	// failure strip (one line and a blank).
 	m := keysIn(t, loaded(t), "3", "enter", "/", "{", "enter")
-	if m.search.line != 0 || m.mainScroll != 0 {
-		t.Fatalf("the match on the top line was skipped: line %d scroll %d", m.search.line, m.mainScroll)
+	if m.search.line != 2 || m.mainScroll != 0 {
+		t.Fatalf("the first match was skipped: line %d scroll %d", m.search.line, m.mainScroll)
 	}
-	for i, want := range []int{5, 0, 9, 5} { // n, N (no wrap), N (wraps), N
+	for i, want := range []int{7, 2, 11, 7} { // n, N (no wrap), N (wraps), N
 		k := "N"
 		if i == 0 {
 			k = "n"

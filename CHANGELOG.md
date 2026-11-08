@@ -14,6 +14,12 @@ All notable changes to lazybus are listed here. The format follows [Keep a Chang
 
 ### Changed
 
+- A dead-lettered message shows its DeadLetterReason and the whole DeadLetterErrorDescription above every main pane tab, not only dimmed and cut at the bottom of Properties; the Properties tab shows the marker values in plain colour.
+- The main pane title names the message (`orders/$DLQ seq 2 · ord-4002`); the MessageId gives way first on a narrow screen.
+- The Messages panel keeps the full DeadLetterReason or Subject and drops the MessageId column when there is no room for both.
+- A focused side panel takes only the rows its items need; the rows left over show more of the other panels, Messages first.
+- Popups are at most 72 columns wide, sit over the main pane so the selected side panel rows stay visible, and keep a blank cell between their frame and the text under them.
+- The options bar shows `[ ] details` for the main pane tabs (`ö ä` stay in `?`), drops `space pick` before the navigation keys on a narrow screen, leaves out keys a popup already lists, and says `working…` while a call runs.
 - A transient send rejection (server-busy, resource-limit-exceeded, entity-disabled) is now SendUncertain, not SendFailed: after a dropped link the SDK retries once, and the first attempt may have delivered the copy.
 
 ## [0.1.1] - 2026-10-19

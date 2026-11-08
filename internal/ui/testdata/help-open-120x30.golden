@@ -1,30 +1,30 @@
-[90m┌[m 1 Namespaces [90m────────────────────────┐┌[m [1mBody[90;22m │ Properties │ System[m [90m──────────────────────────────────────────────────┐[m
-[90m│[m▸ sb-prod-weu                  [32;1m┌[m [32;1mKeybindings[m [32;1m─────────────────────────────────────────┐[m                               [90m│[m
-[90m│[m  sb-test-weu                  [32;1m│[90;22m Filter: [32;1m▏[m                                            [32;1m│[m                               [90m│[m
-[90m├[m 2 Entities [90m───────────────────[32;1m├──────────────────────────────────────────────────────┤[m                               [90m│[m
-[90m│[m▸ invoices              act  12[32;1m│[39m Messages[m                                             [32;1m│[m                               [90m│[m
-[90m│[m  order-events/billing  [90mact   0[32;1m│[36;22m   enter    [mfocus main pane                           [32;1m│[m                               [90m│[m
-[90m│[m  order-events/shipping act   4[32;1m│[36;22m   tab      [mDLQ / Active                              [32;1m│[m                               [90m│[m
-[90m│[m  orders                act 120[32;1m│[36;22m   r        [mresubmit                                  [32;1m│[m                               [90m│[m
-[32;1m├[m [32;1m3 Messages[m  [32;1mDLQ[90;22m│Active[m [32;1m───────│[36;22m   c        [mfinish cleanup                            [32;1m│[m                               [90m│[m
-[32;1m│[39;44m▸ 2 13:00 SchemaMismatch   inv-[32;49m│[36;22m   e        [madd prop                                  [32;1m│[m                               [90m│[m
-[32;1m│[m  3 [90m14:00 [mMaxDeliveryCoun…[90m inv-[32;1m│[36;22m   E        [medit body                                 [32;1m│[m                               [90m│[m
-[32;1m│[m  4 [90m15:00 [mDownstreamTimeo…[90m inv-[32;1m│[36;22m   x        [mdiscard edits                             [32;1m│[m                               [90m│[m
-[32;1m│[m                               [32;1m│[36;22m   space    [mpick                                      [32;1m│[m                               [90m│[m
-[32;1m│[m                               [32;1m│[36;22m   v        [mpick range                                [32;1m│[m                               [90m│[m
-[32;1m│[m                               [32;1m│[36;22m   A        [mpick same reason                          [32;1m│[m                               [90m│[m
-[32;1m│[m                               [32;1m│[39m Filter (/)[m                                           [32;1m│[m                               [90m│[m
-[32;1m│[m                               [32;1m│[36;22m   enter    [mkeep filter                               [32;1m│[m                               [90m│[m
-[32;1m│[m                               [32;1m│[36;22m   esc      [mclear filter                              [32;1m│[m                               [90m│[m
-[32;1m│[m                               [32;1m│[36;22m   ↑ ↓      [mmove                                      [32;1m│[m                               [90m│[m
-[32;1m│[m                               [32;1m│[39m Jump popup (:)[m                                       [32;1m│[m                               [90m│[m
-[32;1m│[m                               [32;1m│[36;22m   enter    [mopen                                      [32;1m│[m                               [90m│[m
-[32;1m│[m                               [32;1m│[36;22m   esc      [mcancel                                    [32;1m│[m                               [90m│[m
-[32;1m│[m                               [32;1m│[36;22m   ↑        [mprevious                                  [32;1m│[m                               [90m│[m
-[32;1m│[m                               [32;1m│[36;22m   ↓        [mnext                                      [32;1m│[90;22m───────────────────────────────┤[m
-[32;1m│[m                               [32;1m│[39m Recent popup (ctrl-r)[m                                [32;1m│[m                               [90m│[m
-[32;1m│[m                               [32;1m│[36;22m   enter    [mopen                                      [32;1m│[m                               [90m│[m
-[32;1m│[m                               [32;1m└[m [90mtype to filter · esc close[m [32;1m──────────────────────────┘[m                               [90m│[m
+[90m┌[m 1 Namespaces [90m────────────────────────┐┌[m [1mBody[90;22m │ Properties │ System · invoices/$DLQ seq 2 · inv-1002[m [90m─────────────────┐[m
+[90m│[m▸ sb-prod-weu                         [90m││[33;1m SchemaMis[m                                                                    [90m│[m
+[90m│[m  sb-test-weu                         [90m││[m           [32;1m┌[m [32;1mKeybindings[m [32;1m─────────────────────────────────────────┐[m           [90m│[m
+[90m├[m 2 Entities [90m──────────────────────────┤│[m {         [32;1m│[90;22m Filter: [32;1m▏[m                                            [32;1m│[m           [90m│[m
+[90m│[m▸ invoices              act  12 [33mDLQ  3[90m││[m   "orderI [32;1m├──────────────────────────────────────────────────────┤[m           [90m│[m
+[90m│[m  order-events/billing  [90mact   0 [33mDLQ 12[90m││[m   "status [32;1m│[39m Messages[m                                             [32;1m│[m           [90m│[m
+[90m│[m  order-events/shipping act   4 [90mDLQ  0││[m   "custom [32;1m│[36;22m   enter    [mfocus main pane                           [32;1m│[m           [90m│[m
+[90m│[m  orders                act 120 [33mDLQ 37[90m││[m   "items" [32;1m│[36;22m   tab      [mDLQ / Active                              [32;1m│[m           [90m│[m
+[32;1m├[m [32;1m3 Messages[m  [32;1mDLQ[90;22m│Active[m [32;1m──────────────┤[90;22m│[m     {     [32;1m│[36;22m   r        [mresubmit                                  [32;1m│[m           [90m│[m
+[32;1m│[39;44m▸ 2 13:00 SchemaMismatch              [32;49m│[90;22m│[m       "sk [32;1m│[36;22m   c        [mfinish cleanup                            [32;1m│[m           [90m│[m
+[32;1m│[m  3 [90m14:00 [mMaxDeliveryCountExceeded    [32;1m│[90;22m│[m       "qt [32;1m│[36;22m   e        [madd prop                                  [32;1m│[m           [90m│[m
+[32;1m│[m  4 [90m15:00 [mDownstreamTimeout           [32;1m│[90;22m│[m     },    [32;1m│[36;22m   E        [medit body                                 [32;1m│[m           [90m│[m
+[32;1m│[m                                      [32;1m│[90;22m│[m     {     [32;1m│[36;22m   x        [mdiscard edits                             [32;1m│[m           [90m│[m
+[32;1m│[m                                      [32;1m│[90;22m│[m       "sk [32;1m│[36;22m   space    [mpick                                      [32;1m│[m           [90m│[m
+[32;1m│[m                                      [32;1m│[90;22m│[m       "qt [32;1m│[36;22m   v        [mpick range                                [32;1m│[m           [90m│[m
+[32;1m│[m                                      [32;1m│[90;22m│[m     }     [32;1m│[36;22m   A        [mpick same reason                          [32;1m│[m           [90m│[m
+[32;1m│[m                                      [32;1m│[90;22m│[m   ]       [32;1m│[39m Filter (/)[m                                           [32;1m│[m           [90m│[m
+[32;1m│[m                                      [32;1m│[90;22m│[m }         [32;1m│[36;22m   enter    [mkeep filter                               [32;1m│[m           [90m│[m
+[32;1m│[m                                      [32;1m│[90;22m│[m           [32;1m│[36;22m   esc      [mclear filter                              [32;1m│[m           [90m│[m
+[32;1m│[m                                      [32;1m│[90;22m│[m           [32;1m│[36;22m   ↑ ↓      [mmove                                      [32;1m│[m           [90m│[m
+[32;1m│[m                                      [32;1m│[90;22m│[m           [32;1m│[39m Jump popup (:)[m                                       [32;1m│[m           [90m│[m
+[32;1m│[m                                      [32;1m│[90;22m│[m           [32;1m│[36;22m   enter    [mopen                                      [32;1m│[m           [90m│[m
+[32;1m│[m                                      [32;1m│[90;22m│[m           [32;1m│[36;22m   esc      [mcancel                                    [32;1m│[m           [90m│[m
+[32;1m│[m                                      [32;1m│[90;22m├[m Log [90m─────[m [32;1m│[36;22m   ↑        [mprevious                                  [32;1m│[m [90m──────────┤[m
+[32;1m│[m                                      [32;1m│[90;22m│ 16:00 [mlis [32;1m│[36;22m   ↓        [mnext                                      [32;1m│[m           [90m│[m
+[32;1m│[m                                      [32;1m│[90;22m│ 16:00 [mlis [32;1m└[m [90mtype to filter · esc close[m [32;1m──────────────────────────┘[m           [90m│[m
+[32;1m│[m                                      [32;1m│[90;22m│ 16:00 [mpee                                                                    [90m│[m
 [32;1m│[m                                      [32;1m│[90;22m│[m                                                                              [90m│[m
 [32;1m└──────────────────────────────────────┘[90;22m└──────────────────────────────────────────────────────────────────────────────┘[m
- [36mesc[m close  [36m↑[m scroll up  [36m↓[m scroll down                                                                                  
+ [36m↑[m scroll up  [36m↓[m scroll down                                                                                             

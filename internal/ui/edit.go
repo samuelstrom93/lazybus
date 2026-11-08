@@ -634,7 +634,7 @@ const editLabelW = 8
 
 func (m Model) overlayEdit(screen string) string {
 	e := m.edit
-	w := min(m.width-4, 76)
+	w := m.popupW(76)
 	inner := w - 2
 	valW := inner - 2 - editLabelW - 1
 	textRow := func(label string, f editField, text string, editable bool) string {

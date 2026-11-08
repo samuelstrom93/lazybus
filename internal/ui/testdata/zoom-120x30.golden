@@ -1,4 +1,6 @@
-[1;32m┌[m [1;32mBody[m[90m │ [m[90mProperties[m[90m │ [m[90mSystem[m [1;32m──────────────────────────────────────────────────────────────────────────────────────────┐[m
+[1;32m┌[m [1;32mBody[m[90m │ [m[90mProperties[m[90m │ [m[90mSystem[m[90m · invoices/$DLQ seq 2 · inv-1002[m [1;32m─────────────────────────────────────────────────────────┐[m
+[1;32m│[m[1;33m SchemaMismatch[m  Required property 'customer.id' is missing.                                                          [1;32m│[m
+[1;32m│[m                                                                                                                      [1;32m│[m
 [1;32m│[m {                                                                                                                    [1;32m│[m
 [1;32m│[m   "orderId": 1002,                                                                                                   [1;32m│[m
 [1;32m│[m   "status": "pending",                                                                                               [1;32m│[m
@@ -19,12 +21,10 @@
 [1;32m│[m                                                                                                                      [1;32m│[m
 [1;32m│[m                                                                                                                      [1;32m│[m
 [1;32m│[m                                                                                                                      [1;32m│[m
-[1;32m│[m                                                                                                                      [1;32m│[m
-[1;32m│[m                                                                                                                      [1;32m│[m
 [1;32m├[m Log [1;32m─────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤[m
 [90m│[m[90m 16:00 [mlist namespaces → 2                                                                                            [90m│[m
 [90m│[m[90m 16:00 [mlist entities sb-prod-weu → 4                                                                                  [90m│[m
 [90m│[m[90m 16:00 [mpeek invoices/$DLQ → 3                                                                                         [90m│[m
 [90m│[m                                                                                                                      [90m│[m
 [90m└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘[m
- [36mesc[m back  [36mr[m resubmit  [36mE[m edit body  [36m/[m search  [36m[ ]/ö ä[m tab  [36m+[m zoom  [36m:[m jump  [36m?[m keybindings  [36mq[m quit                        
+ [36mesc[m back  [36mr[m resubmit  [36mE[m edit body  [36m/[m search  [36m[ ][m details  [36m+[m zoom  [36m:[m jump  [36m?[m keybindings  [36mq[m quit                        
