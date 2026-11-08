@@ -4,13 +4,7 @@ All notable changes to lazybus are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
-### Added
-
-- `space`, `v` (range) and `A` (same DeadLetterReason) pick DLQ messages, and `r` resubmits up to 25 of them in one call: one confirm popup, one scan, then each message with its own Pending Edits. It stops at the first SendUncertain or CleanupPending; the status bar sums up the outcomes and the log has one line per message.
-- `/` on the main pane searches the Body, Properties or System tab as you type; `n` and `N` go to the next and previous matching line, wrapping around, and the matches are highlighted. The term stays across messages and tabs; `esc` clears it.
-- `ctrl-r` lists the entities you opened last (20, newest first, kept in `$XDG_STATE_HOME/lazybus/recent.json`) and `enter` reopens one. Only the namespace's FQDN, name, auth label and entity path are stored, never a connection string or key, so a SAS or emulator entry from an earlier run says which flag to start lazybus with. Nothing is kept with `--demo`.
-- `q` with SendUncertain or CleanupPending rows open warns first (`q` again quits), and every exit prints those rows to stderr, since they are lost on quit and a resubmit after a restart would send a second copy.
-- `+` zooms the main pane to the full width, for long bodies; `+` again, or focusing a side panel, returns to the normal layout.
+## [0.3.0] - 2026-11-08
 
 ### Changed
 
@@ -21,6 +15,23 @@ All notable changes to lazybus are listed here. The format follows [Keep a Chang
 - Popups are at most 72 columns wide and stay inside the main pane, between its title and the Log, so the side panels and the log stay in view; the main pane is blanked around them, so no text under a popup shows beside its frame. Below 80 columns they use the whole screen.
 - The confirm popup shows at most six lines of one long Pending Edit, then "… N more lines".
 - The options bar shows `[ ] details` for the main pane tabs (`ö ä` stay in `?`), drops `space pick` before the navigation keys on a narrow screen, leaves out keys a popup already lists, and says `working…` while a call runs.
+
+### Fixed
+
+- Bulk resubmit texts say "1 message", not "1 messages".
+
+## [0.2.0] - 2026-11-02
+
+### Added
+
+- `space`, `v` (range) and `A` (same DeadLetterReason) pick DLQ messages, and `r` resubmits up to 25 of them in one call: one confirm popup, one scan, then each message with its own Pending Edits. It stops at the first SendUncertain or CleanupPending; the status bar sums up the outcomes and the log has one line per message.
+- `/` on the main pane searches the Body, Properties or System tab as you type; `n` and `N` go to the next and previous matching line, wrapping around, and the matches are highlighted. The term stays across messages and tabs; `esc` clears it.
+- `ctrl-r` lists the entities you opened last (20, newest first, kept in `$XDG_STATE_HOME/lazybus/recent.json`) and `enter` reopens one. Only the namespace's FQDN, name, auth label and entity path are stored, never a connection string or key, so a SAS or emulator entry from an earlier run says which flag to start lazybus with. Nothing is kept with `--demo`.
+- `q` with SendUncertain or CleanupPending rows open warns first (`q` again quits), and every exit prints those rows to stderr, since they are lost on quit and a resubmit after a restart would send a second copy.
+- `+` zooms the main pane to the full width, for long bodies; `+` again, or focusing a side panel, returns to the normal layout.
+
+### Changed
+
 - A transient send rejection (server-busy, resource-limit-exceeded, entity-disabled) is now SendUncertain, not SendFailed: after a dropped link the SDK retries once, and the first attempt may have delivered the copy.
 
 ## [0.1.1] - 2026-10-19
@@ -72,6 +83,8 @@ The first release.
 - Tag-driven releases: `scripts/release.sh vX.Y.Z` measures the release benchmarks (startup, a 10,000-message DLQ, repair, binary size), compares them with the previous release and tags `origin/main`; the tag runs a GitHub workflow that refuses a material regression and publishes the release with the benchmark report.
 - Emulator end-to-end tests (`go test -tags emulator ./...`) and real-namespace end-to-end tests (`go test -tags azure ./...`).
 
-[Unreleased]: https://github.com/samuelstrom93/lazybus/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/samuelstrom93/lazybus/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/samuelstrom93/lazybus/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/samuelstrom93/lazybus/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/samuelstrom93/lazybus/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/samuelstrom93/lazybus/releases/tag/v0.1.0
