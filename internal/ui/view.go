@@ -662,7 +662,8 @@ const failureMaxLines = 6
 
 // failureLines are the failure strip of a message with Dead-letter
 // Markers: the DeadLetterReason in warning colour, then the
-// DeadLetterErrorDescription, wrapped to width, not cut.
+// DeadLetterErrorDescription, wrapped to width; only past failureMaxLines
+// is it cut.
 func failureLines(msg bus.Message, width int) []string {
 	reason := strings.TrimSpace(sanitize(msg.DeadLetterReason))
 	desc := strings.TrimSpace(sanitize(msg.DeadLetterErrorDescription))
@@ -1077,7 +1078,7 @@ const (
 
 // popupW is the width of a popup that would like want cells.
 func (m Model) popupW(want int) int {
-	return min(want, maxPopupW, max(m.layout().mainW, minPopupW), m.width-4)
+	return min(want, maxPopupW, max(m.layout().mainW, minPopupW))
 }
 
 // overlay draws a popup of width w above the options bar, centred over

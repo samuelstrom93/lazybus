@@ -50,6 +50,12 @@ func TestFailureStripCapsAnEnormousDescription(t *testing.T) {
 	if !strings.HasSuffix(last, "…") || ansi.StringWidth(lines[len(lines)-1]) != 40 {
 		t.Errorf("last line %q", last)
 	}
+	// Exactly failureMaxLines lines: nothing is cut.
+	msg.DeadLetterErrorDescription = strings.Repeat("abcdefghijklmnopqrstuvwxyz0123456789ab ", failureMaxLines-1)
+	lines = failureLines(msg, 40)
+	if len(lines) != failureMaxLines || strings.Contains(ansi.Strip(strings.Join(lines, "")), "…") {
+		t.Errorf("%d lines, cut: %q", len(lines), ansi.Strip(strings.Join(lines, "\n")))
+	}
 }
 
 // The main pane title names the message; at 80 columns the MessageId
@@ -117,6 +123,21 @@ func TestPopupOverMainPaneWithGutter(t *testing.T) {
 	}
 	if row[x-1] != ' ' || strings.TrimSpace(string([]rune(lines[top-1])[x-1:x+maxPopupW+1])) != "" {
 		t.Errorf("no gutter around the popup:\n%s\n%s", lines[top-1], lines[top])
+	}
+}
+
+// At 80×24 the confirm popup is as wide as the main pane and still shows
+// every field, the optional ones too.
+func TestConfirmFitsAt80x24(t *testing.T) {
+	m := resized(t, keysIn(t, onOrders(t, fake.New()), "r"), 80, 24)
+	text := stripBoxes(m.View().Content)
+	for _, want := range []string{"Source orders/$DLQ seq 2", "Target queue orders", "Body unchanged", "Edits none", "Markers removed", "MessageId kept ord-4002", "Scan locks up to", "y resubmit"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("confirm at 80x24 lacks %q:\n%s", want, screenText(m))
+		}
+	}
+	if strings.Contains(text, "more lines") {
+		t.Errorf("confirm at 80x24 is cut:\n%s", screenText(m))
 	}
 }
 

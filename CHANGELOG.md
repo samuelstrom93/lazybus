@@ -14,7 +14,7 @@ All notable changes to lazybus are listed here. The format follows [Keep a Chang
 
 ### Changed
 
-- A dead-lettered message shows its DeadLetterReason and the whole DeadLetterErrorDescription above every main pane tab, not only dimmed and cut at the bottom of Properties; the Properties tab shows the marker values in plain colour.
+- A dead-lettered message shows its DeadLetterReason and DeadLetterErrorDescription, wrapped (up to six lines), above every main pane tab, not only dimmed and cut at the bottom of Properties; the Properties tab shows the marker values in plain colour.
 - The main pane title names the message (`orders/$DLQ seq 2 · ord-4002`); the MessageId gives way first on a narrow screen.
 - The Messages panel keeps the full DeadLetterReason or Subject and drops the MessageId column when there is no room for both.
 - A focused side panel takes only the rows its items need; the rows left over show more of the other panels, Messages first.
