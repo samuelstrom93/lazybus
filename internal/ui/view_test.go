@@ -84,6 +84,15 @@ func TestMainTitleKeepsSeq(t *testing.T) {
 }
 
 // The MessageId is kept when it fits exactly.
+// A segment that exactly fills the cut still ends in "…", so the
+// segments dropped after it are not lost silently.
+func TestCutSegsMarksAnExactFit(t *testing.T) {
+	got := cutSegs([]seg{{"  /customer", stPlain}, {" 1/3", stDim}}, 11)
+	if len(got) != 1 || got[0].text != "  /custome…" {
+		t.Fatalf("cutSegs = %v, want [\"  /custome…\"]", got)
+	}
+}
+
 func TestMainTitleIdentityExactFit(t *testing.T) {
 	m := keysIn(t, loaded(t), "3")
 	full := " · invoices/$DLQ seq 2 · inv-1002"

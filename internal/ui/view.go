@@ -488,10 +488,10 @@ func (m Model) tabBar(focused bool) []seg {
 
 // titleTail is the main pane title after the tabs: the search (its
 // segments) and a dim identity of the message, " · orders/$DLQ seq 2 ·
-// ord-4002". used cells of the width are taken. "seq N" always keeps its
-// room; the MessageId goes first when the rest does not fit, then the
-// entity path and the search are cut, each to at least half of what is
-// left.
+// ord-4002". used cells of the width are taken. "seq N" keeps its room
+// while at least two cells are left for the search and the path; the
+// MessageId goes first when the rest does not fit, then the entity path
+// and the search are cut, each to at least half of what is left.
 func (m Model) titleTail(search []seg, used, width int) []seg {
 	msg, ok := m.selectedMessage()
 	if !ok || m.openEntity == nil {
@@ -528,7 +528,7 @@ func cutSegs(segs []seg, width int) []seg {
 			continue
 		}
 		if width > 0 {
-			out = append(out, seg{ansi.Truncate(s.text, width, "…"), s.style})
+			out = append(out, seg{ansi.Truncate(s.text, width-1, "") + "…", s.style})
 		}
 		break
 	}
