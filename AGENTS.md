@@ -8,5 +8,5 @@ Contributor docs live in README.md (Development) and docs/. Short checklist for 
 - **Mutation testing** (on demand, not in the gate): after a non-trivial logic change, run `./scripts/mutation.sh --since` before handoff and report LIVED mutants in lines you touched (missing assertion, real bug, or equivalent mutant — say which). See docs/mutation-testing.md.
 - **CRAP report**: `./scripts/crap.sh` lists complex, poorly covered functions — where tests help most. See docs/crap-report.md.
 - **Golden screens**: `go test ./internal/ui -update` after an intended UI change; inspect the diff.
-- **E2E tests are manual**: `go test -tags emulator ./...` needs the local emulator (README, End-to-end tests). They are not in the gate, mutation or CRAP runs.
+- **E2E tests are manual**: `go test -tags emulator ./...` needs the local emulator (README, End-to-end tests). They are not in the gate, mutation or CRAP runs. The real-namespace suite (`go test -tags azure ./...`) runs against a standing Basic namespace (queues only; Standard-only subtests skip); `./scripts/e2e-standard.sh` runs all of it on a temporary Standard namespace before a release. It creates billable resources: run it only when asked.
 - Changelog: user-facing changes go in CHANGELOG.md under Unreleased.

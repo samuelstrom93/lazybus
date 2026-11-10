@@ -1,10 +1,15 @@
 //go:build azure
 
-// Real-namespace E2E against a Standard-tier Service Bus namespace:
+// Real-namespace E2E against a Service Bus namespace:
 //
 //	LAZYBUS_AZURE_NAMESPACE=<name>.servicebus.windows.net go test -tags azure ./...
 //
-// Skipped when LAZYBUS_AZURE_NAMESPACE is unset. It authenticates with the
+// Skipped when LAZYBUS_AZURE_NAMESPACE is unset. The namespace's tier is
+// read at setup (LAZYBUS_AZURE_SKU overrides it). On Basic, which has
+// queues only, the entities and subtests that need Standard (topics,
+// duplicate detection, dead-letter forwarding) are skipped;
+// scripts/e2e-standard.sh runs everything on a temporary Standard
+// namespace. It authenticates with the
 // az CLI credential (az login); the account needs Azure Service Bus Data
 // Owner on the namespace. It creates the entities it needs when they are
 // missing (all named lazybus-e2e-*, kept between runs), never touches any
@@ -72,6 +77,34 @@ type azEnv struct {
 	sdk   *azservicebus.Client
 	b     *azure.Backend
 	ns    bus.Namespace
+	sku   string // "Basic", "Standard" or "Premium"
+}
+
+// basic reports whether the namespace is Basic tier: queues only, no
+// duplicate detection, no forwarding, message TTL at most 14 days.
+func (e *azEnv) basic() bool { return strings.EqualFold(e.sku, "Basic") }
+
+// needStandard skips the subtest on a Basic namespace.
+func (e *azEnv) needStandard(t *testing.T, feature string) {
+	t.Helper()
+	if e.basic() {
+		t.Skipf("needs Standard: %s (namespace tier is %s)", feature, e.sku)
+	}
+}
+
+// detectSKU reads the namespace tier; LAZYBUS_AZURE_SKU overrides it.
+func (e *azEnv) detectSKU(t *testing.T) {
+	t.Helper()
+	if e.sku = os.Getenv("LAZYBUS_AZURE_SKU"); e.sku == "" {
+		ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
+		defer cancel()
+		props, err := e.admin.GetNamespaceProperties(ctx, nil)
+		if err != nil {
+			t.Fatalf("namespace properties: %v", err)
+		}
+		e.sku = props.SKU
+	}
+	t.Logf("namespace tier: %s", e.sku)
 }
 
 func setupAzure(t *testing.T) *azEnv {
@@ -97,29 +130,51 @@ func setupAzure(t *testing.T) *azEnv {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = e.sdk.Close(context.Background()) })
+	e.detectSKU(t)
 	e.ensureEntities(t)
 	return e
 }
 
 func ptr[T any](v T) *T { return &v }
 
-// ensureEntities creates the test entities that are missing.
+// queueTTL is the DefaultMessageTimeToLive every test queue is created
+// with: the most a Basic namespace allows, set on every tier so a queue is
+// the same wherever it is created.
+const queueTTL = "P14D"
+
+type queueSpec struct {
+	name  string
+	props admin.QueueProperties
+}
+
+// ensureEntities creates the test entities that are missing: on Basic the
+// plain queues only, else also the Standard-only queues, the topic and its
+// subscriptions.
 func (e *azEnv) ensureEntities(t *testing.T) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	queues := []struct {
-		name  string
-		props *admin.QueueProperties
-	}{
-		{qMain, &admin.QueueProperties{LockDuration: ptr("PT30S")}},
-		{qDedup, &admin.QueueProperties{RequiresDuplicateDetection: ptr(true), DuplicateDetectionHistoryTimeWindow: ptr("PT10M")}},
-		{qPart, &admin.QueueProperties{EnablePartitioning: ptr(true)}},
-		{qMDC, &admin.QueueProperties{MaxDeliveryCount: ptr(int32(1)), LockDuration: ptr("PT30S")}},
-		{qSink, nil},
-		// The forward target must be an absolute URI.
-		{qFwd, &admin.QueueProperties{ForwardDeadLetteredMessagesTo: ptr("https://" + e.fqdn + "/" + qSink)}},
+	queues := []queueSpec{
+		{qMain, admin.QueueProperties{LockDuration: ptr("PT30S")}},
+		{qPart, admin.QueueProperties{EnablePartitioning: ptr(true)}},
+		{qMDC, admin.QueueProperties{MaxDeliveryCount: ptr(int32(1)), LockDuration: ptr("PT30S")}},
 	}
+	if !e.basic() {
+		queues = append(queues,
+			queueSpec{qDedup, admin.QueueProperties{RequiresDuplicateDetection: ptr(true), DuplicateDetectionHistoryTimeWindow: ptr("PT10M")}},
+			queueSpec{qSink, admin.QueueProperties{}},
+			// The forward target must be an absolute URI.
+			queueSpec{qFwd, admin.QueueProperties{ForwardDeadLetteredMessagesTo: ptr("https://" + e.fqdn + "/" + qSink)}},
+		)
+	}
+	e.ensureQueues(ctx, t, queues)
+	if !e.basic() {
+		e.ensureTopic(ctx, t)
+	}
+}
+
+func (e *azEnv) ensureQueues(ctx context.Context, t *testing.T, queues []queueSpec) {
+	t.Helper()
 	for _, q := range queues {
 		got, err := e.admin.GetQueue(ctx, q.name, nil)
 		if err != nil {
@@ -128,11 +183,17 @@ func (e *azEnv) ensureEntities(t *testing.T) {
 		if got != nil { // (nil, nil) for a missing entity
 			continue
 		}
-		if _, err := e.admin.CreateQueue(ctx, q.name, &admin.CreateQueueOptions{Properties: q.props}); err != nil {
+		q.props.DefaultMessageTimeToLive = ptr(queueTTL)
+		if _, err := e.admin.CreateQueue(ctx, q.name, &admin.CreateQueueOptions{Properties: &q.props}); err != nil {
 			t.Fatalf("create queue %s: %v", q.name, err)
 		}
 		t.Logf("created queue %s", q.name)
 	}
+}
+
+// ensureTopic creates the test topic and its subscriptions when missing.
+func (e *azEnv) ensureTopic(ctx context.Context, t *testing.T) {
+	t.Helper()
 	if got, err := e.admin.GetTopic(ctx, topic, nil); err != nil {
 		t.Fatalf("get topic: %v", err)
 	} else if got == nil {
@@ -359,10 +420,15 @@ func deliveryCounts(ms []bus.Message) map[string]uint32 {
 
 func TestAzure(t *testing.T) {
 	e := setupAzure(t)
-	all := []loc{queue(qMain), queue(qDedup), queue(qPart), queue(qMDC), queue(qSink), subscription(subAll), subscription(subOff)}
+	all := []loc{queue(qMain), queue(qPart), queue(qMDC)}
+	if !e.basic() {
+		all = append(all, queue(qDedup), queue(qSink), subscription(subAll), subscription(subOff))
+	}
 	t.Cleanup(func() {
 		e.drainAll(t, all...)
-		e.drain(t, queue(qFwd), false) // its DLQ forwards; no receiver allowed there
+		if !e.basic() {
+			e.drain(t, queue(qFwd), false) // its DLQ forwards; no receiver allowed there
+		}
 	})
 
 	t.Run("queue repair", func(t *testing.T) {
@@ -496,6 +562,7 @@ func TestAzure(t *testing.T) {
 	})
 
 	t.Run("subscription to topic", func(t *testing.T) {
+		e.needStandard(t, "topics")
 		sa, so := subscription(subAll), subscription(subOff)
 		e.drainAll(t, sa, so)
 		e.seedDLQ(t, sa, seed.SubscriptionMessages())
@@ -533,6 +600,7 @@ func TestAzure(t *testing.T) {
 	})
 
 	t.Run("duplicate detection", func(t *testing.T) {
+		e.needStandard(t, "duplicate detection")
 		q := queue(qDedup)
 		e.drainAll(t, q)
 		run := time.Now().UnixNano()
@@ -573,10 +641,9 @@ func TestAzure(t *testing.T) {
 		t.Logf("same-MessageId repair on a duplicate-detecting queue: send ok, original completed, copy dropped (message lost)")
 	})
 
-	t.Run("DeadLetterSource", func(t *testing.T) {
-		mdc, sink, fwd := queue(qMDC), queue(qSink), queue(qFwd)
-		e.drainAll(t, mdc, sink)
-		e.drain(t, fwd, false)
+	t.Run("DeadLetterSource: MaxDeliveryCount", func(t *testing.T) {
+		mdc := queue(qMDC)
+		e.drainAll(t, mdc)
 		ctx, cancel := context.WithTimeout(context.Background(), 2*opTimeout)
 		defer cancel()
 
@@ -602,9 +669,15 @@ func TestAzure(t *testing.T) {
 			}
 			return ""
 		})
+	})
 
-		// ForwardDeadLetteredMessagesTo: the forwarded message names its
-		// source, also after it is dead-lettered again in the sink.
+	// ForwardDeadLetteredMessagesTo: the forwarded message names its
+	// source, also after it is dead-lettered again in the sink.
+	t.Run("DeadLetterSource: forwarded", func(t *testing.T) {
+		e.needStandard(t, "dead-letter forwarding")
+		sink, fwd := queue(qSink), queue(qFwd)
+		e.drainAll(t, sink)
+		e.drain(t, fwd, false)
 		e.seedDLQ(t, fwd, []seed.Message{{MessageID: "e2e-fwd", Body: []byte("x"), Reason: "E2EForward", Description: "forwarded"}})
 		eventually(t, 15*time.Second, func() string {
 			got := peekAll(t, e.b, e.ns, sink.entity(), bus.Active)
@@ -617,7 +690,7 @@ func TestAzure(t *testing.T) {
 			return ""
 		})
 		pctx, pcancel := context.WithTimeout(context.Background(), opTimeout)
-		_, err = e.b.Peek(pctx, bus.PeekRequest{Namespace: e.ns, Entity: fwd.entity(), SubQueue: bus.DeadLetter})
+		_, err := e.b.Peek(pctx, bus.PeekRequest{Namespace: e.ns, Entity: fwd.entity(), SubQueue: bus.DeadLetter})
 		pcancel()
 		if bus.KindOf(err) != bus.ErrNotAllowed {
 			t.Fatalf("peek %s/$DLQ (forwards dead letters): %v, want not allowed", fwd, err)

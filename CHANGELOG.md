@@ -4,6 +4,10 @@ All notable changes to lazybus are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Changed
+
+- The real-namespace end-to-end tests (`go test -tags azure ./...`) read the namespace's tier and, on a Basic namespace (queues only), skip the checks that need Standard: topics, duplicate detection and dead-letter forwarding. The standing test namespace is now Basic; `scripts/e2e-standard.sh` runs the full suite on a temporary Standard namespace and deletes it afterwards, for use before a release.
+
 ## [0.3.0] - 2026-11-08
 
 ### Changed

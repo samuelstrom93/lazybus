@@ -178,6 +178,8 @@ Proposed classifier (superseded: spec §6 step 3.4 now counts resource-limit-exc
 
 ## S4 real-namespace verification
 
+> Note, 2026-11-10: the namespace below was downgraded from Standard to Basic after these results were recorded, and its topic, duplicate-detection queue and forwarding queues were deleted (Basic has queues only). The results stand as measured on Standard. To run the checks that need Standard again, use `scripts/e2e-standard.sh` (a temporary Standard namespace); against the Basic namespace the test skips them.
+
 Date 2026-10-03, framen. Namespace `sb-lazybus-test-81abd072.servicebus.windows.net` (Standard, westeurope, subscription `lazybus-dev`), az CLI credential with Azure Service Bus Data Owner, SDK `azservicebus v1.10.0`. Only entities named `lazybus-e2e-*` were created or touched (created by the test when missing, kept between runs). The checks live in `internal/bus/azure/azure_e2e_test.go` (`LAZYBUS_AZURE_NAMESPACE=… go test -tags azure ./...`); the close-wait comparison below came from a throwaway probe that set the wait to 0, 100 and 500 ms (not in the repo).
 
 Summary: everything the spec assumes holds on Azure, with one correction: **a DLQ abandon does not change DeliveryCount** on Azure either, so the scan cost is the locks, not a delivery. Partitioned paging needs no fix, and the 500 ms close wait is needed and enough.

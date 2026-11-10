@@ -222,7 +222,17 @@ az login
 LAZYBUS_AZURE_NAMESPACE=<ns>.servicebus.windows.net go test -tags azure ./...
 ```
 
-It uses the Azure CLI credential, which needs Azure Service Bus Data Owner on the namespace. It creates the entities it needs when they are missing (all named `lazybus-e2e-*`, kept between runs), drains them, and touches nothing else. It also sets a Listen-only SAS rule `lazybus-e2e-listen` on `lazybus-e2e-q` with a random key that is never stored. A run takes about 2 minutes. What it verifies, with numbers, is in [`docs/spike-s-1.md`](docs/spike-s-1.md) (S4 section).
+It uses the Azure CLI credential, which needs Azure Service Bus Data Owner on the namespace. It creates the entities it needs when they are missing (all named `lazybus-e2e-*`, kept between runs), drains them, and touches nothing else. It also sets the SAS rules `lazybus-e2e-listen` and `lazybus-e2e-listen-send` on `lazybus-e2e-q`, one at a time, with random keys that are never stored. What it verifies, with numbers, is in [`docs/spike-s-1.md`](docs/spike-s-1.md) (S4 section).
+
+The test reads the namespace's tier (`LAZYBUS_AZURE_SKU=Basic|Standard` overrides it). A Basic namespace has queues only, so there the test creates no topic, duplicate-detection queue or forwarding queues, and skips the subtests that need them (`needs Standard: topics`, `duplicate detection`, `dead-letter forwarding`). On Standard everything runs; that takes about 2 minutes.
+
+The standing test namespace is Basic, to avoid the Standard base fee. Before a release, run the full suite on a temporary Standard namespace:
+
+```sh
+./scripts/e2e-standard.sh        # arguments go to go test, e.g. -v
+```
+
+It creates `sb-lazybus-e2e-<random>` (Standard, billed per hour while it exists), gives the signed-in user Azure Service Bus Data Owner on it, waits until the role works, runs `go test -tags azure -count=1 ./...` against it and always deletes the namespace on exit, also after a failure or ctrl-c. It prints the namespace name first, so a leaked one can be found. Subscription, resource group, location and name default to `lazybus-dev`, `rg-lazybus-test`, `westeurope` and a random name; override them with `LAZYBUS_E2E_SUBSCRIPTION`, `LAZYBUS_E2E_RESOURCE_GROUP`, `LAZYBUS_E2E_LOCATION` and `LAZYBUS_E2E_NAMESPACE`.
 
 ### Release check
 
