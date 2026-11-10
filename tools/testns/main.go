@@ -182,14 +182,13 @@ func (t *tool) status(ctx context.Context) error {
 			fmt.Fprintf(t.out, "    %-32s active %-3d dead-lettered %-3d\n", s.Name, s.Active, s.DeadLetter)
 		}
 	}
-	newest, err := newestBackup(t.dir, t.cfg.Namespace)
+	files, err := backups(t.dir, t.cfg.Namespace)
 	if err != nil {
 		return err
 	}
-	if newest == "" {
-		newest = "none"
-	} else {
-		newest = filepath.Base(newest)
+	newest := "none"
+	if len(files) > 0 {
+		newest = filepath.Base(files[0])
 	}
 	fmt.Fprintf(t.out, "Backups    %s (newest: %s)\n", t.dir, newest)
 	return nil
@@ -201,9 +200,14 @@ func (t *tool) up(ctx context.Context) error {
 		return err
 	}
 	from := t.opt.from
+	var older []string
 	if from == "" {
-		if from, err = newestBackup(t.dir, t.cfg.Namespace); err != nil {
+		files, err := backups(t.dir, t.cfg.Namespace)
+		if err != nil {
 			return err
+		}
+		if len(files) > 0 {
+			from, older = files[0], files[1:]
 		}
 	}
 	var backup []Message
@@ -217,6 +221,7 @@ func (t *tool) up(ctx context.Context) error {
 		return err
 	}
 	plan.print(t.out, t.cfg.Namespace, from)
+	t.warnOlderBackups(older, backup)
 	if plan.empty() {
 		return nil
 	}
@@ -238,6 +243,23 @@ func (t *tool) up(ctx context.Context) error {
 	}
 	fmt.Fprintln(t.out)
 	return t.status(ctx)
+}
+
+// warnOlderBackups points at older backups holding entities the newest one
+// lacks; only --from restores those.
+func (t *tool) warnOlderBackups(older []string, newest []Message) {
+	for _, file := range older {
+		msgs, err := readBackup(file)
+		if err != nil {
+			fmt.Fprintf(t.out, "  note: cannot read older backup %s: %v\n", file, err)
+			continue
+		}
+		if only := entitiesOnlyIn(msgs, newest); len(only) > 0 {
+			fmt.Fprintf(t.out, "  note: the newest backup has no messages for %s, but %s has; restore those with --from %s\n",
+				strings.Join(only, ", "), filepath.Base(file), file)
+			newest = append(newest, msgs...) // name each entity once, for its newest file
+		}
+	}
 }
 
 func (t *tool) down(ctx context.Context) error {

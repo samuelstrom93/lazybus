@@ -84,7 +84,7 @@ func TestDeadLetteredEntryRestoresWithoutBrokerProperties(t *testing.T) {
 
 func TestBackupFiles(t *testing.T) {
 	dir := t.TempDir()
-	if got, err := newestBackup(filepath.Join(dir, "missing"), "ns"); got != "" || err != nil {
+	if got, err := backups(filepath.Join(dir, "missing"), "ns"); got != nil || err != nil {
 		t.Errorf("missing dir: %q, %v", got, err)
 	}
 	at := time.Date(2026, 11, 10, 22, 5, 9, 0, time.FixedZone("CET", 3600))
@@ -113,8 +113,21 @@ func TestBackupFiles(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if got, err := newestBackup(filepath.Join(dir, "sub"), "ns"); got != path || err != nil {
-		t.Errorf("newestBackup = %q, %v; want %q", got, err, path)
+	want := []string{path, filepath.Join(dir, "sub", "ns-2026-11-10.json"), filepath.Join(dir, "sub", "ns-2026-11-09T230000Z.json")}
+	if got, err := backups(filepath.Join(dir, "sub"), "ns"); !reflect.DeepEqual(got, want) || err != nil {
+		t.Errorf("backups = %q, %v; want %q", got, err, want)
+	}
+}
+
+func TestEntitiesOnlyInOlderBackup(t *testing.T) {
+	older := mustParse(t, demoBackup)
+	// A second down after the first deleted lazybus-events sees only these.
+	newest := []Message{{Entity: "lazybus-orders/$DLQ"}, {Entity: "lazybus-sessions"}}
+	if got, want := entitiesOnlyIn(older, newest), []string{"lazybus-events/lazybus-billing"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("entitiesOnlyIn = %q, want %q", got, want)
+	}
+	if got := entitiesOnlyIn(older, older); got != nil {
+		t.Errorf("same backup: %q", got)
 	}
 }
 

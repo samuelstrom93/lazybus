@@ -21,7 +21,8 @@ import (
 // property keeps only its JSON type. On restore a number without fraction
 // or exponent becomes int64, any other number float64; times, byte arrays
 // and the like come back as strings. System properties other than the ones
-// below (TimeToLive, CorrelationID, enqueued time, ...) are not kept.
+// below (TimeToLive, CorrelationID, enqueued time, ...) are not kept, and a
+// scheduled message is restored as an ordinary active one.
 type Message struct {
 	Entity                string // queue, topic/subscription, or either + "/$DLQ"
 	MessageID             string
@@ -131,26 +132,45 @@ func backupName(namespace string, now time.Time) string {
 	return namespace + "-" + now.UTC().Format("2006-01-02T150405Z") + ".json"
 }
 
-// newestBackup returns the backup of namespace in dir whose name sorts
-// last, or "" when there is none.
-func newestBackup(dir, namespace string) (string, error) {
+// backups returns the backup files of namespace in dir, newest (last by
+// name) first.
+func backups(dir, namespace string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, os.ErrNotExist) {
-		return "", nil
+		return nil, nil
 	} else if err != nil {
-		return "", err
+		return nil, err
 	}
-	var names []string
+	var paths []string
 	for _, e := range entries {
 		n := e.Name()
 		if !e.IsDir() && strings.HasPrefix(n, namespace+"-") && strings.HasSuffix(n, ".json") {
-			names = append(names, n)
+			paths = append(paths, filepath.Join(dir, n))
 		}
 	}
-	if len(names) == 0 {
-		return "", nil
+	slices.Sort(paths)
+	slices.Reverse(paths)
+	return paths, nil
+}
+
+// entitiesOnlyIn returns the entities that have messages in older but none
+// in newest, in order of appearance. A down that failed half-way and was
+// run again leaves such a pair: the second backup no longer sees the
+// entities the first run deleted.
+func entitiesOnlyIn(older, newest []Message) []string {
+	have := map[string]bool{}
+	for _, m := range newest {
+		base, _ := splitEntity(m.Entity)
+		have[base] = true
 	}
-	return filepath.Join(dir, slices.Max(names)), nil
+	var out []string
+	for _, m := range older {
+		if base, _ := splitEntity(m.Entity); !have[base] {
+			have[base] = true
+			out = append(out, base)
+		}
+	}
+	return out
 }
 
 // writeBackup writes msgs to a new file (mode 0600, never overwriting) and
