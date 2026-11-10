@@ -15,7 +15,8 @@
 #   LAZYBUS_E2E_SUBSCRIPTION    default lazybus-dev
 #   LAZYBUS_E2E_RESOURCE_GROUP  default rg-lazybus-test
 #   LAZYBUS_E2E_LOCATION        default westeurope
-#   LAZYBUS_E2E_NAMESPACE       default sb-lazybus-e2e-<random>
+#   LAZYBUS_E2E_NAMESPACE       default sb-lazybus-e2e-<random>; must start
+#                               with sb-lazybus-e2e- and must not exist yet
 #
 # Arguments are passed on to go test (for example -v).
 #
@@ -34,6 +35,19 @@ RBAC_TIMEOUT=300 # seconds to wait for the role assignment to take effect
 for tool in az curl go; do
   command -v "$tool" >/dev/null 2>&1 || { echo "e2e-standard: $tool not found" >&2; exit 1; }
 done
+
+# The namespace is deleted on exit, so it must be one this run creates:
+# never a name outside the prefix, never one that is already there (the
+# create call would update an existing namespace instead of failing).
+case "$NAMESPACE" in
+  sb-lazybus-e2e-?*) ;;
+  *) echo "e2e-standard: namespace name '$NAMESPACE' must start with sb-lazybus-e2e-" >&2; exit 1 ;;
+esac
+if az servicebus namespace show --subscription "$SUBSCRIPTION" \
+  --resource-group "$RESOURCE_GROUP" --name "$NAMESPACE" --output none 2>/dev/null; then
+  echo "e2e-standard: namespace $NAMESPACE already exists; refusing to reuse (and delete) it" >&2
+  exit 1
+fi
 
 cd "$(dirname "$0")/.."
 

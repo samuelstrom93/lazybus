@@ -9,6 +9,8 @@ Merging to main ships nothing. A release is an annotated `vX.Y.Z` tag on the tip
 ./scripts/release.sh v0.2.0             # asks before it commits, pushes or tags
 ```
 
+Before the release, run the real-namespace end-to-end tests with full coverage by hand: `./scripts/e2e-standard.sh` (a temporary Standard namespace, billed while it runs; README, End-to-end tests). `release.sh` does not run it: the standing test namespace is Basic and skips the checks that need Standard.
+
 `scripts/release.sh vX.Y.Z`:
 
 1. Checks the version is semver (`v1.2.3`, optionally `v1.2.3-rc.1`), fetches origin, and checks the tag is free locally and on origin.

@@ -82,7 +82,7 @@ type azEnv struct {
 
 // basic reports whether the namespace is Basic tier: queues only, no
 // duplicate detection, no forwarding, message TTL at most 14 days.
-func (e *azEnv) basic() bool { return strings.EqualFold(e.sku, "Basic") }
+func (e *azEnv) basic() bool { return e.sku == "Basic" }
 
 // needStandard skips the subtest on a Basic namespace.
 func (e *azEnv) needStandard(t *testing.T, feature string) {
@@ -103,6 +103,11 @@ func (e *azEnv) detectSKU(t *testing.T) {
 			t.Fatalf("namespace properties: %v", err)
 		}
 		e.sku = props.SKU
+	}
+	switch e.sku {
+	case "Basic", "Standard", "Premium":
+	default:
+		t.Fatalf("namespace tier %q: want Basic, Standard or Premium", e.sku)
 	}
 	t.Logf("namespace tier: %s", e.sku)
 }
