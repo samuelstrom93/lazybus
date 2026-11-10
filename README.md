@@ -234,6 +234,23 @@ The standing test namespace is Basic, to avoid the Standard base fee. Before a r
 
 It creates `sb-lazybus-e2e-<random>` (Standard, billed per hour while it exists), gives the signed-in user Azure Service Bus Data Owner on it, waits until the role works, runs `go test -tags azure -count=1 ./...` against it and always deletes the namespace on exit, also after a failure or ctrl-c. It prints the namespace name first, so a leaked one can be found. Subscription, resource group, location and name default to `lazybus-dev`, `rg-lazybus-test`, `westeurope` and a random name; override them with `LAZYBUS_E2E_SUBSCRIPTION`, `LAZYBUS_E2E_RESOURCE_GROUP`, `LAZYBUS_E2E_LOCATION` and `LAZYBUS_E2E_NAMESPACE`.
 
+### Standing test namespace on Standard (optional)
+
+Optional, and never run for you: not by `go test`, CI, the hooks or the release script. The standing test namespace stays Basic; `scripts/e2e-standard.sh` above covers the pre-release run. If longer integration work needs topics or sessions on the standing namespace itself, switch it by hand and switch it back when done (Standard is billed per hour until then):
+
+```sh
+./scripts/test-namespace.sh status
+./scripts/test-namespace.sh up      # Basic -> Standard
+./scripts/test-namespace.sh down    # Standard -> Basic
+```
+
+`up` and `down` print their plan and ask before changing anything; `--dry-run` stops after the plan, `--yes` skips the question. Both can be rerun.
+
+- `up` changes the SKU, creates the demo entities that need Standard when they are missing (topic `lazybus-events` with subscription `lazybus-billing`, session queue `lazybus-sessions`) and restores their messages from the newest backup (`--from <file>` picks another), dead-lettered ones back into the DLQ with their reason and description. It restores only into an entity it just created or that holds no message.
+- `down` backs up the messages of the demo entities, deletes the Standard-only entities (the two demo ones, and `lazybus-e2e-topic`, `lazybus-e2e-dedup`, `lazybus-e2e-dlfwd`, `lazybus-e2e-dlsink`, which the E2E test recreates on Standard), caps every queue's default TTL at `P14D` and changes the SKU. It deletes nothing if the backup fails, and refuses to start if the namespace holds a Standard-only entity it does not know.
+
+Backups are JSON files (mode 0600) in `$XDG_STATE_HOME/lazybus/testns/` (default `~/.local/state/lazybus/testns/`). They are for demo data: bodies are kept as text, application properties keep only their JSON type (a whole number comes back as int64, any other number as a double, a timestamp as a string), and system properties such as TimeToLive are not kept. Namespace, subscription and resource group default to `sb-lazybus-test-81abd072`, `lazybus-dev` and `rg-lazybus-test`; override them with `LAZYBUS_TESTNS_NAMESPACE`, `LAZYBUS_TESTNS_SUBSCRIPTION` and `LAZYBUS_TESTNS_RESOURCE_GROUP`. The tool is `tools/testns`; it needs `az` logged in with rights to update the namespace and Azure Service Bus Data Owner on it.
+
 ### Release check
 
 ```sh

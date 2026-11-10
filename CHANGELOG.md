@@ -4,6 +4,10 @@ All notable changes to lazybus are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Added
+
+- Development only, opt-in: `scripts/test-namespace.sh up|down|status` switches the standing test namespace between Basic and Standard for integration work that needs topics or sessions. `down` backs up the demo messages before it deletes the Standard-only entities, `up` recreates the demo entities and restores the messages. Nothing runs it automatically.
+
 ### Changed
 
 - The real-namespace end-to-end tests (`go test -tags azure ./...`) read the namespace's tier and, on a Basic namespace (queues only), skip the checks that need Standard: topics, duplicate detection and dead-letter forwarding. The standing test namespace is now Basic; `scripts/e2e-standard.sh` runs the full suite on a temporary Standard namespace and deletes it afterwards, for use before a release.
