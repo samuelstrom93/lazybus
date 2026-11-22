@@ -4,6 +4,8 @@ All notable changes to lazybus are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-22
+
 ### Added
 
 - Development only, opt-in: `scripts/test-namespace.sh up|down|status` switches the standing test namespace between Basic and Standard for integration work that needs topics or sessions. `down` backs up the demo messages before it deletes the Standard-only entities, `up` recreates the demo entities and restores the messages. Nothing runs it automatically.
@@ -96,7 +98,8 @@ The first release.
 - Tag-driven releases: `scripts/release.sh vX.Y.Z` measures the release benchmarks (startup, a 10,000-message DLQ, repair, binary size), compares them with the previous release and tags `origin/main`; the tag runs a GitHub workflow that refuses a material regression and publishes the release with the benchmark report.
 - Emulator end-to-end tests (`go test -tags emulator ./...`) and real-namespace end-to-end tests (`go test -tags azure ./...`).
 
-[Unreleased]: https://github.com/samuelstrom93/lazybus/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/samuelstrom93/lazybus/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/samuelstrom93/lazybus/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/samuelstrom93/lazybus/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/samuelstrom93/lazybus/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/samuelstrom93/lazybus/compare/v0.1.0...v0.1.1
