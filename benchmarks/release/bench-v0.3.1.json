@@ -1,0 +1,530 @@
+{
+  "schemaVersion": 1,
+  "version": "v0.3.1",
+  "gitSha": "bee963f6b1e3ffefafb56a0386d90a6461a9f5a7",
+  "generatedAt": "2026-11-22T21:02:09Z",
+  "runtime": {
+    "goVersion": "go1.27.3",
+    "goos": "linux",
+    "goarch": "amd64",
+    "cpu": "AMD RYZEN AI MAX+ 395 w/ Radeon 8060S"
+  },
+  "benchCommand": "go test -run '^$' -bench . -benchmem -count 1 -benchtime 1s -cpu 4 ./internal/ui",
+  "samplesPerBenchmark": 15,
+  "results": [
+    {
+      "name": "LoadLargeList/allocs_per_op",
+      "unit": "count",
+      "samples": [
+        21207,
+        21208,
+        21209,
+        21208,
+        21208,
+        21209,
+        21209,
+        21208,
+        21207,
+        21208,
+        21209,
+        21209,
+        21209,
+        21207,
+        21209
+      ],
+      "median": 21208,
+      "p75": 21209,
+      "p95": 21209,
+      "min": 21207,
+      "max": 21209,
+      "comparable": true,
+      "threshold": {
+        "maxRegressionRatio": 1.2,
+        "minAbsoluteRegression": 100
+      }
+    },
+    {
+      "name": "LoadLargeList/bytes_per_op",
+      "unit": "bytes",
+      "samples": [
+        25048735,
+        25048802,
+        25048893,
+        25048852,
+        25048826,
+        25048901,
+        25048939,
+        25048883,
+        25048771,
+        25048866,
+        25048890,
+        25048880,
+        25048963,
+        25048765,
+        25048922
+      ],
+      "median": 25048880,
+      "p75": 25048901,
+      "p95": 25048963,
+      "min": 25048735,
+      "max": 25048963,
+      "comparable": true,
+      "threshold": {
+        "maxRegressionRatio": 1.2,
+        "minAbsoluteRegression": 16777216
+      }
+    },
+    {
+      "name": "LoadLargeList/heap_bytes",
+      "unit": "bytes",
+      "samples": [
+        3370536,
+        3369720,
+        3370536,
+        3371096,
+        3370536,
+        3370552,
+        3371112,
+        3371640,
+        3370552,
+        3370536,
+        3371784,
+        3371096,
+        3371080,
+        3369992,
+        3371096
+      ],
+      "median": 3370552,
+      "p75": 3371096,
+      "p95": 3371784,
+      "min": 3369720,
+      "max": 3371784,
+      "comparable": true,
+      "threshold": {
+        "maxRegressionRatio": 1.2,
+        "minAbsoluteRegression": 1048576
+      }
+    },
+    {
+      "name": "LoadLargeList/ns_per_op",
+      "unit": "ns",
+      "samples": [
+        9092705,
+        9562115,
+        10230874,
+        9020714,
+        9395361,
+        9488260,
+        9593965,
+        9052243,
+        9358844,
+        9287057,
+        10287165,
+        9145449,
+        9748216,
+        9383504,
+        9538255
+      ],
+      "median": 9395361,
+      "p75": 9593965,
+      "p95": 10287165,
+      "min": 9020714,
+      "max": 10287165,
+      "comparable": true,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 4000000
+      }
+    },
+    {
+      "name": "NavStepLargeList/allocs_per_op",
+      "unit": "count",
+      "samples": [
+        1228,
+        1228,
+        1228,
+        1228,
+        1228,
+        1228,
+        1228,
+        1228,
+        1228,
+        1228,
+        1228,
+        1228,
+        1228,
+        1228,
+        1228
+      ],
+      "median": 1228,
+      "p75": 1228,
+      "p95": 1228,
+      "min": 1228,
+      "max": 1228,
+      "comparable": true,
+      "threshold": {
+        "maxRegressionRatio": 1.2,
+        "minAbsoluteRegression": 100
+      }
+    },
+    {
+      "name": "NavStepLargeList/bytes_per_op",
+      "unit": "bytes",
+      "samples": [
+        310501,
+        310497,
+        310498,
+        310503,
+        310505,
+        310501,
+        310500,
+        310500,
+        310495,
+        310503,
+        310507,
+        310499,
+        310502,
+        310502,
+        310506
+      ],
+      "median": 310501,
+      "p75": 310503,
+      "p95": 310507,
+      "min": 310495,
+      "max": 310507,
+      "comparable": true,
+      "threshold": {
+        "maxRegressionRatio": 1.2,
+        "minAbsoluteRegression": 32768
+      }
+    },
+    {
+      "name": "NavStepLargeList/ns_per_op",
+      "unit": "ns",
+      "samples": [
+        283749,
+        299198,
+        296839,
+        286586,
+        290342,
+        309345,
+        289164,
+        286734,
+        296144,
+        294271,
+        286372,
+        290944,
+        309199,
+        294780,
+        289611
+      ],
+      "median": 290944,
+      "p75": 296839,
+      "p95": 309345,
+      "min": 283749,
+      "max": 309345,
+      "comparable": true,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 150000
+      }
+    },
+    {
+      "name": "RepairFlow/allocs_per_op",
+      "unit": "count",
+      "samples": [
+        1384,
+        1384,
+        1384,
+        1384,
+        1384,
+        1384,
+        1384,
+        1384,
+        1384,
+        1384,
+        1384,
+        1384,
+        1384,
+        1384,
+        1384
+      ],
+      "median": 1384,
+      "p75": 1384,
+      "p95": 1384,
+      "min": 1384,
+      "max": 1384,
+      "comparable": true,
+      "threshold": {
+        "maxRegressionRatio": 1.2,
+        "minAbsoluteRegression": 100
+      }
+    },
+    {
+      "name": "RepairFlow/bytes_per_op",
+      "unit": "bytes",
+      "samples": [
+        336849,
+        336873,
+        336871,
+        336875,
+        336846,
+        336869,
+        336850,
+        336871,
+        336859,
+        336861,
+        336852,
+        336846,
+        336869,
+        336867,
+        336869
+      ],
+      "median": 336867,
+      "p75": 336871,
+      "p95": 336875,
+      "min": 336846,
+      "max": 336875,
+      "comparable": true,
+      "threshold": {
+        "maxRegressionRatio": 1.2,
+        "minAbsoluteRegression": 32768
+      }
+    },
+    {
+      "name": "RepairFlow/ns_per_op",
+      "unit": "ns",
+      "samples": [
+        376408,
+        507390,
+        419772,
+        372438,
+        370800,
+        408626,
+        376963,
+        368124,
+        387891,
+        393600,
+        377009,
+        384193,
+        379621,
+        382416,
+        378847
+      ],
+      "median": 379621,
+      "p75": 393600,
+      "p95": 507390,
+      "min": 368124,
+      "max": 507390,
+      "comparable": true,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 30000
+      }
+    },
+    {
+      "name": "StartupFirstFrame/allocs_per_op",
+      "unit": "count",
+      "samples": [
+        4055,
+        4055,
+        4055,
+        4055,
+        4055,
+        4055,
+        4055,
+        4055,
+        4055,
+        4055,
+        4055,
+        4055,
+        4056,
+        4055,
+        4055
+      ],
+      "median": 4055,
+      "p75": 4055,
+      "p95": 4056,
+      "min": 4055,
+      "max": 4056,
+      "comparable": true,
+      "threshold": {
+        "maxRegressionRatio": 1.2,
+        "minAbsoluteRegression": 100
+      }
+    },
+    {
+      "name": "StartupFirstFrame/bytes_per_op",
+      "unit": "bytes",
+      "samples": [
+        416538,
+        416523,
+        416534,
+        416531,
+        416522,
+        416528,
+        416539,
+        416523,
+        416529,
+        416520,
+        416525,
+        416533,
+        416579,
+        416531,
+        416535
+      ],
+      "median": 416531,
+      "p75": 416535,
+      "p95": 416579,
+      "min": 416520,
+      "max": 416579,
+      "comparable": true,
+      "threshold": {
+        "maxRegressionRatio": 1.2,
+        "minAbsoluteRegression": 32768
+      }
+    },
+    {
+      "name": "StartupFirstFrame/ns_per_op",
+      "unit": "ns",
+      "samples": [
+        322057,
+        344071,
+        379473,
+        348000,
+        325512,
+        317625,
+        384580,
+        318693,
+        334452,
+        352761,
+        320760,
+        316867,
+        481630,
+        329585,
+        323185
+      ],
+      "median": 329585,
+      "p75": 352761,
+      "p95": 481630,
+      "min": 316867,
+      "max": 481630,
+      "comparable": true,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 20000
+      }
+    },
+    {
+      "name": "ViewLargeList/allocs_per_op",
+      "unit": "count",
+      "samples": [
+        1178,
+        1178,
+        1178,
+        1178,
+        1178,
+        1178,
+        1178,
+        1178,
+        1178,
+        1178,
+        1178,
+        1178,
+        1178,
+        1178,
+        1178
+      ],
+      "median": 1178,
+      "p75": 1178,
+      "p95": 1178,
+      "min": 1178,
+      "max": 1178,
+      "comparable": true,
+      "threshold": {
+        "maxRegressionRatio": 1.2,
+        "minAbsoluteRegression": 100
+      }
+    },
+    {
+      "name": "ViewLargeList/bytes_per_op",
+      "unit": "bytes",
+      "samples": [
+        300562,
+        300561,
+        300562,
+        300562,
+        300561,
+        300561,
+        300561,
+        300561,
+        300561,
+        300561,
+        300561,
+        300562,
+        300561,
+        300561,
+        300562
+      ],
+      "median": 300561,
+      "p75": 300562,
+      "p95": 300562,
+      "min": 300561,
+      "max": 300562,
+      "comparable": true,
+      "threshold": {
+        "maxRegressionRatio": 1.2,
+        "minAbsoluteRegression": 32768
+      }
+    },
+    {
+      "name": "ViewLargeList/ns_per_op",
+      "unit": "ns",
+      "samples": [
+        286207,
+        307169,
+        310771,
+        269287,
+        274184,
+        301482,
+        273594,
+        267328,
+        276989,
+        273210,
+        270425,
+        270349,
+        277325,
+        273165,
+        270405
+      ],
+      "median": 273594,
+      "p75": 286207,
+      "p95": 310771,
+      "min": 267328,
+      "max": 310771,
+      "comparable": true,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 150000
+      }
+    },
+    {
+      "name": "binary/size_bytes",
+      "unit": "bytes",
+      "samples": [
+        11231392
+      ],
+      "median": 11231392,
+      "p75": 11231392,
+      "p95": 11231392,
+      "min": 11231392,
+      "max": 11231392,
+      "comparable": true,
+      "threshold": {
+        "maxRegressionRatio": 1.1,
+        "minAbsoluteRegression": 262144
+      }
+    }
+  ],
+  "acceptedRegressions": []
+}
