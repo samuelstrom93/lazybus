@@ -106,9 +106,9 @@ The status bar confirms each copy (`copied …`). Copy uses OSC 52, so it reache
 | `A` | Messages (DLQ tab) | Pick every loaded row shown (the filter applies) with the selected row's DeadLetterReason, or unpick them all. |
 | `esc` | Messages | Clear the picks. |
 
-After a successful resubmit the cursor stays on the same row, which now holds the next message, so `r y r y …` works down the list. `--read-only` disables `r` and `c`. The Active tab is read-only. While a resubmit or cleanup runs, keys wait, and `ctrl-c` and a closed terminal (SIGHUP) do not quit; `kill` (SIGTERM) quits once the outcome is logged, prints it to stderr, and exits 1 if the message did not get through. Its outcome is never lost.
+After a successful resubmit the cursor stays on the same row, which now holds the next message, so `r y r y …` works down the list. `--read-only` disables `r` and `c`. The Active tab is read-only. During resubmit or cleanup, `ctrl-c` waits and SIGHUP is held until the call returns. A deferred SIGTERM reports the outcome on stderr. Exit code 1 includes uncertain sends and unconfirmed completions.
 
-SendUncertain and CleanupPending live in memory only. After a restart the row looks like any dead-letter message, and `r` would send a second copy. So `q` with such rows open warns first (`q` again quits), and on any exit lazybus prints them to stderr: outcome, source and sequence number, target and MessageId. Check the target for that MessageId before you resubmit the message again.
+SendUncertain and CleanupPending live in memory only. After a restart the row looks like any dead-letter message, and another `r` can create a duplicate. So `q` with such rows open warns first (`q` again quits), and on an orderly exit lazybus prints them to stderr: outcome, source and sequence number, target and MessageId. Check the queue or matching subscriptions and consumer records for that MessageId before resubmitting. An empty queue alone cannot establish whether the send was accepted.
 
 ### Bulk resubmit
 
@@ -139,8 +139,8 @@ Pending Edits live in memory only: **they are lost when lazybus quits.** A resub
 
 ## Safety model
 
-- **No held locks.** Browsing is peek, which never locks a message and never changes it. lazybus takes locks only inside a resubmit call, and every lock is released before that call returns.
-- **A resubmit is a move:** send a copy, then delete the original. Nothing is retried behind your back, and an unclear result is shown as unclear.
+- **No held locks.** Browsing is peek, which never locks a message and never changes it. lazybus takes locks only inside a resubmit call, and attempts to settle them before closing its receiver. A failed abandon is logged and a lock may remain until expiry.
+- **A resubmit has two steps.** lazybus sends the copy, then completes the original after the send is acknowledged. A lost reply can leave either step unconfirmed.
 - **Read-only mode.** `--read-only` turns off `r` and `c`, the only keys that change broker state.
 
 A resubmit runs these steps:
@@ -154,12 +154,12 @@ Every outcome is shown in the status bar, and every broker call that changes sta
 
 | Outcome | Meaning | Row |
 |---|---|---|
-| Resubmitted | The copy is in the target and the original is gone. | Removed. |
+| Resubmitted | The target acknowledged the send and the DLQ acknowledged completion. Duplicate detection and topic filters still apply. | Removed. |
 | NotFound | The message was already gone (pre-check), or the scan stopped before reaching it; nothing sent. | Removed when gone; kept when the scan stopped, since it may still be in the DLQ. |
-| LockLost | The lock (or the call's time) ran out before the send; nothing changed. | Kept; `r` retries. |
-| SendFailed | The target rejected the copy for a reason that does not pass (for example, no Send right); nothing changed. A transient rejection (throttled, quota full, entity disabled) shows as SendUncertain instead: the SDK retries once after a dropped link, and the first attempt may have delivered the copy. | Kept; `r` retries. |
-| SendUncertain | The send ended without a clear answer: the copy may or may not be in the target. Never retried automatically. | Amber. `r` is allowed after you check the target; the retry reuses the same MessageId, so a target with duplicate detection drops a second copy. |
-| CleanupPending | The copy is in the target but deleting the original failed. Never reported as success. | Red. `r` is blocked; **Finish Cleanup** (`c`) removes the original without sending anything. |
+| LockLost | The lock or call budget ran out before the send or cleanup completion. | Kept. Retry resubmit with `r` or cleanup with `c`. |
+| SendFailed | This attempt definitely sent no copy, for example because preparing the message failed. | Kept; `r` retries. |
+| SendUncertain | Acceptance is unknown. The SDK can recover a link and retry internally. Even a final rejection can follow an accepted transfer. lazybus leaves the original uncompleted. | Amber. `r` is allowed after you check the target; the retry reuses the same MessageId. Duplicates are possible when detection is off or its window has expired. |
+| CleanupPending | Send accepted. The completion reply was inconclusive and the original may already be gone. | Red. `r` is blocked; **Finish Cleanup** (`c`) checks for the original and removes it if found. Cleanup sends nothing. |
 
 A message that Azure auto-forwarded from another entity's dead letters (`ForwardDeadLetteredMessagesTo`) carries `DeadLetterSource`; lazybus still resubmits it to the entity you opened, not to the source.
 

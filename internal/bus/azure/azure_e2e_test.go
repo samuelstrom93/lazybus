@@ -746,9 +746,8 @@ func TestAzure(t *testing.T) {
 		}
 		check("invalid Entra token", badToken, ns)
 
-		// A Listen-only SAS rule can peek and receive but not send: the
-		// repair's send is a definite rejection → SendFailed, nothing
-		// changed.
+		// A Listen-only SAS rule can peek and receive but not send: only
+		// the fixture knows no send could succeed. The SDK exposes the final error.
 		key := e.queueRule(t, listenRule, admin.AccessRightListen)
 		listen := azure.New()
 		defer listen.Close(context.Background())
@@ -773,22 +772,22 @@ func TestAzure(t *testing.T) {
 		r := repairReq(lns, q.entity(), before[1].SequenceNumber)
 		r.Index = 1
 		res, err := svc.Repair(ctx, r)
-		if err != nil || res.Outcome != bus.SendFailed || bus.KindOf(res.Err) != bus.ErrUnauthorized || len(res.AbandonErrors) != 0 {
+		if err != nil || res.Outcome != bus.SendUncertain || bus.KindOf(res.Err) != bus.ErrUnauthorized || len(res.AbandonErrors) != 0 {
 			t.Fatalf("listen-only repair: %v (%s), err %v, send err kind %v, abandon errors %v", res.Outcome, res.Detail, err, bus.KindOf(res.Err), res.AbandonErrors)
 		}
 		t.Logf("listen-only repair: %v: %s", res.Outcome, res.Detail)
 		after := peekAll(t, e.b, e.ns, q.entity(), bus.DeadLetter)
 		if len(after) != 3 {
-			t.Fatalf("%s/$DLQ: 3 → %d after SendFailed", q, len(after))
+			t.Fatalf("%s/$DLQ: 3 → %d after SendUncertain", q, len(after))
 		}
 		was := deliveryCounts(before)
 		for id, dc := range deliveryCounts(after) {
 			if was[id] != dc {
-				t.Errorf("%s: DeliveryCount %d → %d after SendFailed", id, was[id], dc)
+				t.Errorf("%s: DeliveryCount %d → %d after SendUncertain", id, was[id], dc)
 			}
 		}
 		if n := len(peekAll(t, e.b, e.ns, q.entity(), bus.Active)); n != 0 {
-			t.Fatalf("%s has %d active after SendFailed", q, n)
+			t.Fatalf("%s has %d active after SendUncertain", q, n)
 		}
 	})
 

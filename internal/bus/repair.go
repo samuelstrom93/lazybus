@@ -27,21 +27,19 @@ func Markers() []string {
 type Outcome int
 
 const (
-	// Resubmitted: the copy is in the target and the original is gone.
+	// Resubmitted: the target acknowledged the send and the DLQ acknowledged completion.
 	Resubmitted Outcome = iota
-	// NotFound: the message was not in the DLQ (already gone, or not
-	// within the scan limits); nothing was sent.
+	// NotFound: the pre-check or the bounded scan did not find the message.
+	// See NotFoundCause. This attempt sent nothing.
 	NotFound
-	// LockLost: the lock on the original ran out before the send; nothing
-	// changed.
+	// LockLost: the lock or call budget ran out before send or cleanup completion.
 	LockLost
-	// SendFailed: the target refused the copy; nothing changed.
+	// SendFailed: this attempt definitely sent no copy.
 	SendFailed
-	// SendUncertain: the send ended ambiguously; the original is back in
-	// the DLQ and the copy may or may not be in the target.
+	// SendUncertain: the send ended ambiguously. Completion was not attempted.
 	SendUncertain
-	// CleanupPending: the copy is in the target and the original is still
-	// in the DLQ. Resolved by Finish Cleanup.
+	// CleanupPending: the target acknowledged the send. Completion of the
+	// original is unconfirmed. Finish Cleanup checks before settling.
 	CleanupPending
 	// Cleaned: Finish Cleanup removed the original; nothing was sent.
 	Cleaned
@@ -224,8 +222,8 @@ type RepairResult struct {
 	Locked int
 	// AbandonErrors lists every abandon that failed; never swallowed.
 	AbandonErrors []AbandonError
-	// Err is the broker error behind SendFailed, SendUncertain or
-	// CleanupPending.
+	// Err is the underlying send or completion error, including an
+	// unconfirmed completion during FinishCleanup.
 	Err error
 	// Log holds one line per state-changing broker call, for the command
 	// log.
@@ -320,8 +318,8 @@ type Driver interface {
 	DeadLetterReceiver(ctx context.Context, ns Namespace, e Entity) (DeadLetterReceiver, error)
 	// Send builds the copy of original (§6 step 3.2: markers stripped,
 	// property types kept, listed fields copied, messageID set, edits
-	// applied) and sends it to t. definite reports a definite rejection
-	// (nothing was delivered); otherwise a send error is ambiguous.
+	// applied) and sends it to t. on error, definite means the caller can rule out a
+	// transfer, including failures while preparing the copy.
 	Send(ctx context.Context, ns Namespace, t Target, original Locked, messageID string, edits Edits) (definite bool, err error)
 }
 
@@ -533,7 +531,7 @@ func (s *Service) resubmit(ctx context.Context, rcv DeadLetterReceiver, req Repa
 	// §6 step 3.3: local lock check on the received message.
 	if !s.lockValid(match) {
 		s.abandon(ctx, rcv, res, []Locked{match})
-		res.Outcome, res.Detail = LockLost, "lock on the message expires too soon to send (nothing changed)"
+		res.Outcome, res.Detail = LockLost, "lock on the message expires too soon to send"
 		return
 	}
 	// §6 step 3.4: a call whose time is up sends nothing (a send on a
@@ -556,7 +554,7 @@ func (s *Service) resubmit(ctx context.Context, rcv DeadLetterReceiver, req Repa
 	if err != nil {
 		res.Err = err
 		if definite {
-			res.logf(true, "send %s seq %d → %s %s (%s) → rejected: %s", src, req.SequenceNumber, t.Kind, t.Name, ids, errMsg(err))
+			res.logf(true, "send %s seq %d → %s %s (%s) → not sent: %s", src, req.SequenceNumber, t.Kind, t.Name, ids, errMsg(err))
 			res.Outcome, res.Detail = SendFailed, shortDetail(err)
 		} else {
 			res.logf(true, "send %s seq %d → %s %s (%s) → uncertain: %s", src, req.SequenceNumber, t.Kind, t.Name, ids, errMsg(err))
@@ -606,19 +604,19 @@ func (s *Service) FinishCleanup(ctx context.Context, req RepairRequest) (RepairR
 		res.OldMessageID = match.MessageID()
 		if !s.lockValid(match) {
 			s.abandon(ctx, rcv, &res, []Locked{match})
-			res.Outcome, res.Detail = LockLost, "lock on the message expires too soon (nothing changed)"
+			res.Outcome, res.Detail = LockLost, "lock on the message expires too soon to complete"
 			return nil
 		}
 		if ctx.Err() != nil {
 			s.abandon(ctx, rcv, &res, []Locked{match})
-			res.Outcome, res.Detail = LockLost, "the call ran out of time before the complete (nothing changed)"
+			res.Outcome, res.Detail = LockLost, "the call ran out of time before the complete"
 			return nil
 		}
 		if err := s.complete(ctx, rcv, &res, match); err != nil {
 			// The original may or may not be gone; the row stays
 			// CleanupPending and another c finds out (NotFound if it is gone).
 			res.Err = err
-			return &Error{Kind: KindOf(err), Op: op, Msg: "complete failed: " + errMsg(err), Err: err}
+			return &Error{Kind: KindOf(err), Op: op, Msg: "completion unconfirmed: " + errMsg(err), Err: err}
 		}
 		res.Outcome = Cleaned
 		return nil

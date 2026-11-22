@@ -193,3 +193,29 @@ func TestBatchExitReportAfterDeferredQuit(t *testing.T) {
 		})
 	}
 }
+
+func TestBulkResubmitReadsCountsOnceAfterPossibleSend(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		op         fake.Op
+		fault      fake.Fault
+		wantReads  int
+		wantActive int64
+	}{
+		{"uncertain send", fake.OpSend, fake.Fault{After: true, Err: context.Canceled}, 1, 121},
+		{"unconfirmed completion", fake.OpComplete, fake.Fault{After: true, Err: context.Canceled}, 1, 121},
+		{"definite failure", fake.OpSend, fake.Fault{Definite: true, Err: context.Canceled}, 0, 120},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			be := fake.New()
+			m := keysIn(t, onOrders(t, be), "space", "j", "space", "r")
+			reads := 0
+			be.SetFault(fake.OpEntities, fake.Fault{Hook: func() { reads++ }})
+			be.SetFault(tc.op, tc.fault)
+			m = keysIn(t, m, "y")
+			if reads != tc.wantReads || activeCount(m, "orders") != tc.wantActive {
+				t.Fatalf("entity reads %d, active %d", reads, activeCount(m, "orders"))
+			}
+		})
+	}
+}

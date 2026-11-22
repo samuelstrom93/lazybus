@@ -22,9 +22,9 @@
 [1;32m│[m  15 [90m19:00 [mSchemaMismatch             [1;32m│[m[90m│[m                                                                              [90m│[m
 [1;32m│[m  16 [90m20:00 [mPoisonMessage              [1;32m│[m[90m│[m                                                                              [90m│[m
 [1;32m│[m  17 [90m21:00 [mSchemaMismatch             [1;32m│[m[90m├[m Log [90m─────────────────────────────────────────────────────────────────────────┤[m
-[1;32m│[m  18 [90m22:00 [mMaxDeliveryCountExceeded   [1;32m│[m[90m│[m[90m 16:00 [mabandon orders/$DLQ seq 3-11 → ok                                      [90m│[m
-[1;32m│[m  19 [90m23:00 [mDownstreamTimeout          [1;32m│[m[90m│[m[90m 16:00 [msend orders/$DLQ seq 2 → queue orders (MessageId ord-4002) → ok        [90m│[m
-[1;32m│[m  20 [90m09-20 [mSchemaMismatch             [1;32m│[m[90m│[m[90m 16:00 [mcomplete orders/$DLQ seq 2 → ok                                        [90m│[m
-[1;32m│[m  21 [90m09-20 [mPoisonMessage              [1;32m│[m[90m│[m[90m 16:00 [mresubmit orders/$DLQ seq 2 → orders  Resubmitted                       [90m│[m
+[1;32m│[m  18 [90m22:00 [mMaxDeliveryCountExceeded   [1;32m│[m[90m│[m[90m 16:00 [msend orders/$DLQ seq 2 → queue orders (MessageId ord-4002) → ok        [90m│[m
+[1;32m│[m  19 [90m23:00 [mDownstreamTimeout          [1;32m│[m[90m│[m[90m 16:00 [mcomplete orders/$DLQ seq 2 → ok                                        [90m│[m
+[1;32m│[m  20 [90m09-20 [mSchemaMismatch             [1;32m│[m[90m│[m[90m 16:00 [mresubmit orders/$DLQ seq 2 → orders  Resubmitted                       [90m│[m
+[1;32m│[m  21 [90m09-20 [mPoisonMessage              [1;32m│[m[90m│[m[90m 16:00 [mlist entities sb-prod-weu → 4                                          [90m│[m
 [1;32m└──────────────────────────────────────┘[m[90m└──────────────────────────────────────────────────────────────────────────────┘[m
  [1;32mResubmitted orders/$DLQ seq 2 → queue orders[m                                                                           

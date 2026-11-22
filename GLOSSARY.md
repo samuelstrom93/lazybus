@@ -19,7 +19,7 @@ The sendable entity — a queue or topic on the same namespace — that receives
 _Avoid_: destination, forward-to (collides with the ForwardTo entity property)
 
 **DLQ Repair**:
-Taking one dead-letter message, optionally applying its Pending Edits, sending the result to the Resubmit Target and removing the original from the dead-letter queue, so no duplicate remains and the copy carries no Dead-letter Markers. A repair with zero edits is still a DLQ Repair. Sending a copy while the original stays dead-lettered is not.
+Taking one dead-letter message, optionally applying its Pending Edits, sending the result to the Resubmit Target and removing the original from the dead-letter queue, with the Dead-letter Markers stripped from the copy. A repair with zero edits is still a DLQ Repair. Sending a copy while the original stays dead-lettered is not.
 _Avoid_: resend, replay, requeue (other tools use these for the copy-and-leave flow)
 "Resubmit" is the user-facing verb for a DLQ Repair (the `r` key, the Resubmitted outcome).
 
@@ -28,15 +28,15 @@ Several picked dead-letter messages of one entity (at most 25) repaired in one c
 _Avoid_: batch repair, mass resubmit (code uses "batch" for the call's types)
 
 **Finish Cleanup**:
-Removing the original of a Resubmit Cleanup Pending message from the dead-letter queue without sending anything, so only the copy in the Resubmit Target remains.
+Checking the dead-letter queue for the original of a Resubmit Cleanup Pending message and removing it if present. Finish Cleanup sends nothing.
 _Avoid_: delete, purge (v0.1 has no general delete)
 
 **Resubmit Cleanup Pending**:
-The outcome of a DLQ Repair where the copy reached the Resubmit Target but the original could not be removed from the dead-letter queue — a copy now exists in both places. Reported distinctly, never as success or failure.
+The outcome of a DLQ Repair where the Resubmit Target acknowledged the send and completion of the original remains unconfirmed. The original may already have left the dead-letter queue.
 _Avoid_: partial resubmit, warning
 
 **Send Uncertain**:
-The outcome of a DLQ Repair where the send to the Resubmit Target ended ambiguously (timeout, dropped link): the original is back in the dead-letter queue and the copy may or may not exist in the target. Never retried automatically.
+The outcome of a DLQ Repair where the send to the Resubmit Target ended ambiguously (timeout, dropped link): acceptance is unknown and the original was not completed by this repair. Another resubmit requires an operator decision.
 
 **Context Stack**:
 The ordered set of UI contexts (side panels, main pane, popups, menus, filter) where only the top context receives keys and `esc` pops one level.

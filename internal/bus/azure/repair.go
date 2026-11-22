@@ -2,7 +2,6 @@ package azure
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync/atomic"
 	"time"
@@ -203,52 +202,16 @@ func (d driver) Send(ctx context.Context, ns bus.Namespace, t bus.Target, origin
 	if err != nil {
 		return true, mapErr(op, err)
 	}
-	err = Safe(op, func() error {
-		return sendDefiniteErr(s.SendMessage(ctx, msg, nil))
-	})
-	if err == nil {
-		return false, nil
+	if err := ctx.Err(); err != nil {
+		return true, mapErr(op, err)
 	}
-	c.dropSender(t.Name, s)
-	var de *definiteErr
-	return errors.As(err, &de), err
-}
-
-// definiteErr marks a send error as a definite rejection, so the
-// classification survives mapErr.
-type definiteErr struct{ error }
-
-func (e *definiteErr) Unwrap() error { return e.error }
-
-func sendDefiniteErr(err error) error {
-	if err != nil && sendDefinite(err) {
-		return &definiteErr{err}
+	err = Safe(op, func() error { return s.SendMessage(ctx, msg, nil) })
+	if err != nil {
+		c.dropSender(t.Name, s)
 	}
-	return err
-}
-
-// sendDefinite reports whether a send error is a definite rejection
-// (nothing was delivered). Everything else is ambiguous (S−1 §7).
-// Definite are only the rejections that don't change between two quick
-// attempts: one of them after the SDK's link-recovery retry
-// (sendClientOptions) means attempt 0 was rejected too. A transient one
-// (server-busy, resource-limit-exceeded, entity-disabled) may follow an
-// attempt 0 that delivered the copy, so it is ambiguous.
-func sendDefinite(err error) bool {
-	var ae *amqp.Error
-	if errors.As(err, &ae) {
-		switch ae.Condition {
-		case amqp.ErrCondNotFound, amqp.ErrCondNotAllowed, amqp.ErrCondUnauthorizedAccess,
-			amqp.ErrCondMessageSizeExceeded:
-			return true
-		}
-		return false
-	}
-	var se *azservicebus.Error
-	if errors.As(err, &se) {
-		return se.Code == azservicebus.CodeUnauthorizedAccess || se.Code == azservicebus.CodeNotFound
-	}
-	return errors.Is(err, azservicebus.ErrMessageTooLarge)
+	// SendMessage exposes only the final attempt's error. Even a rejection
+	// on a recovered link cannot rule out acceptance on the first link.
+	return false, err
 }
 
 // outgoing builds the copy a DLQ Repair sends (§6 step 3.2): the original
@@ -342,29 +305,21 @@ func optional(s string) *string {
 	return &s
 }
 
-// sendClientOptions turns off the SDK's send retries. sendDefinite
-// classifies one error, so it should see the only attempt: with retries an
-// earlier attempt may have delivered the copy (a link drop) while the last
-// one is rejected definitely, and the row would say SendFailed (nothing
-// changed) for a copy that exists (spec §6 step 3.4). The SDK applies retry
-// options per client, so senders get a client of their own.
-//
-// Retries off is not quite one attempt: azservicebus v1.10.0
-// (internal/amqpLinks.go, Retry) still makes one quick link-recovery retry
-// when attempt 0 fails with an *amqp.LinkError. The link can detach after
-// the broker accepted the copy, so sendDefinite counts only rejections
-// that the retry and attempt 0 would both get. The opposite trade-off is
-// safe: a failure while the send link attaches or authorizes (before
-// anything is sent) is classified ambiguous, so the row says SendUncertain
-// though nothing was sent.
+// Disable configurable send retries. azservicebus v1.10.0 can still retry
+// immediately after a link detach (internal/amqpLinks.go, Retry).
 func sendClientOptions() *azservicebus.ClientOptions {
 	// MaxRetries < 0: no retries apart from the link-recovery retry above
 	// (azservicebus v1.10.0).
 	return &azservicebus.ClientOptions{RetryOptions: azservicebus.RetryOptions{MaxRetries: -1}}
 }
 
+type messageSender interface {
+	SendMessage(context.Context, *azservicebus.Message, *azservicebus.SendMessageOptions) error
+	Close(context.Context) error
+}
+
 // sender returns the cached sender for a queue or topic.
-func (c *conn) sender(name string) (*azservicebus.Sender, error) {
+func (c *conn) sender(name string) (messageSender, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if s, ok := c.senders[name]; ok {
@@ -379,7 +334,7 @@ func (c *conn) sender(name string) (*azservicebus.Sender, error) {
 }
 
 // dropSender closes and forgets s after a failed send.
-func (c *conn) dropSender(name string, s *azservicebus.Sender) {
+func (c *conn) dropSender(name string, s messageSender) {
 	c.mu.Lock()
 	if c.senders[name] == s {
 		delete(c.senders, name)

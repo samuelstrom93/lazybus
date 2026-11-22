@@ -78,14 +78,14 @@ type conn struct {
 
 	mu        sync.Mutex
 	receivers map[receiverKey]*azservicebus.Receiver
-	senders   map[string]*azservicebus.Sender
+	senders   map[string]messageSender
 }
 
 func newConn(ns bus.Namespace, emulator bool) *conn {
 	return &conn{
 		ns: ns, emulator: emulator,
 		receivers: map[receiverKey]*azservicebus.Receiver{},
-		senders:   map[string]*azservicebus.Sender{},
+		senders:   map[string]messageSender{},
 	}
 }
 

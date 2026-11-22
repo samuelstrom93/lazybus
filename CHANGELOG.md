@@ -12,6 +12,11 @@ All notable changes to lazybus are listed here. The format follows [Keep a Chang
 
 - The real-namespace end-to-end tests (`go test -tags azure ./...`) read the namespace's tier and, on a Basic namespace (queues only), skip the checks that need Standard: topics, duplicate detection and dead-letter forwarding. The standing test namespace is now Basic; `scripts/e2e-standard.sh` runs the full suite on a temporary Standard namespace and deletes it afterwards, for use before a release.
 
+### Fixed
+
+- DLQ repair now reports an accepted send and an unconfirmed completion separately. Finish Cleanup checks the original without sending again. An Azure SDK send error keeps the row marked for an uncertain retry, even if the last attempt returned a rejection.
+- Queue and subscription counts refresh after a repair that may have changed them. An accepted send can be dropped by duplicate detection or routed by topic filters.
+
 ## [0.3.0] - 2026-11-08
 
 ### Changed

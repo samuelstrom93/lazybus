@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"strings"
@@ -83,8 +84,8 @@ type rowMark struct {
 	source  string
 	target  bus.Target
 	// messageID is the MessageId the attempt sent, and newID whether it
-	// was a new one: a SendUncertain retry reuses it, so a
-	// duplicate-detecting target drops a second copy (spec §6 step 4).
+	// was a new one: a SendUncertain retry reuses it, to allow
+	// duplicate detection within the target's window (spec §6 step 4).
 	messageID string
 	newID     bool
 }
@@ -194,7 +195,7 @@ func (m Model) startRepair(kind confirmKind) (Model, tea.Cmd) {
 	mark, marked := m.markOf(msg.SequenceNumber)
 	switch {
 	case kind == confirmRepair && marked && mark.outcome == bus.CleanupPending:
-		m.setStatus(statusErr, "copy already in target — press c to finish cleanup")
+		m.setStatus(statusErr, "send already accepted — press c to check the original")
 		return m, nil
 	case kind == confirmCleanup && (!marked || mark.outcome != bus.CleanupPending):
 		m.setStatus(statusInfo, "c finishes cleanup on a CleanupPending row only")
@@ -234,10 +235,20 @@ func (m *Model) endBusy() {
 	m.busy = busyState{}
 }
 
+// An error returned by Repair or RepairBatch precedes any send. Errors
+// from the transfer itself arrive as outcomes, including cancellation.
+func repairErrorText(op string, err error, resubmitting bool) string {
+	text := errText(op, err)
+	if resubmitting && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+		return "no send attempted: " + text
+	}
+	return text
+}
+
 func (m Model) planDone(msg planDoneMsg) (Model, tea.Cmd) {
 	m.endBusy()
 	if msg.err != nil {
-		text := errText(msg.kind.op(msg.req), msg.err)
+		text := repairErrorText(msg.kind.op(msg.req), msg.err, msg.kind == confirmRepair)
 		m.logf(true, "%s", text)
 		m.setStatus(statusErr, "%s", text)
 		return m, nil
@@ -297,10 +308,10 @@ func (m Model) handleConfirmKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 			break
 		}
 		if c.kind == confirmBatch {
-			m.setStatus(statusInfo, "%s canceled; nothing changed", batchOp(c.batch))
+			m.setStatus(statusInfo, "%s canceled before execution", batchOp(c.batch))
 			break
 		}
-		m.setStatus(statusInfo, "%s canceled; nothing changed", c.kind.op(c.req))
+		m.setStatus(statusInfo, "%s canceled before execution", c.kind.op(c.req))
 	case (c.kind == confirmRepair && !c.uncertain || c.kind == confirmBatch) && key.Matches(msg, keys.ToggleID):
 		m.confirm.newID = !m.confirm.newID
 	}
@@ -347,9 +358,15 @@ func (m Model) repairDone(msg repairDoneMsg) (Model, tea.Cmd) {
 		m.logf(l.Err, "%s", l.Text)
 	}
 	if msg.err != nil {
-		text := errText(msg.kind.op(msg.req), msg.err)
+		text := repairErrorText(msg.kind.op(msg.req), msg.err, msg.kind == confirmRepair)
 		m.logf(true, "%s", text)
 		m.setStatus(statusErr, "%s", text)
+		// A Finish Cleanup completion can take effect even when its reply
+		// is lost. Preserve the existing mark and re-read the counts.
+		if msg.kind == confirmCleanup && msg.res.Err != nil {
+			cmd := m.refreshRepairCounts(msg.req.Namespace)
+			return m, cmd
+		}
 		return m, nil
 	}
 	cmd := m.applyResult(msg.kind, msg.req, msg.res)
@@ -361,7 +378,12 @@ func (m Model) repairDone(msg repairDoneMsg) (Model, tea.Cmd) {
 func (m *Model) applyResult(kind confirmKind, req bus.RepairRequest, res bus.RepairResult) tea.Cmd {
 	m.logOutcome(kind, req, res)
 	m.status = m.outcomeStatus(kind, req, res)
-	return m.outcomeRows(kind, req, res)
+	rows := m.outcomeRows(req, res)
+	switch res.Outcome {
+	case bus.Resubmitted, bus.Cleaned, bus.SendUncertain, bus.CleanupPending:
+		return tea.Batch(rows, m.refreshRepairCounts(req.Namespace))
+	}
+	return rows
 }
 
 // logOutcome is the command-log line of one outcome.
@@ -407,14 +429,14 @@ func (m Model) outcomeStatus(kind confirmKind, req bus.RepairRequest, res bus.Re
 			text = fmt.Sprintf("NotFound: %s seq %d not reached within the scan limit — may still be in the DLQ; R to refresh", src, req.SequenceNumber)
 		}
 	case bus.LockLost:
-		level, text = statusWarn, fmt.Sprintf("LockLost: nothing changed; %s to retry", retry)
+		level, text = statusWarn, fmt.Sprintf("LockLost: no send or completion attempted; %s to retry", retry)
 	case bus.SendFailed:
-		level, text = statusErr, fmt.Sprintf("SendFailed (nothing changed): %s %s rejected the copy (%s)", t.Kind, t.Name, res.Detail)
+		level, text = statusErr, fmt.Sprintf("SendFailed: this attempt sent no copy to %s %s (%s)", t.Kind, t.Name, res.Detail)
 	case bus.SendUncertain:
-		level, text = statusWarn, fmt.Sprintf("SendUncertain (check the target before retrying): the copy may or may not be in %s %s", t.Kind, t.Name)
+		level, text = statusWarn, fmt.Sprintf("SendUncertain (check target before retry): %s. Acceptance by %s %s is unknown", res.Detail, t.Kind, t.Name)
 	case bus.CleanupPending:
-		level, text = statusErr, fmt.Sprintf("CleanupPending (press c to finish cleanup): copy is in %s %s and the original is still in %s seq %d",
-			t.Kind, t.Name, src, req.SequenceNumber)
+		level, text = statusErr, fmt.Sprintf("CleanupPending (c to check): send accepted by %s %s, completion unconfirmed (%s)",
+			t.Kind, t.Name, res.Detail)
 	}
 	if n := len(res.AbandonErrors); n > 0 {
 		text += fmt.Sprintf(" (%d abandon error%s, see log)", n, plural(n))
@@ -424,14 +446,13 @@ func (m Model) outcomeStatus(kind confirmKind, req bus.RepairRequest, res bus.Re
 }
 
 // outcomeRows is the row handling of one outcome (spec §6 step 4).
-func (m *Model) outcomeRows(kind confirmKind, req bus.RepairRequest, res bus.RepairResult) tea.Cmd {
+func (m *Model) outcomeRows(req bus.RepairRequest, res bus.RepairResult) tea.Cmd {
 	src := entityLabel(req.Entity, bus.DeadLetter)
 	t := res.Target
 	k := reqMarkKey(req)
 	switch res.Outcome {
 	case bus.Resubmitted, bus.Cleaned:
-		counts := m.moveCounts(req, res)
-		return tea.Batch(counts, m.removeRow(req))
+		return m.removeRow(req)
 	case bus.NotFound:
 		if res.NotFound == bus.NotFoundScan {
 			return nil // the pre-check saw it: it may still be there
@@ -519,43 +540,13 @@ func (m *Model) removeRow(req bus.RepairRequest) tea.Cmd {
 	return cmd
 }
 
-// moveCounts updates the shown counts after the original left req's DLQ:
-// its DLQ count drops by one, and a Resubmitted copy in a queue adds one to
-// that queue's active count. Unknown counts stay unknown; a topic's
-// subscriptions are left alone (which ones got a copy depends on rules).
-// A refresh in flight listed the old counts, so it is sent again.
-func (m *Model) moveCounts(req bus.RepairRequest, res bus.RepairResult) tea.Cmd {
-	if m.openNS == nil || m.openNS.FQDN != req.Namespace.FQDN {
+// Count changes depend on duplicate detection, subscription rules and possibly
+// unacknowledged operations. Read a fresh snapshot after the repair.
+func (m *Model) refreshRepairCounts(ns bus.Namespace) tea.Cmd {
+	if m.openNS == nil || m.openNS.FQDN != ns.FQDN {
 		return nil
 	}
-	items := append([]bus.Entity(nil), m.entities.all...)
-	changed := false
-	for i, e := range items {
-		if !e.CountsKnown {
-			continue
-		}
-		if e.Path == req.Entity.Path && e.Kind == req.Entity.Kind && e.DeadLetterCount > 0 {
-			items[i].DeadLetterCount--
-			changed = true
-		}
-		if res.Outcome == bus.Resubmitted && res.Target.Kind == bus.TargetQueue &&
-			e.Kind == bus.KindQueue && e.Path == res.Target.Name {
-			items[i].ActiveCount++
-			changed = true
-		}
-	}
-	if !changed {
-		return nil
-	}
-	prev, ok := m.entities.selected()
-	m.entities.setAll(sortEntities(items, m.sortDLQ), m.entityText)
-	if ok {
-		m.selectEntity(prev)
-	}
-	if m.entities.loading {
-		return m.loadEntities(*m.openNS, false, true)
-	}
-	return nil
+	return m.loadEntities(ns, false, true)
 }
 
 // --- rendering -----------------------------------------------------------
@@ -593,10 +584,10 @@ func (m Model) markLines(seq int64, width int) []string {
 	var text string
 	switch mark.outcome {
 	case bus.CleanupPending:
-		text = fmt.Sprintf("CleanupPending: the copy is in %s %s and the original is still in %s. Press c to finish cleanup (removes the original; nothing is sent).",
+		text = fmt.Sprintf("CleanupPending: send accepted by %s %s, completion unconfirmed for %s. Press c to check and remove the original if present. Nothing is sent.",
 			mark.target.Kind, mark.target.Name, mark.source)
 	case bus.SendUncertain:
-		text = fmt.Sprintf("SendUncertain: the copy may or may not be in %s %s. Check the target before pressing r again.",
+		text = fmt.Sprintf("SendUncertain: acceptance by %s %s is unknown. Check the target before pressing r again.",
 			mark.target.Kind, mark.target.Name)
 	default:
 		return nil
@@ -744,7 +735,7 @@ func (m Model) cleanupBlocks(b *confirmBuilder) (title string, footer []seg) {
 	p := m.confirm.plan
 	b.field("Remove", planMessage(p), statusInfo, false)
 	if p.Target.Name != "" {
-		b.field("Copy", "already in "+planTarget(p), statusInfo, false)
+		b.field("Copy", "send accepted by "+planTarget(p), statusInfo, false)
 	}
 	b.field("Send", "nothing is sent", statusInfo, false)
 	b.field("Scan", p.ScanCost, statusInfo, true)

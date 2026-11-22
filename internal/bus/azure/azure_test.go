@@ -363,52 +363,61 @@ func TestOutgoingCopy(t *testing.T) {
 	}
 }
 
-func TestSendDefinite(t *testing.T) {
-	cases := []struct {
-		err      error
-		definite bool
-	}{
-		{&amqp.Error{Condition: amqp.ErrCondNotFound}, true},
-		{&amqp.Error{Condition: amqp.ErrCondNotAllowed}, true},
-		{&amqp.Error{Condition: amqp.ErrCondUnauthorizedAccess}, true},
-		{&amqp.Error{Condition: amqp.ErrCondMessageSizeExceeded}, true},
-		{fmt.Errorf("send: %w", &amqp.Error{Condition: amqp.ErrCondNotFound}), true},
-		{&azservicebus.Error{Code: azservicebus.CodeUnauthorizedAccess}, true},
-		{&azservicebus.Error{Code: azservicebus.CodeNotFound}, true},
-		{azservicebus.ErrMessageTooLarge, true},
-		// Transient: may follow a delivered copy after the SDK's
-		// link-recovery retry (sendClientOptions).
-		{&amqp.Error{Condition: amqp.ErrCondResourceLimitExceeded}, false},
-		{&amqp.Error{Condition: "com.microsoft:entity-disabled"}, false},
-		{&amqp.Error{Condition: "com.microsoft:server-busy"}, false},
-		{&amqp.Error{Condition: "com.microsoft:timeout"}, false},
-		{&amqp.Error{Condition: amqp.ErrCondInternalError}, false},
-		{&azservicebus.Error{Code: azservicebus.CodeTimeout}, false},
-		{&azservicebus.Error{Code: azservicebus.CodeConnectionLost}, false},
-		{&azservicebus.Error{Code: azservicebus.CodeClosed}, false},
-		{context.DeadlineExceeded, false},
-		{context.Canceled, false},
-		{&amqp.LinkError{}, false},
-		{errors.New("unknown"), false},
-	}
-	for _, tc := range cases {
-		if got := sendDefinite(tc.err); got != tc.definite {
-			t.Errorf("%v: definite %v, want %v", tc.err, got, tc.definite)
+// The SDK can lose the first reply, recover its link and return a rejection
+// from the new link. The adapter sees the same error if only one attempt ran.
+type stubSender struct {
+	calls int
+	err   error
+}
+
+func (s *stubSender) SendMessage(context.Context, *azservicebus.Message, *azservicebus.SendMessageOptions) error {
+	s.calls++
+	return s.err
+}
+
+func (*stubSender) Close(context.Context) error { return nil }
+
+func TestSDKSendErrorLeavesAcceptanceUnknown(t *testing.T) {
+	for _, finalErr := range []error{
+		&azservicebus.Error{Code: azservicebus.CodeUnauthorizedAccess},
+		&amqp.Error{Condition: amqp.ErrCondNotFound},
+		azservicebus.ErrMessageTooLarge,
+		context.DeadlineExceeded,
+	} {
+		sender := &stubSender{err: finalErr}
+		c := &conn{senders: map[string]messageSender{"orders": sender}}
+		d := driver{&Backend{conns: []*conn{c}}}
+		original := &received{&azservicebus.ReceivedMessage{}}
+		definite, err := d.Send(t.Context(), c.ns, bus.Target{Name: "orders"}, original, "id", bus.Edits{})
+		if c.senders["orders"] != nil {
+			t.Fatal("failed send link still cached for the next operator retry")
 		}
-		// The classification survives mapping to a *bus.Error.
-		var de *definiteErr
-		if got := errors.As(mapErr("send", sendDefiniteErr(tc.err)), &de); got != tc.definite {
-			t.Errorf("%v: after mapErr definite %v", tc.err, got)
+		if definite || !errors.Is(err, finalErr) || sender.calls != 1 {
+			t.Errorf("final error %v: definite %v, err %v, SDK calls %d", finalErr, definite, err, sender.calls)
 		}
 	}
 }
 
-// TestSendClientNoRetries: a resubmit's send is one attempt, so the error
-// sendDefinite classifies is the only one (spec §6 step 3.4).
-func TestSendClientNoRetries(t *testing.T) {
-	if r := sendClientOptions().RetryOptions.MaxRetries; r >= 0 {
-		t.Fatalf("send client MaxRetries = %d, want < 0 (no retries)", r)
+func TestSendCanceledBeforeSDKCall(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	sender := &stubSender{}
+	c := &conn{senders: map[string]messageSender{"orders": sender}}
+	d := driver{&Backend{conns: []*conn{c}}}
+	definite, err := d.Send(ctx, c.ns, bus.Target{Name: "orders"}, &received{&azservicebus.ReceivedMessage{}}, "id", bus.Edits{})
+	if !definite || !errors.Is(err, context.Canceled) || sender.calls != 0 {
+		t.Fatalf("definite %v, err %v, SDK calls %d", definite, err, sender.calls)
 	}
+}
+
+// Disable configurable retries on the dedicated send client.
+func TestSendRetryOptions(t *testing.T) {
+	if r := sendClientOptions().RetryOptions.MaxRetries; r >= 0 {
+		t.Fatalf("send client MaxRetries = %d, want < 0 (no configurable retries)", r)
+	}
+}
+
+func TestSendClientNoRetries(t *testing.T) {
 	b := New()
 	defer b.Close(context.Background())
 	if _, err := b.AddConnectionString(EmulatorConnectionString("localhost", 5682), 5310); err != nil {

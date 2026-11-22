@@ -266,7 +266,7 @@ func batchOp(req bus.BatchRequest) string {
 func (m Model) batchPlanDone(msg batchPlanDoneMsg) (Model, tea.Cmd) {
 	m.endBusy()
 	if msg.err != nil {
-		text := errText(batchOp(msg.req), msg.err)
+		text := repairErrorText(batchOp(msg.req), msg.err, true)
 		m.logf(true, "%s", text)
 		m.setStatus(statusErr, "%s", text)
 		return m, nil
@@ -284,7 +284,7 @@ func (m Model) batchPlanDone(msg batchPlanDoneMsg) (Model, tea.Cmd) {
 			r := msg.req.Item(it)
 			m.logOutcome(confirmRepair, r, res)
 			m.setPicked(false, it.SequenceNumber)
-			cmds = append(cmds, m.outcomeRows(confirmRepair, r, res))
+			cmds = append(cmds, m.outcomeRows(r, res))
 		case p.Refused == "":
 			ready.Items = append(ready.Items, it)
 		default:
@@ -330,7 +330,7 @@ func (m Model) batchDone(msg batchDoneMsg) (Model, tea.Cmd) {
 		m.logf(l.Err, "%s", l.Text)
 	}
 	if msg.err != nil {
-		text := errText(batchOp(msg.req), msg.err)
+		text := repairErrorText(batchOp(msg.req), msg.err, true)
 		m.logf(true, "%s", text)
 		m.setStatus(statusErr, "%s", text)
 		return m, nil
@@ -351,7 +351,10 @@ func (m Model) batchDone(msg batchDoneMsg) (Model, tea.Cmd) {
 		}
 		counts[ir.Outcome]++
 		m.logOutcome(confirmRepair, r, ir.RepairResult)
-		cmds = append(cmds, m.outcomeRows(confirmRepair, r, ir.RepairResult))
+		cmds = append(cmds, m.outcomeRows(r, ir.RepairResult))
+	}
+	if counts[bus.Resubmitted] > 0 || counts[bus.SendUncertain] > 0 || counts[bus.CleanupPending] > 0 {
+		cmds = append(cmds, m.refreshRepairCounts(msg.req.Namespace))
 	}
 	m.status = batchStatus(msg, counts, skipped)
 	return m, tea.Batch(cmds...)

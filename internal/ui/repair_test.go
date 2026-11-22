@@ -210,7 +210,7 @@ func TestFinishCleanupNotFoundAndLockLost(t *testing.T) {
 		if mark, ok := m.markOf(seq); !ok || mark.outcome != bus.CleanupPending || len(m.messages.items) != 37 {
 			t.Fatalf("mark %v %v, %d rows", mark, ok, len(m.messages.items))
 		}
-		if !strings.HasPrefix(m.status.text, "LockLost: nothing changed; c to retry") {
+		if !strings.HasPrefix(m.status.text, "LockLost: no send or completion attempted; c to retry") {
 			t.Fatalf("status %q", m.status.text)
 		}
 	})
@@ -339,6 +339,9 @@ func TestRepairSendUncertainMarksAndWarnsOnRetry(t *testing.T) {
 	m := onOrders(t, be)
 	be.SetFault(fake.OpSend, fake.Fault{Err: context.DeadlineExceeded})
 	m = keysIn(t, m, "r", "y")
+	if !strings.Contains(m.status.text, "context deadline exceeded") {
+		t.Errorf("uncertain send status omits the reason: %q", m.status.text)
+	}
 	mark, ok := m.markOf(selectedSeq(t, m))
 	if !ok || mark.outcome != bus.SendUncertain || len(m.messages.items) != 37 {
 		t.Fatalf("mark %v %v, %d rows", mark, ok, len(m.messages.items))
@@ -488,7 +491,7 @@ func TestExitReportAfterDeferredQuit(t *testing.T) {
 			"\n  resubmit orders/$DLQ seq 2 → orders  Resubmitted",
 		}, false},
 		{"SendFailed", fake.Fault{Err: &bus.Error{Kind: bus.ErrUnauthorized, Msg: "unauthorized: 'Send' claim(s) are required to perform this operation. TrackingId:7f3a"}, Definite: true}, []string{
-			"lazybus quit after the call finished: SendFailed (nothing changed): queue orders rejected the copy",
+			"lazybus quit after the call finished: SendFailed: this attempt sent no copy to queue orders",
 			"TrackingId:7f3a", // the full error, not the short detail
 		}, true},
 	} {
@@ -617,15 +620,15 @@ func TestRepairCleanupPendingThenFinishCleanup(t *testing.T) {
 	m := onOrders(t, be)
 	seq := selectedSeq(t, m)
 	be.SetFault(fake.OpComplete, fake.Fault{Err: errors.New("link detached")})
-	active := activeCount(m, "orders")
 	m = keysIn(t, m, "r", "y")
+	active := activeCount(m, "orders")
 	if mark, ok := m.markOf(seq); !ok || mark.outcome != bus.CleanupPending || dlqCount(m, "orders") != 37 {
 		t.Fatalf("mark %v %v count %d", mark, ok, dlqCount(m, "orders"))
 	}
 
 	be.ResetEvents()
 	m = keysIn(t, m, "r")
-	if !m.stack.AtRoot() || m.status.text != "copy already in target — press c to finish cleanup" || len(be.Events()) != 0 {
+	if !m.stack.AtRoot() || m.status.text != "send already accepted — press c to check the original" || len(be.Events()) != 0 {
 		t.Fatalf("r on CleanupPending: top %v status %q events %v", m.stack.Top(), m.status.text, be.Events())
 	}
 
@@ -969,5 +972,166 @@ func TestOptionsBarFinishCleanupOnlyOnCleanupPending(t *testing.T) {
 		if _, ok := m.markOf(selectedSeq(t, m)); !ok || strings.Contains(bar, "c finish cleanup") != tc.want {
 			t.Fatalf("%s row: %q", tc.name, bar)
 		}
+	}
+}
+
+func TestRepairAcceptedSendWithLostCompleteReply(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		keys    []string
+		target  string
+		applied bool
+	}{
+		{"queue, original still present", []string{"2", "j", "j", "j", "enter"}, "queue orders", false},
+		{"subscription, original already removed", []string{"2", "j", "enter"}, "topic order-events", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			be := fake.New()
+			m := keysIn(t, startWith(t, be), tc.keys...)
+			seq := selectedSeq(t, m)
+			be.SetFault(fake.OpComplete, fake.Fault{Err: context.DeadlineExceeded, After: tc.applied})
+			m = keysIn(t, m, "r", "y")
+			mark, ok := m.markOf(seq)
+			if !ok || mark.outcome != bus.CleanupPending {
+				t.Fatalf("mark = %+v, present %v", mark, ok)
+			}
+			if !strings.Contains(m.status.text, "context deadline exceeded") {
+				t.Errorf("cleanup status omits the reason: %q", m.status.text)
+			}
+			for _, text := range []string{m.status.text, stripBoxes(strings.Join(m.markLines(seq, 100), "\n"))} {
+				if !strings.Contains(text, "send accepted by "+tc.target) || !strings.Contains(text, "completion unconfirmed") {
+					t.Errorf("reported outcome: %s", text)
+				}
+			}
+			be.ResetEvents()
+			be.SetFault(fake.OpComplete, fake.Fault{})
+			m = keysIn(t, m, "r")
+			if !m.stack.AtRoot() {
+				t.Fatal("resubmit opened on a CleanupPending row")
+			}
+			m = keysIn(t, m, "c")
+			if tc.applied {
+				if !strings.HasPrefix(m.status.text, "NotFound") || len(be.Events()) != 0 {
+					t.Fatalf("already removed: status %q, events %v", m.status.text, be.Events())
+				}
+			} else {
+				if m.stack.Top() != CtxConfirm || !strings.Contains(stripBoxes(m.View().Content), "accepted by "+tc.target) {
+					t.Errorf("cleanup confirmation: %s", stripBoxes(m.View().Content))
+				}
+				m = keysIn(t, m, "y")
+				if !strings.HasPrefix(m.status.text, "Cleaned") {
+					t.Fatalf("cleanup: %q", m.status.text)
+				}
+			}
+			for _, e := range be.Events() {
+				if e.Op == fake.OpSend {
+					t.Fatalf("cleanup sent again: %v", e)
+				}
+			}
+			if _, ok := m.markOf(seq); ok || selectedSeq(t, m) == seq {
+				t.Fatal("resolved row still selected or marked")
+			}
+		})
+	}
+}
+
+func TestRepairCountAfterDuplicateDropped(t *testing.T) {
+	be := fake.New(fake.WithClock(func() time.Time { return fake.Epoch.Add(13*time.Hour + time.Minute) }))
+	m := keysIn(t, startWith(t, be), "3", "r", "m", "y")
+	got := activeCount(m, "invoices")
+	broker := len(be.Messages("sb-prod-weu", "invoices", bus.KindQueue, bus.Active))
+	if broker != 12 || got != int64(broker) || dlqCount(m, "invoices") != 2 {
+		t.Fatalf("active shown %d, broker %d, DLQ shown %d", got, broker, dlqCount(m, "invoices"))
+	}
+}
+
+func TestUncertainRetryWithoutDuplicateDetection(t *testing.T) {
+	be := fake.New()
+	m := onOrders(t, be)
+	msg, _ := m.selectedMessage()
+	be.SetFault(fake.OpSend, fake.Fault{After: true, Err: context.Canceled})
+	m = keysIn(t, m, "r", "y")
+	be.SetFault(fake.OpSend, fake.Fault{})
+	be.ResetEvents()
+	m = keysIn(t, m, "r", "n")
+	if mark, ok := m.markOf(msg.SequenceNumber); !ok || mark.outcome != bus.SendUncertain || len(be.Events()) != 0 {
+		t.Fatalf("canceling retry: mark %+v, events %v", mark, be.Events())
+	}
+	m = keysIn(t, m, "r", "y")
+	var copies int
+	for _, copy := range be.Messages(m.openNS.Name, "orders", bus.KindQueue, bus.Active) {
+		if copy.MessageID == msg.MessageID {
+			copies++
+		}
+	}
+	if copies != 2 || len(m.marks) != 0 {
+		t.Fatalf("explicit retry: copies %d, marks %+v", copies, m.marks)
+	}
+}
+
+func TestFinishCleanupLostReplyKeepsAcceptedMessageID(t *testing.T) {
+	be := fake.New()
+	m := keysIn(t, startWith(t, be), "3")
+	seq := selectedSeq(t, m)
+	be.SetFault(fake.OpComplete, fake.Fault{Err: context.DeadlineExceeded})
+	m = keysIn(t, m, "r", "y")
+	before, ok := m.markOf(seq)
+	if !ok || before.outcome != bus.CleanupPending || !before.newID {
+		t.Fatalf("expected accepted send with new MessageId, got %+v", before)
+	}
+	be.ResetEvents()
+	be.SetFault(fake.OpComplete, fake.Fault{After: true, Err: context.DeadlineExceeded})
+	m = keysIn(t, m, "c", "y")
+	if after, ok := m.markOf(seq); !ok || before != after || !strings.Contains(m.status.text, "completion unconfirmed") {
+		t.Fatalf("cleanup: mark %+v, status %q", after, m.status.text)
+	}
+	if got := dlqCount(m, "invoices"); got != 2 {
+		t.Errorf("after unconfirmed cleanup: DLQ count %d, want broker count 2", got)
+	}
+	m = keysIn(t, m, "c")
+	if !strings.HasPrefix(m.status.text, "NotFound") || len(m.marks) != 0 {
+		t.Fatalf("recheck: marks %+v, status %q", m.marks, m.status.text)
+	}
+	for _, e := range be.Events() {
+		if e.Op == fake.OpSend {
+			t.Fatalf("cleanup retry sent a copy: %+v", e)
+		}
+	}
+}
+
+// Cancel the real repair context on the second receive, after it holds one batch.
+type cancelDuringScan struct{ *fake.Backend }
+
+func (b cancelDuringScan) Repair(ctx context.Context, req bus.RepairRequest) (bus.RepairResult, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	b.SetFault(fake.OpReceive, fake.Fault{Hook: func() {
+		b.SetFault(fake.OpReceive, fake.Fault{Hook: cancel})
+	}})
+	return b.Backend.Repair(ctx, req)
+}
+
+func TestRepairCanceledDuringScan(t *testing.T) {
+	be := cancelDuringScan{fake.New()}
+	m := keysIn(t, startWith(t, be), "2", "j", "j", "j", "enter", "G", "r", "y")
+	if !strings.Contains(m.status.text, "no send attempted") || !strings.Contains(m.status.text, "canceled") ||
+		len(m.messages.items) != 37 || len(m.marks) != 0 {
+		t.Fatalf("status %q, rows %d, marks %v", m.status.text, len(m.messages.items), m.marks)
+	}
+	held := map[int64]bool{}
+	received := 0
+	for _, e := range be.Events() {
+		switch e.Op {
+		case fake.OpReceive:
+			held[e.Seq] = true
+			received++
+		case fake.OpAbandon:
+			delete(held, e.Seq)
+		default:
+			t.Fatalf("unexpected broker operation: %+v", e)
+		}
+	}
+	if received != bus.ScanBatch || len(held) != 0 {
+		t.Fatalf("received %d, still held %v", received, held)
 	}
 }

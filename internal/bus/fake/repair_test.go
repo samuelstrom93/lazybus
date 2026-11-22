@@ -305,7 +305,7 @@ func TestRepairSendFailed(t *testing.T) {
 	b.SetFault(OpSend, Fault{Err: long, Definite: true})
 	res = repair(t, b, req(orders, 2, 0))
 	if res.Detail != "unauthorized: 'Send' claim(s) are required to perform…" ||
-		!hasLog(res, "send orders/$DLQ seq 2 → queue orders (MessageId ord-4002) → rejected: "+long.Msg) {
+		!hasLog(res, "send orders/$DLQ seq 2 → queue orders (MessageId ord-4002) → not sent: "+long.Msg) {
 		t.Fatalf("detail %q log %+v", res.Detail, res.Log)
 	}
 }
@@ -735,5 +735,38 @@ func TestRepairSettlePanicIsReported(t *testing.T) {
 	}
 	if !strings.Contains(res.AbandonErrors[0].Err.Error(), "internal error: nil receiver") {
 		t.Fatalf("abandon error %v", res.AbandonErrors[0].Err)
+	}
+}
+
+func TestRepairCancellationAtSend(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		send    Fault
+		outcome bus.Outcome
+	}{
+		{"awaiting reply", Fault{After: true, Err: context.Canceled}, bus.SendUncertain},
+		{"acknowledged before settlement", Fault{}, bus.Resubmitted},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := New()
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			tc.send.Hook = cancel
+			b.SetFault(OpSend, tc.send)
+			// Both settles must still work after the caller cancels.
+			b.SetFault(OpComplete, Fault{Delay: time.Millisecond})
+			b.SetFault(OpAbandon, Fault{Delay: time.Millisecond, Seq: 2})
+			res, err := b.Repair(ctx, req(queue("orders"), 2, 0))
+			if err != nil || res.Outcome != tc.outcome || len(res.AbandonErrors) != 0 {
+				t.Fatalf("outcome %v, err %v, abandon errors %v", res.Outcome, err, res.AbandonErrors)
+			}
+			_, present := find(dlq(b, queue("orders")), 2)
+			complete := hasEvent(b, Event{OpComplete, "orders/$DLQ", 2})
+			abandon := hasEvent(b, Event{OpAbandon, "orders/$DLQ", 2})
+			wantComplete := tc.outcome == bus.Resubmitted
+			if complete != wantComplete || abandon == complete || present == complete || len(active(b, queue("orders"))) != 121 {
+				t.Fatalf("complete %v, abandon %v, original present %v, active %d", complete, abandon, present, len(active(b, queue("orders"))))
+			}
+		})
 	}
 }

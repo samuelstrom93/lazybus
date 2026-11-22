@@ -27,4 +27,4 @@
 [1;32m│[m  19 [90m23:00 [mDownstreamTimeout          [1;32m│[m[90m│[m[90m 16:00 [mabandon orders/$DLQ seq 2 → ok                                         [90m│[m
 [1;32m│[m  20 [90m09-20 [mSchemaMismatch             [1;32m│[m[90m│[m[90m 16:00 [m[31mresubmit orders/$DLQ seq 2 → orders  LockLost: lock on the message exp…[m[90m│[m
 [1;32m└──────────────────────────────────────┘[m[90m└──────────────────────────────────────────────────────────────────────────────┘[m
- [33mLockLost: nothing changed; r to retry[m                                                                                  
+ [33mLockLost: no send or completion attempted; r to retry[m                                                                  
