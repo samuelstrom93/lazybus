@@ -365,6 +365,12 @@ func TestFitEntityPathKeepsSubscription(t *testing.T) {
 	if a == b {
 		t.Errorf("sibling subscriptions collided: %q", a)
 	}
+	// Long subscription exceeding column budget still keeps "…/" + subscription prefix.
+	la := fitEntityPath("very-long-topic/billing-events-eu", 15)
+	lb := fitEntityPath("very-long-topic/shipping-events-eu", 15)
+	if !strings.HasPrefix(la, "…/billing") || !strings.HasPrefix(lb, "…/shipping") || la == lb {
+		t.Errorf("long subscription fallback collided: %q vs %q", la, lb)
+	}
 }
 
 func TestMessageRowDropsTimeForNarrowAndLongSeq(t *testing.T) {
@@ -380,6 +386,39 @@ func TestMessageRowDropsTimeForNarrowAndLongSeq(t *testing.T) {
 	}
 }
 
+func TestMarkedRowWith17DigitSeqAt80x24(t *testing.T) {
+	m := resized(t, onOrders(t, fake.New()), 80, 24)
+	const bigSeq int64 = 12345678901234567
+	m.messages.items[0].SequenceNumber = bigSeq
+	m.messages.all[0].SequenceNumber = bigSeq
+	m.msgCols = m.msgCols.add(m.messages.all)
+	mk, _ := m.markKeyOf(bigSeq)
+	m.setMark(mk, rowMark{outcome: bus.CleanupPending, source: "orders/$DLQ", target: bus.Target{Kind: bus.TargetQueue, Name: "orders"}})
+	s := screenText(m)
+	if !strings.Contains(s, "CleanupPending") || !strings.Contains(s, "…") {
+		t.Errorf("17-digit seq at 80x24 clipped CleanupPending:\n%s", s)
+	}
+}
+
+func TestMessagesTitle80x24ShowsFilterAndPicks(t *testing.T) {
+	m := resized(t, onOrders(t, fake.New()), 80, 24)
+	// Typing a filter echoes in the Messages title at 80×24.
+	typing := keysIn(t, m, "/", "d", "o", "w", "n")
+	if s := screenText(typing); !strings.Contains(s, "/down▏") {
+		t.Errorf("80x24 typing filter not visible in title:\n%s", s)
+	}
+	// Kept filter stays visible at 80×24.
+	kept := keysIn(t, typing, "enter")
+	if s := screenText(kept); !strings.Contains(s, "/down") {
+		t.Errorf("80x24 kept filter not visible in title:\n%s", s)
+	}
+	// Picked count stays visible at 80×24, including with filter active.
+	picked := keysIn(t, kept, "space")
+	if s := screenText(picked); !strings.Contains(s, "1●") || !strings.Contains(s, "/down") {
+		t.Errorf("80x24 picks+filter not visible in title:\n%s", s)
+	}
+}
+
 func TestOptionsBarHidesBlockedKeysOnMarkedRows(t *testing.T) {
 	be := fake.New()
 	m := onOrders(t, be)
@@ -390,6 +429,13 @@ func TestOptionsBarHidesBlockedKeysOnMarkedRows(t *testing.T) {
 	bar := ansi.Strip(m.renderOptions())
 	if !strings.Contains(bar, "c finish cleanup") || strings.Contains(bar, "r resubmit") || strings.Contains(bar, "e set prop") || strings.Contains(bar, "E edit body") {
 		t.Errorf("CleanupPending bar = %q", bar)
+	}
+
+	// Picking a CleanupPending row and moving to an ordinary row still hides r resubmit.
+	pickedMarked := keysIn(t, m, "space", "j")
+	pickedMarked.status = statusLine{}
+	if bar := ansi.Strip(pickedMarked.renderOptions()); strings.Contains(bar, "r resubmit") {
+		t.Errorf("ordinary cursor with picked CleanupPending should hide r resubmit: %q", bar)
 	}
 
 	m.setMark(mk, rowMark{outcome: bus.SendUncertain, source: "orders/$DLQ", target: bus.Target{Kind: bus.TargetQueue, Name: "orders"}})

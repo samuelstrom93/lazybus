@@ -97,7 +97,7 @@ Rule: same letter = analogous action in every context; lowercase = common action
 | Entities | `enter` | open → focus Messages |
 | | `s` | toggle sort path / DLQ count |
 | Messages | `tab` | toggle DLQ / Active |
-| | `enter` | focus main pane |
+| | `enter` | inspect (focus main pane) |
 | | `r` | resubmit selected DLQ message (DLQ Repair) — confirm popup |
 | | `E` | edit body in `$EDITOR` (`$VISUAL`, then `$EDITOR`, then `vi`) |
 | | `e` | add a Property Edit (empty key) |

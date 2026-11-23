@@ -44,6 +44,9 @@ type confirmState struct {
 	// that will go, and the pre-check of every picked one.
 	batch     bus.BatchRequest
 	batchPlan bus.BatchPlan
+	// scroll is the first visible row when mandatory confirm content exceeds
+	// the popup height; y is gated until the bottom is visible.
+	scroll int
 }
 
 // busyState is the busy popup: what runs, and whether it changes state
@@ -279,43 +282,83 @@ func (m Model) planDone(msg planDoneMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleConfirmKey: y confirms, n/esc cancel, m toggles the MessageId
-// (not on a SendUncertain retry, which reuses the previous attempt's);
-// every other key, enter included, is ignored, so the popup defaults to
-// cancel (spec §2).
+// handleConfirmKey: y confirms (once any scrolled warnings are visible),
+// n/esc cancel, m toggles the MessageId (not on a SendUncertain retry,
+// which reuses the previous attempt's), and scroll keys move when mandatory
+// content overflows; every other key, enter included, is ignored, so the
+// popup defaults to cancel (spec §2).
 func (m Model) handleConfirmKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
+	if m.scrollConfirm(msg) {
+		return m, nil
+	}
 	c := m.confirm
 	switch {
-	case key.Matches(msg, keys.Confirm) && c.kind == confirmDiscard:
-		m.stack.Pop()
-		m.confirm = confirmState{}
-		m.setEdits(reqMarkKey(c.req), bus.Edits{})
-		m.setStatus(statusOK, "discarded %d Pending Edit%s of %s seq %d", c.req.Edits.Count(), plural(c.req.Edits.Count()),
-			entityLabel(c.req.Entity, bus.DeadLetter), c.req.SequenceNumber)
-	case key.Matches(msg, keys.Confirm) && c.kind == confirmBatch:
-		m.stack.Pop()
-		m.confirm = confirmState{}
-		return m.executeBatch(c)
 	case key.Matches(msg, keys.Confirm):
+		if _, _, _, _, offset, maxScroll := m.confirmViewport(); offset < maxScroll {
+			return m, nil
+		}
 		m.stack.Pop()
 		m.confirm = confirmState{}
-		return m.execute(c)
+		return m.runConfirm(c)
 	case key.Matches(msg, keys.Cancel):
 		m.stack.Pop()
 		m.confirm = confirmState{}
-		if c.kind == confirmDiscard {
-			m.setStatus(statusInfo, "discard canceled; Pending Edits kept")
-			break
-		}
-		if c.kind == confirmBatch {
-			m.setStatus(statusInfo, "%s canceled before execution", batchOp(c.batch))
-			break
-		}
-		m.setStatus(statusInfo, "%s canceled before execution", c.kind.op(c.req))
+		m.confirmCanceled(c)
 	case (c.kind == confirmRepair && !c.uncertain || c.kind == confirmBatch) && key.Matches(msg, keys.ToggleID):
 		m.confirm.newID = !m.confirm.newID
+		m.confirm.scroll = 0
 	}
 	return m, nil
+}
+
+func (m *Model) scrollConfirm(msg tea.KeyPressMsg) bool {
+	_, _, _, room, offset, maxScroll := m.confirmViewport()
+	if maxScroll == 0 {
+		return false
+	}
+	step := max(1, room/2)
+	switch {
+	case key.Matches(msg, keys.Down):
+		m.confirm.scroll = min(offset+1, maxScroll)
+	case key.Matches(msg, keys.Up):
+		m.confirm.scroll = max(offset-1, 0)
+	case key.Matches(msg, keys.HalfDown):
+		m.confirm.scroll = min(offset+step, maxScroll)
+	case key.Matches(msg, keys.HalfUp):
+		m.confirm.scroll = max(offset-step, 0)
+	case key.Matches(msg, keys.Top):
+		m.confirm.scroll = 0
+	case key.Matches(msg, keys.Bottom):
+		m.confirm.scroll = maxScroll
+	default:
+		return false
+	}
+	return true
+}
+
+func (m Model) runConfirm(c confirmState) (Model, tea.Cmd) {
+	switch c.kind {
+	case confirmDiscard:
+		m.setEdits(reqMarkKey(c.req), bus.Edits{})
+		m.setStatus(statusOK, "discarded %d Pending Edit%s of %s seq %d", c.req.Edits.Count(), plural(c.req.Edits.Count()),
+			entityLabel(c.req.Entity, bus.DeadLetter), c.req.SequenceNumber)
+		return m, nil
+	case confirmBatch:
+		return m.executeBatch(c)
+	default:
+		return m.execute(c)
+	}
+}
+
+func (m *Model) confirmCanceled(c confirmState) {
+	switch c.kind {
+	case confirmDiscard:
+		m.setStatus(statusInfo, "discard canceled; Pending Edits kept")
+	case confirmBatch:
+		m.setStatus(statusInfo, "%s canceled before execution", batchOp(c.batch))
+	default:
+		m.setStatus(statusInfo, "%s canceled before execution", c.kind.op(c.req))
+	}
 }
 
 // execute runs the confirmed Repair or FinishCleanup.
@@ -868,24 +911,41 @@ func fitBlocks(blocks []confirmBlock, n int) []string {
 			out = append(out, b.lines...)
 		}
 	}
-	return out[:min(len(out), n)]
+	return out
+}
+
+func (m Model) confirmViewport() (title string, body []string, footer []seg, room, offset, maxScroll int) {
+	w := m.popupW(104)
+	title, blocks, footer := m.confirmBlocks(w - 2)
+	room = max(1, m.popupArea().h-2)
+	body = fitBlocks(blocks, room)
+	maxScroll = max(0, len(body)-room)
+	offset = max(0, min(m.confirm.scroll, maxScroll))
+	return title, body, footer, room, offset, maxScroll
 }
 
 func (m Model) overlayConfirm(screen string) string {
 	w := m.popupW(104)
 	inner := w - 2
-	title, blocks, footer := m.confirmBlocks(inner)
-	// Rows between the borders: the popup area minus the two borders; a
-	// blank row above and below when they fit.
-	room := max(1, m.popupArea().h-2)
-	body := fitBlocks(blocks, room)
-	pad := len(body)+2 <= room
+	title, body, footer, room, offset, maxScroll := m.confirmViewport()
+	visible := body[offset:min(len(body), offset+room)]
+	titleSegs := []seg{{title, stTitleFocus}}
+	if maxScroll > 0 {
+		titleSegs = append(titleSegs, seg{fmt.Sprintf(" %d–%d/%d", offset+1, offset+len(visible), len(body)), stDim})
+		if offset < maxScroll && len(footer) >= 2 {
+			footer = append([]seg{{"↓", stKey}, {" scroll to confirm  ", stWarn}}, footer[2:]...)
+		} else {
+			footer = append(append([]seg{}, footer...), seg{"  ", stDim}, seg{"↑↓", stKey}, seg{" scroll", stDim})
+		}
+	}
+	// A blank row above and below when they fit.
+	pad := len(visible)+2 <= room
 	blank := boxRow(strings.Repeat(" ", inner), stBorderFocus)
-	lines := []string{hBorder(w, "┌", "┐", []seg{{title, stTitleFocus}}, stBorderFocus)}
+	lines := []string{hBorder(w, "┌", "┐", titleSegs, stBorderFocus)}
 	if pad {
 		lines = append(lines, blank)
 	}
-	for _, l := range body {
+	for _, l := range visible {
 		lines = append(lines, boxRow(fitStyled(l, inner), stBorderFocus))
 	}
 	if pad {

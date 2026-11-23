@@ -247,3 +247,44 @@ func TestBulkConfirm80x24KeepsWarningsWithManySkipped(t *testing.T) {
 		t.Errorf("refused rows should be unpicked: %d picked, want 1", got)
 	}
 }
+
+func TestBulkConfirm80x24ScrollsAndGatesConfirmOnMultipleWarnings(t *testing.T) {
+	be := fake.New()
+	m := keysIn(t, onOrders(t, be), "v", "j", "j", "j", "v")
+	seqs := m.pickedSeqs()
+	if len(seqs) != 4 {
+		t.Fatalf("picked %d, want 4", len(seqs))
+	}
+	for _, seq := range seqs[2:] {
+		be.SetUnsupported("sb-prod-weu", "orders", bus.KindQueue, seq, "AmqpValue body")
+	}
+	m = keysIn(t, m, "r")
+	m.confirm.batchPlan.DuplicateDetection = true
+	m.confirm.batchPlan.Warnings = []string{
+		"target is topic order-events (an unknown number of subscriptions): delivered only to subscriptions whose rules match; no match = dropped",
+		"duplicate detection unknown (no Manage rights): new MessageId by default; keeping the original id risks silent drop while the original is completed",
+	}
+	m.confirm.newID = false // operator pressed m to keep original MessageIds
+	m = resized(t, m, 80, 24)
+
+	// Mandatory warnings overflow 80×24: y is gated until scrolled to the bottom.
+	s := screenText(m)
+	if !strings.Contains(s, "scroll to confirm") || strings.Contains(s, "y resubmit") {
+		t.Fatalf("expected scroll gate before reaching bottom:\n%s", s)
+	}
+	m = keysIn(t, m, "y")
+	if m.stack.Top() != CtxConfirm {
+		t.Fatalf("y confirmed while warnings were still hidden below the fold")
+	}
+
+	// Scroll to the bottom: final warning is visible and y now executes.
+	m = keysIn(t, m, "G")
+	s = screenText(m)
+	if !strings.Contains(s, "silent drop") || !strings.Contains(s, "y resubmit 2") {
+		t.Fatalf("expected final warning and y resubmit after scrolling:\n%s", s)
+	}
+	m = keysIn(t, m, "y")
+	if m.stack.Top() != CtxMessages || !strings.HasPrefix(m.status.text, "Resubmit 2 → queue orders: 2 Resubmitted") {
+		t.Fatalf("after scroll+y: top %v status %q", m.stack.Top(), m.status.text)
+	}
+}

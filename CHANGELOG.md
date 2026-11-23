@@ -4,6 +4,19 @@ All notable changes to lazybus are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Changed
+
+- Modal popups now own the green focus border while the background panel dims and keeps `▸` on its active row, blanking the full popup area so no stray lines peek above or below the frame.
+- All popups (Keybindings, Jump, Recent, Edit, Confirm) use unified cyan-key bottom borders and leave the options bar clear; Keybindings shows a `start–end/total` scroll indicator and avoids dangling section headers.
+- Selected `SendUncertain` and `CleanupPending` rows keep amber and red selection highlights; outcome banners bold their leading label; `SendUncertain` log entries render in amber; confirm-popup property diffs use `+` green, `−` red, and `*` yellow.
+- `stSelected` sets an explicit bright foreground and `stDim` uses terminal faint (`SGR 2`) instead of ANSI colour 8, improving contrast on light and Solarized themes.
+- Narrow (`80×24`) and long-content polish: entity paths middle-truncate to preserve the `/subscription` suffix, `Messages` drops the time column (and abbreviates long sequence numbers on marked rows) so `CleanupPending`/`SendUncertain` stay unclipped, `Messages` title prioritizes picks and `/filter` on narrow screens, `Properties` computes regular-property and dead-letter-marker key widths independently, namespace detail labels adapt so FQDNs stay on one line, filtered list titles show `shown/total` counts, and the pending-edits badge reads `✎ N edited msg(s)`.
+- Shortened options-bar labels (`enter inspect`, `tab DLQ/Active`, `e set prop`), omitted `[ ] details` on Namespaces, and hid blocked edit/resubmit keys when a marked row or ineligible picked batch is active.
+
+### Fixed
+
+- Bulk confirm popups now collapse long `Skipped` lists and scroll with `y` gated until all mandatory warnings are visible, preventing delivery warnings from being cut off at `80×24`; refused rows are also unpicked during bulk pre-check so the picked count matches `Resubmit N message(s)`.
+
 ## [0.3.1] - 2026-11-22
 
 ### Added

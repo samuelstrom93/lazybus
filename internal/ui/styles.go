@@ -26,8 +26,8 @@ var (
 	stTitleFocus   = lipgloss.NewStyle().Foreground(colGreen).Bold(true)
 	stDim          = lipgloss.NewStyle().Faint(true)
 	stSelected     = lipgloss.NewStyle().Background(colBlue).Foreground(lipgloss.Color("15")).Bold(true)
-	stSelectedWarn = lipgloss.NewStyle().Background(colYellow).Foreground(lipgloss.Color("0")).Bold(true)
-	stSelectedErr  = lipgloss.NewStyle().Background(colRed).Foreground(lipgloss.Color("15")).Bold(true)
+	stSelectedWarn = lipgloss.NewStyle().Foreground(colYellow).Reverse(true).Bold(true)
+	stSelectedErr  = lipgloss.NewStyle().Foreground(colRed).Reverse(true).Bold(true)
 	stKey          = lipgloss.NewStyle().Foreground(colCyan)
 	stErr          = lipgloss.NewStyle().Foreground(colRed)
 	stWarn         = lipgloss.NewStyle().Foreground(colYellow)
@@ -166,6 +166,9 @@ func fitEntityPath(path string, width int) string {
 			prefix := ansi.Truncate(s[:i], width-1-subW, "")
 			out := prefix + "…" + sub
 			return out + strings.Repeat(" ", max(0, width-ansi.StringWidth(out)))
+		}
+		if width >= 4 {
+			return "…/" + fitPlain(s[i+1:], width-2)
 		}
 	}
 	return fitPlain(s, width)

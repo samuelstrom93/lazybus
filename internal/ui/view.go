@@ -141,7 +141,7 @@ func (m Model) renderSide(l layout) []string {
 	}{
 		{CtxNamespaces, m.sideTitle(CtxNamespaces, "1 Namespaces", m.namespaces.loading, m.namespaces.filter, len(m.namespaces.items), len(m.namespaces.all)), m.namespaceRows(inner, l.side[0])},
 		{CtxEntities, m.entitiesTitle(), m.entityRows(inner, l.side[1])},
-		{CtxMessages, m.messagesTitle(), m.messageRows(inner, l.side[2])},
+		{CtxMessages, m.messagesTitle(inner - 2), m.messageRows(inner, l.side[2])},
 	}
 	var out []string
 	for i, p := range panels {
@@ -209,7 +209,7 @@ func (m Model) entitiesTitle() []seg {
 	return append(t, m.filterTitle(CtxEntities, m.entities.filter, len(m.entities.items), len(m.entities.all))...)
 }
 
-func (m Model) messagesTitle() []seg {
+func (m Model) messagesTitle(maxW int) []seg {
 	active := m.titleStyle(CtxMessages)
 	if !m.panelFocused(CtxMessages) {
 		active = stBold
@@ -219,21 +219,75 @@ func (m Model) messagesTitle() []seg {
 		dlq, act = stDim, active
 	}
 	t := []seg{{"3 Messages", m.titleStyle(CtxMessages)}, {"  ", stPlain}, {"DLQ", dlq}, {"│", stDim}, {"Active", act}}
+	t = append(t, m.messagesStatusSegs(false)...)
+	t = append(t, m.messagesPickSegs(false)...)
+	t = append(t, m.filterTitle(CtxMessages, m.messages.filter, len(m.messages.items), len(m.messages.all))...)
+	if segsWidth(t) <= maxW {
+		return t
+	}
+	return m.compactMessagesTitle(maxW, active)
+}
+
+func (m Model) messagesStatusSegs(short bool) []seg {
 	switch {
 	case m.messages.loading:
-		t = append(t, seg{" loading…", stDim})
+		if short {
+			return []seg{{" …", stDim}}
+		}
+		return []seg{{" loading…", stDim}}
 	case m.messages.err != nil && len(m.messages.items) > 0:
 		// A failed next page: the rows stay, the title says so.
-		t = append(t, seg{" error", stErr})
-	}
-	if n := len(m.pickedSeqs()); n > 0 || m.picks.ranging {
-		text := fmt.Sprintf(" %d picked", n)
-		if m.picks.ranging {
-			text += " (v range)"
+		if short {
+			return []seg{{" err", stErr}}
 		}
-		t = append(t, seg{text, stKey})
+		return []seg{{" error", stErr}}
 	}
-	return append(t, m.filterTitle(CtxMessages, m.messages.filter, len(m.messages.items), len(m.messages.all))...)
+	return nil
+}
+
+func (m Model) messagesPickSegs(short bool) []seg {
+	n := len(m.pickedSeqs())
+	if n == 0 && !m.picks.ranging {
+		return nil
+	}
+	if short {
+		text := fmt.Sprintf(" %d●", n)
+		if m.picks.ranging {
+			text += "v"
+		}
+		return []seg{{text, stKey}}
+	}
+	text := fmt.Sprintf(" %d picked", n)
+	if m.picks.ranging {
+		text += " (v range)"
+	}
+	return []seg{{text, stKey}}
+}
+
+// compactMessagesTitle keeps picks and filter visible on narrow screens
+// (80×24) by dropping the inactive sub-queue label, match count, and full
+// wording before truncating active state.
+func (m Model) compactMessagesTitle(maxW int, active lipgloss.Style) []seg {
+	sub := "DLQ"
+	if m.subQueue == bus.Active {
+		sub = "Act"
+	}
+	filterShort := m.filterTitle(CtxMessages, m.messages.filter, 0, 0)
+	status := m.messagesStatusSegs(true)
+	picks := m.messagesPickSegs(true)
+	titleSt := m.titleStyle(CtxMessages)
+	candidates := [][]seg{
+		append(append(append([]seg{{"3 Messages", titleSt}, {" ", stPlain}, {sub, active}}, status...), picks...), filterShort...),
+		append(append(append([]seg{{"3 Messages", titleSt}}, status...), picks...), filterShort...),
+		append(append(append([]seg{{"3 Msg", titleSt}, {" ", stPlain}, {sub, active}}, status...), picks...), filterShort...),
+		append(append(append([]seg{{"3 Msg", titleSt}}, status...), picks...), filterShort...),
+	}
+	for _, c := range candidates {
+		if segsWidth(c) <= maxW {
+			return c
+		}
+	}
+	return candidates[len(candidates)-1]
 }
 
 // listRows renders n rows of a list with the default selection highlight.
@@ -395,7 +449,7 @@ func (m Model) messageRows(width, n int) []string {
 	return listRowsStyled(m.messages, m.panelFocused(CtxMessages), width, n,
 		status, m.isPicked, m.messageSelStyle,
 		func(msg bus.Message) []seg {
-			return m.messageRowSegs(msg, digits, showTime, reasonW, idW, now)
+			return m.messageRowSegs(msg, width, digits, showTime, reasonW, idW, now)
 		})
 }
 
@@ -427,29 +481,15 @@ func (m Model) messageSelStyle(msg bus.Message) *lipgloss.Style {
 	return &stSelected
 }
 
-func (m Model) messageRowSegs(msg bus.Message, digits int, showTime bool, reasonW, idW int, now time.Time) []seg {
-	seq := padLeft(strconv.FormatInt(msg.SequenceNumber, 10), digits) + " "
+func (m Model) messageRowSegs(msg bus.Message, width, digits int, showTime bool, reasonW, idW int, now time.Time) []seg {
+	rawSeq := strconv.FormatInt(msg.SequenceNumber, 10)
+	seq := padLeft(rawSeq, digits) + " "
 	at := ""
 	if showTime {
 		at = listTime(msg.EnqueuedTime, now, m.opts.Location) + " "
 	}
 	if mark, ok := m.markOf(msg.SequenceNumber); ok {
-		// A marked row (SendUncertain, CleanupPending) is amber or red and
-		// keeps its full outcome name before appending the reason.
-		st := levelStyle(markStyleOf(mark.outcome))
-		labelW := reasonW
-		if idW > 0 {
-			labelW += 1 + idW
-		}
-		label := mark.outcome.String()
-		if reason := m.rowReason(msg); reason != "" && labelW > len(label)+3 {
-			label += " · " + reason
-		}
-		segs := []seg{{seq, st}}
-		if at != "" {
-			segs = append(segs, seg{at, st})
-		}
-		return append(segs, seg{fitPlain(label, labelW), st})
+		return m.markedMessageSegs(msg, mark, width, rawSeq, seq, at, reasonW, idW)
 	}
 	segs := []seg{{seq, stPlain}}
 	if at != "" {
@@ -460,6 +500,37 @@ func (m Model) messageRowSegs(msg bus.Message, digits int, showTime bool, reason
 		segs = append(segs, seg{" " + msg.MessageID, stDim})
 	}
 	return segs
+}
+
+// markedMessageSegs renders a SendUncertain or CleanupPending row, reserving
+// full width for the outcome name by abbreviating long sequence numbers on
+// narrow terminals (e.g. 17-digit partitioned seqs at 80×24).
+func (m Model) markedMessageSegs(msg bus.Message, mark rowMark, width int, rawSeq, seq, at string, reasonW, idW int) []seg {
+	st := levelStyle(markStyleOf(mark.outcome))
+	outName := mark.outcome.String()
+	labelW := reasonW
+	if idW > 0 {
+		labelW += 1 + idW
+	}
+	avail := width - 2
+	if at == "" && labelW < len(outName) && avail >= len(outName)+3 {
+		seqW := max(2, avail-1-len(outName))
+		if len(rawSeq) > seqW {
+			seq = "…" + rawSeq[len(rawSeq)-(seqW-1):] + " "
+		} else {
+			seq = padLeft(rawSeq, seqW) + " "
+		}
+		labelW = avail - ansi.StringWidth(seq)
+	}
+	label := outName
+	if reason := m.rowReason(msg); reason != "" && labelW > len(label)+3 {
+		label += " · " + reason
+	}
+	segs := []seg{{seq, st}}
+	if at != "" {
+		segs = append(segs, seg{at, st})
+	}
+	return append(segs, seg{fitPlain(label, labelW), st})
 }
 
 // minMsgIDW is the narrowest MessageId column the Messages panel shows.
@@ -1122,8 +1193,12 @@ func (m Model) barFlags() optionFlags {
 		f.edit = !marked
 		f.discard = !marked && !m.editsOf(msg.SequenceNumber).IsZero()
 		if marked && mark.outcome == bus.CleanupPending {
-			f.repair = dlqWrite && m.hasEligibleBatch()
+			f.repair = false
 		}
+	}
+	if len(m.pickedSeqs()) > 0 || m.picks.ranging {
+		// When rows are picked, r operates on the picks rather than the cursor row.
+		f.repair = dlqWrite && m.hasEligibleBatch()
 	}
 	return f
 }

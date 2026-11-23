@@ -7,7 +7,7 @@
 [90m│[m  order-events/shipping act   4 [2mDLQ  0[m[90m│[m[90m│[m {                                                                            [90m│[m
 [90m│[m▸ orders                act 120 [33mDLQ 37[m[90m│[m[90m│[m   "orderId": 4002,                                                           [90m│[m
 [1;32m├[m [1;32m3 Messages[m  [1;32mDLQ[m[2m│[m[2mActive[m [1;32m──────────────┤[m[90m│[m   "status": "pending",                                                       [90m│[m
-[1;32m│[m[1;30;43m▸ [m[1;30;43m 2 [m[1;30;43m06:00 [m[1;30;43mSendUncertain · SchemaMism…[m[1;32m│[m[90m│[m   "customer": null,                                                          [90m│[m
+[1;32m│[m[1;7;33m▸ [m[1;7;33m 2 [m[1;7;33m06:00 [m[1;7;33mSendUncertain · SchemaMism…[m[1;32m│[m[90m│[m   "customer": null,                                                          [90m│[m
 [1;32m│[m   3 [2m07:00 [mMaxDeliveryCountExceeded   [1;32m│[m[90m│[m   "items": [                                                                 [90m│[m
 [1;32m│[m   4 [2m08:00 [mDownstreamTimeout          [1;32m│[m[90m│[m     {                                                                        [90m│[m
 [1;32m│[m   5 [2m09:00 [mSchemaMismatch             [1;32m│[m[90m│[m       "sku": "A-100",                                                        [90m│[m
