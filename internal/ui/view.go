@@ -440,7 +440,7 @@ func (m Model) messageRows(width, n int) []string {
 	if m.subQueue == bus.Active {
 		reasonMax = m.msgCols.subject
 	}
-	showTime, reasonW, idW := messageRowLayout(width, digits, reasonMax)
+	seqW, showTime, reasonW, idW := messageRowLayout(width, digits, reasonMax)
 	now := m.opts.Now()
 	status := listStatus(m.messages, empty)
 	if m.isSessionful(m.messages.err) {
@@ -449,26 +449,41 @@ func (m Model) messageRows(width, n int) []string {
 	return listRowsStyled(m.messages, m.panelFocused(CtxMessages), width, n,
 		status, m.isPicked, m.messageSelStyle,
 		func(msg bus.Message) []seg {
-			return m.messageRowSegs(msg, width, digits, showTime, reasonW, idW, now)
+			return m.messageRowSegs(msg, seqW, showTime, reasonW, idW, now)
 		})
 }
 
 // messageRowLayout computes column widths for the Messages list. When the
 // remaining reason column would be narrower than "CleanupPending" (14 cells),
-// the 5-cell time column drops first so marked outcomes stay legible at 80×24
-// and with long sequence numbers.
-func messageRowLayout(width, digits, reasonMax int) (showTime bool, reasonW, idW int) {
-	rest := width - 2 - digits - 1 - 5 - 1
-	showTime = rest >= len(bus.CleanupPending.String())
+// the 5-cell time column drops first; if long sequence numbers (e.g. 17-digit
+// partitioned entities) still leave under 14 cells, the seq column is
+// abbreviated to its trailing digits so reasons and outcomes stay legible.
+func messageRowLayout(width, digits, reasonMax int) (seqW int, showTime bool, reasonW, idW int) {
+	minOutcomeW := len(bus.CleanupPending.String())
+	seqW = digits
+	rest := width - 2 - seqW - 1 - 5 - 1
+	showTime = rest >= minOutcomeW
 	if !showTime {
-		rest = max(1, width-2-digits-1)
+		avail := width - 2
+		if avail-seqW-1 < minOutcomeW && avail >= minOutcomeW+3 {
+			seqW = max(2, avail-1-minOutcomeW)
+		}
+		rest = max(1, avail-seqW-1)
 	}
 	reasonW = min(reasonMax, rest)
 	idW = rest - reasonW - 1
 	if idW < minMsgIDW {
 		reasonW, idW = rest, 0
 	}
-	return showTime, reasonW, idW
+	return seqW, showTime, reasonW, idW
+}
+
+func formatSeq(seq int64, seqW int) string {
+	raw := strconv.FormatInt(seq, 10)
+	if len(raw) > seqW && seqW >= 2 {
+		return "…" + raw[len(raw)-(seqW-1):]
+	}
+	return padLeft(raw, seqW)
 }
 
 func (m Model) messageSelStyle(msg bus.Message) *lipgloss.Style {
@@ -481,15 +496,14 @@ func (m Model) messageSelStyle(msg bus.Message) *lipgloss.Style {
 	return &stSelected
 }
 
-func (m Model) messageRowSegs(msg bus.Message, width, digits int, showTime bool, reasonW, idW int, now time.Time) []seg {
-	rawSeq := strconv.FormatInt(msg.SequenceNumber, 10)
-	seq := padLeft(rawSeq, digits) + " "
+func (m Model) messageRowSegs(msg bus.Message, seqW int, showTime bool, reasonW, idW int, now time.Time) []seg {
+	seq := formatSeq(msg.SequenceNumber, seqW) + " "
 	at := ""
 	if showTime {
 		at = listTime(msg.EnqueuedTime, now, m.opts.Location) + " "
 	}
 	if mark, ok := m.markOf(msg.SequenceNumber); ok {
-		return m.markedMessageSegs(msg, mark, width, rawSeq, seq, at, reasonW, idW)
+		return m.markedMessageSegs(msg, mark, seq, at, reasonW, idW)
 	}
 	segs := []seg{{seq, stPlain}}
 	if at != "" {
@@ -502,27 +516,15 @@ func (m Model) messageRowSegs(msg bus.Message, width, digits int, showTime bool,
 	return segs
 }
 
-// markedMessageSegs renders a SendUncertain or CleanupPending row, reserving
-// full width for the outcome name by abbreviating long sequence numbers on
-// narrow terminals (e.g. 17-digit partitioned seqs at 80×24).
-func (m Model) markedMessageSegs(msg bus.Message, mark rowMark, width int, rawSeq, seq, at string, reasonW, idW int) []seg {
+// markedMessageSegs renders a SendUncertain or CleanupPending row, keeping
+// the full outcome name before appending the reason.
+func (m Model) markedMessageSegs(msg bus.Message, mark rowMark, seq, at string, reasonW, idW int) []seg {
 	st := levelStyle(markStyleOf(mark.outcome))
-	outName := mark.outcome.String()
 	labelW := reasonW
 	if idW > 0 {
 		labelW += 1 + idW
 	}
-	avail := width - 2
-	if at == "" && labelW < len(outName) && avail >= len(outName)+3 {
-		seqW := max(2, avail-1-len(outName))
-		if len(rawSeq) > seqW {
-			seq = "…" + rawSeq[len(rawSeq)-(seqW-1):] + " "
-		} else {
-			seq = padLeft(rawSeq, seqW) + " "
-		}
-		labelW = avail - ansi.StringWidth(seq)
-	}
-	label := outName
+	label := mark.outcome.String()
 	if reason := m.rowReason(msg); reason != "" && labelW > len(label)+3 {
 		label += " · " + reason
 	}

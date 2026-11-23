@@ -876,10 +876,10 @@ func (c confirmState) messageIDLevel() statusLevel {
 	return statusInfo
 }
 
-// fitBlocks returns the lines of blocks in at most n rows: optional
-// blocks go first, from the last one up, then blocks with more are cut,
-// from the last one up, so warnings and the source, target and MessageId
-// stay on a short terminal.
+// fitBlocks tries to fit blocks in n rows by dropping optional blocks first
+// (from the last one up) and then collapsing blocks with more (from the last
+// one up). Mandatory lines that still exceed n are returned in full so
+// overlayConfirm can scroll them rather than silently dropping warnings.
 func fitBlocks(blocks []confirmBlock, n int) []string {
 	total := 0
 	for _, b := range blocks {
@@ -932,11 +932,7 @@ func (m Model) overlayConfirm(screen string) string {
 	titleSegs := []seg{{title, stTitleFocus}}
 	if maxScroll > 0 {
 		titleSegs = append(titleSegs, seg{fmt.Sprintf(" %d–%d/%d", offset+1, offset+len(visible), len(body)), stDim})
-		if offset < maxScroll && len(footer) >= 2 {
-			footer = append([]seg{{"↓", stKey}, {" scroll to confirm  ", stWarn}}, footer[2:]...)
-		} else {
-			footer = append(append([]seg{}, footer...), seg{"  ", stDim}, seg{"↑↓", stKey}, seg{" scroll", stDim})
-		}
+		footer = scrollConfirmFooter(footer, offset < maxScroll, inner-2)
 	}
 	// A blank row above and below when they fit.
 	pad := len(visible)+2 <= room
@@ -953,6 +949,21 @@ func (m Model) overlayConfirm(screen string) string {
 	}
 	lines = append(lines, hBorder(w, "└", "┘", footer, stBorderFocus))
 	return m.overlay(screen, lines, w)
+}
+
+func scrollConfirmFooter(footer []seg, gated bool, maxW int) []seg {
+	if gated && len(footer) >= 2 {
+		long := append([]seg{{"↓", stKey}, {" scroll to confirm  ", stWarn}}, footer[2:]...)
+		if segsWidth(long) <= maxW {
+			return long
+		}
+		return append([]seg{{"↓", stKey}, {" scroll  ", stWarn}}, footer[2:]...)
+	}
+	withScroll := append(append([]seg{}, footer...), seg{"  ", stDim}, seg{"↑↓", stKey}, seg{" scroll", stDim})
+	if segsWidth(withScroll) <= maxW {
+		return withScroll
+	}
+	return footer
 }
 
 func (m Model) overlayBusy(screen string) string {

@@ -98,7 +98,7 @@ The status bar confirms each copy (`copied …`). Copy uses OSC 52, so it reache
 |---|---|---|
 | `r` | Messages, main pane (DLQ tab) | Resubmit the selected message: checks it is still there, then opens a confirm popup. |
 | `y` | confirm popup | Confirm. Only `y` confirms; `enter` does nothing here. (Outside a popup `y` copies.) |
-| `n` / `esc` | confirm popup | Cancel. Every other key is ignored: nothing happens until you confirm. |
+| `n` / `esc` | confirm popup | Cancel. When mandatory warnings overflow a short screen, `j`/`k`/`↑`/`↓`/`G` scroll and `y` is enabled once the bottom is visible; every other key is ignored. |
 | `m` | resubmit popup | Toggle the copy's MessageId between the original and a new one. |
 | `c` | Messages, main pane | Finish Cleanup on a CleanupPending row (confirm popup; nothing is sent). |
 | `space` | Messages (DLQ tab) | Pick the row for a bulk resubmit (● in the list), or unpick it. |

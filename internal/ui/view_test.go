@@ -375,12 +375,12 @@ func TestFitEntityPathKeepsSubscription(t *testing.T) {
 
 func TestMessageRowDropsTimeForNarrowAndLongSeq(t *testing.T) {
 	// Side panel inner width at 80×24 is 24 cells (leftW=26).
-	showTime, reasonW, _ := messageRowLayout(24, 2, 24)
+	_, showTime, reasonW, _ := messageRowLayout(24, 2, 24)
 	if showTime || reasonW < len("CleanupPending") {
 		t.Errorf("80x24 narrow: showTime=%v reasonW=%d, want time dropped and full outcome fit", showTime, reasonW)
 	}
 	// Side panel inner width at 120×30 is 38 cells (leftW=40) with a 17-digit partitioned seq.
-	showTimeLong, reasonWLong, _ := messageRowLayout(38, 17, 24)
+	_, showTimeLong, reasonWLong, _ := messageRowLayout(38, 17, 24)
 	if showTimeLong || reasonWLong < len("CleanupPending") {
 		t.Errorf("long seq: showTime=%v reasonW=%d, want time dropped", showTimeLong, reasonWLong)
 	}
@@ -394,9 +394,14 @@ func TestMarkedRowWith17DigitSeqAt80x24(t *testing.T) {
 	m.msgCols = m.msgCols.add(m.messages.all)
 	mk, _ := m.markKeyOf(bigSeq)
 	m.setMark(mk, rowMark{outcome: bus.CleanupPending, source: "orders/$DLQ", target: bus.Target{Kind: bus.TargetQueue, Name: "orders"}})
-	s := screenText(m)
-	if !strings.Contains(s, "CleanupPending") || !strings.Contains(s, "…") {
-		t.Errorf("17-digit seq at 80x24 clipped CleanupPending:\n%s", s)
+	rows := m.messageRows(m.layout().leftW-2, 4)
+	row0 := ansi.Strip(rows[0])
+	row1 := ansi.Strip(rows[1])
+	if !strings.Contains(row0, "…234567 CleanupPending") {
+		t.Errorf("marked row at 80x24 = %q, want abbreviated seq + full CleanupPending", row0)
+	}
+	if !strings.Contains(row1, "MaxDeliveryCo…") {
+		t.Errorf("unmarked row at 80x24 with 17-digit peer = %q, want readable reason", row1)
 	}
 }
 

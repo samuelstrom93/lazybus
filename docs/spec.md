@@ -77,7 +77,7 @@ Rule: same letter = analogous action in every context; lowercase = common action
 | Scope | Key | Action |
 |---|---|---|
 | Global | `1` `2` `3` | focus side panel |
-| | `0` | focus main pane |
+| | `0` | inspect (focus main pane) |
 | | `h` `l` / `←` `→` | previous / next panel; on Namespaces and Entities, `l` also opens the selected row like `Enter` |
 | | `j` `k` / `↓` `↑` | move |
 | | `g` `G` | top / bottom |
@@ -113,7 +113,7 @@ Rule: same letter = analogous action in every context; lowercase = common action
 | | `d` | mark selected property for removal (toggle) |
 | Main pane: System | `e` | edit Subject / ContentType (only those rows) |
 | Main pane (any tab) | `r` `x` | same as in Messages |
-| Popups | `y` | confirm a destructive popup (`enter` does nothing there — §2 defaults to cancel); `enter` confirms non-destructive popups (Property Edit, filter, jump) |
+| Popups | `y` | confirm a destructive popup (`enter` does nothing there — §2 defaults to cancel; if mandatory warnings overflow a short screen, scroll keys `j`/`k`/`↑`/`↓`/`G` scroll and `y` waits until the bottom is visible); `enter` confirms non-destructive popups (Property Edit, filter, jump) |
 | | `esc` / `n` | cancel |
 | | `tab` | next field |
 

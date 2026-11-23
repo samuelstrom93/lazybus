@@ -269,7 +269,7 @@ func TestBulkConfirm80x24ScrollsAndGatesConfirmOnMultipleWarnings(t *testing.T) 
 
 	// Mandatory warnings overflow 80×24: y is gated until scrolled to the bottom.
 	s := screenText(m)
-	if !strings.Contains(s, "scroll to confirm") || strings.Contains(s, "y resubmit") {
+	if !strings.Contains(s, "↓ scroll") || !strings.Contains(s, "m new MessageIds") || strings.Contains(s, "y resubmit") {
 		t.Fatalf("expected scroll gate before reaching bottom:\n%s", s)
 	}
 	m = keysIn(t, m, "y")
