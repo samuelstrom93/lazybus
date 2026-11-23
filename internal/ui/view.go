@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/lipgloss/v2"
@@ -117,17 +118,28 @@ func (m Model) zoomed() bool {
 	return m.zoom && m.stack.Root() == CtxMain
 }
 
+// panelFocused reports whether panel c currently owns input (or is hosting
+// inline list filtering / main-pane search). When a modal popup is open, no
+// background panel is focused so only the popup gets the green focus border.
+func (m Model) panelFocused(c ContextID) bool {
+	top := m.stack.Top()
+	return m.stack.Root() == c && (top == c || top == CtxFilter || top == CtxSearch)
+}
+
 // --- side panels -----------------------------------------------------------
 
 func (m Model) renderSide(l layout) []string {
-	focus := m.stack.Root()
+	focus := ContextID(-1)
+	if m.panelFocused(m.stack.Root()) {
+		focus = m.stack.Root()
+	}
 	inner := l.leftW - 2
 	panels := []struct {
 		ctx   ContextID
 		title []seg
 		rows  []string
 	}{
-		{CtxNamespaces, m.sideTitle(CtxNamespaces, "1 Namespaces", m.namespaces.loading, m.namespaces.filter), m.namespaceRows(inner, l.side[0])},
+		{CtxNamespaces, m.sideTitle(CtxNamespaces, "1 Namespaces", m.namespaces.loading, m.namespaces.filter, len(m.namespaces.items), len(m.namespaces.all)), m.namespaceRows(inner, l.side[0])},
 		{CtxEntities, m.entitiesTitle(), m.entityRows(inner, l.side[1])},
 		{CtxMessages, m.messagesTitle(), m.messageRows(inner, l.side[2])},
 	}
@@ -158,23 +170,23 @@ func (m Model) renderSide(l layout) []string {
 }
 
 func (m Model) titleStyle(c ContextID) lipgloss.Style {
-	if m.stack.Root() == c {
+	if m.panelFocused(c) {
 		return stTitleFocus
 	}
 	return stPlain
 }
 
-func (m Model) sideTitle(c ContextID, name string, loading bool, filter string) []seg {
+func (m Model) sideTitle(c ContextID, name string, loading bool, filter string, shown, total int) []seg {
 	t := []seg{{name, m.titleStyle(c)}}
 	if loading {
 		t = append(t, seg{" loading…", stDim})
 	}
-	return append(t, m.filterTitle(c, filter)...)
+	return append(t, m.filterTitle(c, filter, shown, total)...)
 }
 
-// filterTitle is the filter part of a panel title: " /text" while it
-// applies, with a cursor while it is being typed.
-func (m Model) filterTitle(c ContextID, filter string) []seg {
+// filterTitle is the filter part of a panel title: " /text shown/total"
+// while it applies, with a cursor while it is being typed.
+func (m Model) filterTitle(c ContextID, filter string, shown, total int) []seg {
 	typing := m.stack.Top() == CtxFilter && m.stack.Root() == c
 	if filter == "" && !typing {
 		return nil
@@ -183,20 +195,23 @@ func (m Model) filterTitle(c ContextID, filter string) []seg {
 	if typing {
 		t = append(t, seg{"▏", stTitleFocus})
 	}
+	if filter != "" && total > 0 {
+		t = append(t, seg{fmt.Sprintf(" %d/%d", shown, total), stDim})
+	}
 	return t
 }
 
 func (m Model) entitiesTitle() []seg {
-	t := m.sideTitle(CtxEntities, "2 Entities", m.entities.loading, "")
+	t := m.sideTitle(CtxEntities, "2 Entities", m.entities.loading, "", 0, 0)
 	if m.sortDLQ {
 		t = append(t, seg{" by DLQ", stDim})
 	}
-	return append(t, m.filterTitle(CtxEntities, m.entities.filter)...)
+	return append(t, m.filterTitle(CtxEntities, m.entities.filter, len(m.entities.items), len(m.entities.all))...)
 }
 
 func (m Model) messagesTitle() []seg {
 	active := m.titleStyle(CtxMessages)
-	if m.stack.Root() != CtxMessages {
+	if !m.panelFocused(CtxMessages) {
 		active = stBold
 	}
 	dlq, act := active, stDim
@@ -218,13 +233,19 @@ func (m Model) messagesTitle() []seg {
 		}
 		t = append(t, seg{text, stKey})
 	}
-	return append(t, m.filterTitle(CtxMessages, m.messages.filter)...)
+	return append(t, m.filterTitle(CtxMessages, m.messages.filter, len(m.messages.items), len(m.messages.all))...)
 }
 
-// listRows renders n rows of a list: the visible window from offset, the
-// cursor row marked, picked rows (picked, nil for none) marked ●, empty
-// rows padded. status replaces the rows when the list has nothing to show.
+// listRows renders n rows of a list with the default selection highlight.
 func listRows[T any](l list[T], focused bool, width, n int, status []seg, picked func(int) bool, render func(T) []seg) []string {
+	return listRowsStyled(l, focused, width, n, status, picked, nil, render)
+}
+
+// listRowsStyled renders n rows of a list: the visible window from offset,
+// the cursor row marked, picked rows (picked, nil for none) marked ●, empty
+// rows padded. selStyle, when non-nil, chooses the background of a selected
+// focused row. status replaces the rows when the list has nothing to show.
+func listRowsStyled[T any](l list[T], focused bool, width, n int, status []seg, picked func(int) bool, selStyle func(T) *lipgloss.Style, render func(T) []seg) []string {
 	out := make([]string, 0, n)
 	if len(l.items) == 0 && status != nil {
 		out = append(out, row(append([]seg{{"  ", stPlain}}, status...), width, false))
@@ -240,7 +261,14 @@ func listRows[T any](l list[T], focused bool, width, n int, status []seg, picked
 			segs = []seg{{mark[:len(mark)-1], stPlain}, {"●", stKey}}
 		}
 		segs = append(segs, render(l.items[i])...)
-		out = append(out, row(segs, width, cursor && focused))
+		var bg *lipgloss.Style
+		if cursor && focused {
+			bg = &stSelected
+			if selStyle != nil {
+				bg = selStyle(l.items[i])
+			}
+		}
+		out = append(out, rowBG(segs, width, bg))
 	}
 	for len(out) < n {
 		out = append(out, strings.Repeat(" ", width))
@@ -280,7 +308,7 @@ func shortErr(err error) string {
 }
 
 func (m Model) namespaceRows(width, n int) []string {
-	return listRows(m.namespaces, m.stack.Root() == CtxNamespaces, width, n,
+	return listRows(m.namespaces, m.panelFocused(CtxNamespaces), width, n,
 		listStatus(m.namespaces, "no namespaces"), nil,
 		func(r nsRow) []seg { return nsRowSegs(r, width-2) })
 }
@@ -316,10 +344,10 @@ func (m Model) entityRows(width, n int) []string {
 		pathW = fullW
 	}
 	pathW = max(1, pathW)
-	return listRows(m.entities, m.stack.Root() == CtxEntities, width, n,
+	return listRows(m.entities, m.panelFocused(CtxEntities), width, n,
 		listStatus(m.entities, empty), nil,
 		func(e bus.Entity) []seg {
-			segs := []seg{{fitPlain(e.Path, pathW) + " ", stPlain}}
+			segs := []seg{{fitEntityPath(e.Path, pathW) + " ", stPlain}}
 			if showActive {
 				text, st := countText(e, e.ActiveCount, stPlain)
 				segs = append(segs, seg{"act " + padLeft(text, actDigits) + " ", st})
@@ -358,45 +386,80 @@ func (m Model) messageRows(width, n int) []string {
 	if m.subQueue == bus.Active {
 		reasonMax = m.msgCols.subject
 	}
-	// cursor(2) seq " " time(5) " " reason " " id. The reason is what tells
-	// the rows apart: it keeps its full width, the id gets what is left
-	// and goes when that is under minMsgIDW.
-	rest := width - 2 - digits - 1 - 5 - 1
-	reasonW := min(reasonMax, rest)
-	idW := rest - reasonW - 1
-	if idW < minMsgIDW {
-		reasonW, idW = rest, 0
-	}
+	showTime, reasonW, idW := messageRowLayout(width, digits, reasonMax)
 	now := m.opts.Now()
 	status := listStatus(m.messages, empty)
 	if m.isSessionful(m.messages.err) {
 		status = []seg{{shortErr(m.messages.err), stWarn}}
 	}
-	return listRows(m.messages, m.stack.Root() == CtxMessages, width, n,
-		status, m.isPicked,
+	return listRowsStyled(m.messages, m.panelFocused(CtxMessages), width, n,
+		status, m.isPicked, m.messageSelStyle,
 		func(msg bus.Message) []seg {
-			seq := padLeft(strconv.FormatInt(msg.SequenceNumber, 10), digits) + " "
-			at := listTime(msg.EnqueuedTime, now, m.opts.Location) + " "
-			if mark, ok := m.markOf(msg.SequenceNumber); ok {
-				// A marked row (SendUncertain, CleanupPending) is amber or
-				// red and names its outcome in the reason and id columns.
-				st := levelStyle(markStyleOf(mark.outcome))
-				labelW := reasonW
-				if idW > 0 {
-					labelW += 1 + idW
-				}
-				return []seg{{seq, st}, {at, st}, {fitPlain(mark.outcome.String()+" · "+m.rowReason(msg), labelW), st}}
-			}
-			segs := []seg{
-				{seq, stPlain},
-				{at, stDim},
-				{fitPlain(m.rowReason(msg), reasonW), stPlain},
-			}
-			if idW > 0 {
-				segs = append(segs, seg{" " + msg.MessageID, stDim})
-			}
-			return segs
+			return m.messageRowSegs(msg, digits, showTime, reasonW, idW, now)
 		})
+}
+
+// messageRowLayout computes column widths for the Messages list. When the
+// remaining reason column would be narrower than "CleanupPending" (14 cells),
+// the 5-cell time column drops first so marked outcomes stay legible at 80×24
+// and with long sequence numbers.
+func messageRowLayout(width, digits, reasonMax int) (showTime bool, reasonW, idW int) {
+	rest := width - 2 - digits - 1 - 5 - 1
+	showTime = rest >= len(bus.CleanupPending.String())
+	if !showTime {
+		rest = max(1, width-2-digits-1)
+	}
+	reasonW = min(reasonMax, rest)
+	idW = rest - reasonW - 1
+	if idW < minMsgIDW {
+		reasonW, idW = rest, 0
+	}
+	return showTime, reasonW, idW
+}
+
+func (m Model) messageSelStyle(msg bus.Message) *lipgloss.Style {
+	if mark, ok := m.markOf(msg.SequenceNumber); ok {
+		if mark.outcome == bus.SendUncertain {
+			return &stSelectedWarn
+		}
+		return &stSelectedErr
+	}
+	return &stSelected
+}
+
+func (m Model) messageRowSegs(msg bus.Message, digits int, showTime bool, reasonW, idW int, now time.Time) []seg {
+	seq := padLeft(strconv.FormatInt(msg.SequenceNumber, 10), digits) + " "
+	at := ""
+	if showTime {
+		at = listTime(msg.EnqueuedTime, now, m.opts.Location) + " "
+	}
+	if mark, ok := m.markOf(msg.SequenceNumber); ok {
+		// A marked row (SendUncertain, CleanupPending) is amber or red and
+		// keeps its full outcome name before appending the reason.
+		st := levelStyle(markStyleOf(mark.outcome))
+		labelW := reasonW
+		if idW > 0 {
+			labelW += 1 + idW
+		}
+		label := mark.outcome.String()
+		if reason := m.rowReason(msg); reason != "" && labelW > len(label)+3 {
+			label += " · " + reason
+		}
+		segs := []seg{{seq, st}}
+		if at != "" {
+			segs = append(segs, seg{at, st})
+		}
+		return append(segs, seg{fitPlain(label, labelW), st})
+	}
+	segs := []seg{{seq, stPlain}}
+	if at != "" {
+		segs = append(segs, seg{at, stDim})
+	}
+	segs = append(segs, seg{fitPlain(m.rowReason(msg), reasonW), stPlain})
+	if idW > 0 {
+		segs = append(segs, seg{" " + msg.MessageID, stDim})
+	}
+	return segs
 }
 
 // minMsgIDW is the narrowest MessageId column the Messages panel shows.
@@ -431,7 +494,7 @@ func (m Model) rowReason(msg bus.Message) string {
 // --- main pane and log -----------------------------------------------------
 
 func (m Model) renderMain(l layout) []string {
-	focused := m.stack.Root() == CtxMain
+	focused := m.panelFocused(CtxMain)
 	edge := stBorder
 	if focused {
 		edge = stBorderFocus
@@ -543,11 +606,7 @@ func (m Model) logLines(n, width int) []string {
 	for i := range n {
 		if j := start + i; j < len(m.log) {
 			e := m.log[j]
-			st := stPlain
-			if e.err {
-				st = stErr
-			}
-			out[i] = row([]seg{{" " + e.at.In(m.opts.Location).Format("15:04") + " ", stDim}, {e.text, st}}, width, false)
+			out[i] = row([]seg{{" " + e.at.In(m.opts.Location).Format("15:04") + " ", stDim}, {e.text, levelStyle(e.level)}}, width, false)
 		} else {
 			out[i] = strings.Repeat(" ", width)
 		}
@@ -665,7 +724,7 @@ func (m Model) bodyLines(msg bus.Message, width int) []string {
 	var out []string
 	if ed := m.editsOf(msg.SequenceNumber); ed.BodyEdited {
 		body = ed.Body
-		head := []seg{{" (edited)", stWarn}, {" pending body, sent on resubmit · E edits it again · x discards all edits", stDim}}
+		head := []seg{{" (edited)", stWarn}, {" pending body · E edit · x discard", stDim}}
 		out = append(out, row(head, width, false))
 		if why := bodyJSONError(msg, ed.Edits); why != "" {
 			for i, l := range wrapLines("invalid JSON: "+sanitize(why)+" (kept as the pending edit)", width-4) {
@@ -853,10 +912,28 @@ func (m Model) cursorMark(i int) (mark string, selected bool) {
 	if i != m.mainCursor {
 		return " ", false
 	}
-	if m.stack.Root() == CtxMain {
+	if m.panelFocused(CtxMain) {
 		return " ", true
 	}
 	return "▸", false
+}
+
+// propKeyWidths returns the key column widths for regular properties and
+// dead-letter markers independently, so 26-char DeadLetterErrorDescription
+// does not bloat the application-property key column.
+func propKeyWidths(props []propItem, width int) (keyW, markerKeyW int) {
+	keyW = len("Key")
+	for _, p := range props {
+		w := ansi.StringWidth(p.key)
+		if p.marker {
+			markerKeyW = max(markerKeyW, w)
+		} else {
+			keyW = max(keyW, w)
+		}
+	}
+	keyW = min(keyW, max(8, width/4))
+	markerKeyW = min(markerKeyW, max(14, width/3))
+	return keyW, markerKeyW
 }
 
 func (m Model) propertyLines(msg bus.Message, width int) ([]string, []int) {
@@ -864,26 +941,12 @@ func (m Model) propertyLines(msg bus.Message, width int) ([]string, []int) {
 	if len(props) == 0 {
 		return []string{" " + stDim.Render("(no application properties)")}, nil
 	}
-	keyW := len("Key")
-	for _, p := range props {
-		keyW = max(keyW, ansi.StringWidth(p.key))
-	}
-	keyW = min(keyW, max(8, width/3))
+	keyW, markerKeyW := propKeyWidths(props, width)
 	typeW := len("DateTime")
 
-	// Each row: cursor, Pending Edit marker, key, type, value. The marker
-	// column is there only while the message has Pending Edits, so the
-	// values keep their full width otherwise. Markers go in their own
-	// section under one dimmed "✕ removed on resubmit" label, so their
-	// values (often the only error text there is) keep the full column
-	// instead of sharing it with a per-row suffix.
-	pad := " "
-	for _, p := range props {
-		if p.pend != pendNone {
-			pad = "  "
-			break
-		}
-	}
+	// Reserve the 2-cell cursor+marker gutter consistently (matching the
+	// System tab) so columns stay aligned when edits are added.
+	const pad = "  "
 	out := []string{row([]seg{{pad + fitPlain("Key", keyW) + "  " + fitPlain("Type", typeW) + "  Value", stDim}}, width, false)}
 	rows := make([]int, 0, len(props))
 	markerHeader := false
@@ -891,26 +954,7 @@ func (m Model) propertyLines(msg bus.Message, width int) ([]string, []int) {
 		mark, sel := m.cursorMark(i)
 		if !p.marker {
 			rows = append(rows, len(out))
-			keySt, valSt := stPlain, stPlain
-			if p.pend == pendRemoved {
-				keySt, valSt = stDim, stDim
-			}
-			segs := []seg{{mark, stPlain}}
-			if pad != " " {
-				segs = append(segs, p.pend.seg())
-			}
-			segs = append(segs,
-				seg{fitPlain(p.key, keyW) + "  ", keySt},
-				seg{fitPlain(p.typ, typeW) + "  ", stDim},
-				seg{p.val, valSt},
-			)
-			switch p.pend {
-			case pendChanged:
-				segs = append(segs, seg{"  (was " + p.was + ")", stDim})
-			case pendRemoved:
-				segs = append(segs, seg{"  " + removedOnResubmit, stDim})
-			}
-			out = append(out, row(segs, width, sel))
+			out = append(out, propertyRow(p, mark, keyW, typeW, width, sel))
 			continue
 		}
 		if !markerHeader {
@@ -919,11 +963,32 @@ func (m Model) propertyLines(msg bus.Message, width int) ([]string, []int) {
 		}
 		rows = append(rows, len(out))
 		out = append(out, row([]seg{
-			{mark + pad[1:] + fitPlain(p.key, keyW) + "  " + fitPlain(p.typ, typeW) + "  ", stDim},
+			{mark + " " + fitPlain(p.key, markerKeyW) + "  ", stDim},
 			{p.val, stPlain},
 		}, width, sel))
 	}
 	return out, rows
+}
+
+func propertyRow(p propItem, mark string, keyW, typeW, width int, sel bool) string {
+	keySt, valSt := stPlain, stPlain
+	if p.pend == pendRemoved {
+		keySt, valSt = stDim, stDim
+	}
+	segs := []seg{
+		{mark, stPlain},
+		p.pend.seg(),
+		{fitPlain(p.key, keyW) + "  ", keySt},
+		{fitPlain(p.typ, typeW) + "  ", stDim},
+		{p.val, valSt},
+	}
+	switch p.pend {
+	case pendChanged:
+		segs = append(segs, seg{"  (was " + p.was + ")", stDim})
+	case pendRemoved:
+		segs = append(segs, seg{"  " + removedOnResubmit, stDim})
+	}
+	return row(segs, width, sel)
 }
 
 // sysField is one row of the System tab. value is what the copy gets
@@ -966,10 +1031,6 @@ func (m Model) systemLines(msg bus.Message, width int) ([]string, []int) {
 	var out []string
 	var rows []int
 	for i, f := range m.systemFields(msg) {
-		label := f.label
-		if f.editable {
-			label += " ✎"
-		}
 		val := seg{f.value, stPlain}
 		if f.value == "" {
 			val = seg{"—", stDim}
@@ -981,7 +1042,13 @@ func (m Model) systemLines(msg bus.Message, width int) ([]string, []int) {
 		mark, sel := m.cursorMark(i)
 		// The marker takes the label's first cell: the labels are shorter
 		// than labelW, so the values do not move.
-		segs := []seg{{mark, stPlain}, pend.seg(), {fitPlain(label, labelW-1), stDim}, {" ", stPlain}, val}
+		segs := []seg{{mark, stPlain}, pend.seg()}
+		if f.editable {
+			gap := max(0, labelW-1-ansi.StringWidth(f.label)-2)
+			segs = append(segs, seg{f.label, stDim}, seg{" ✎", stKey}, seg{strings.Repeat(" ", gap+1), stPlain}, val)
+		} else {
+			segs = append(segs, seg{fitPlain(f.label, labelW-1), stDim}, seg{" ", stPlain}, val)
+		}
 		if f.edited {
 			segs = append(segs, seg{"  (was " + orDash(f.was) + ")", stDim})
 		}
@@ -998,7 +1065,7 @@ func (m Model) renderOptions() string {
 	if n := m.pendingCount(); n > 0 {
 		// Pending Edits live in memory only: the flag says how many
 		// messages would lose theirs on quit.
-		right = append(right, seg{fmt.Sprintf("✎ %d pending", n), stWarn}, seg{" ", stPlain})
+		right = append(right, seg{fmt.Sprintf("✎ %d edited msg%s", n, plural(n)), stWarn}, seg{" ", stPlain})
 	}
 	if m.opts.ReadOnly {
 		right = append(right, seg{"READ-ONLY", stReadOnly}, seg{" ", stPlain})
@@ -1045,22 +1112,45 @@ func (m Model) optionsBarBindings() []key.Binding {
 // message.
 func (m Model) barFlags() optionFlags {
 	f := optionFlags{tab: m.tab, search: m.search.term != ""}
+	dlqWrite := !m.opts.ReadOnly && m.subQueue == bus.DeadLetter
+	f.pick = dlqWrite
+	f.repair = dlqWrite
 	if msg, ok := m.selectedMessage(); ok && m.subQueue == bus.DeadLetter {
 		mark, marked := m.markOf(msg.SequenceNumber)
-		f.cleanup = marked && mark.outcome == bus.CleanupPending
-		f.edit = true
-		f.discard = !m.editsOf(msg.SequenceNumber).IsZero()
+		f.cleanup = dlqWrite && marked && mark.outcome == bus.CleanupPending
+		// Pending Edits are locked on SendUncertain and CleanupPending rows.
+		f.edit = !marked
+		f.discard = !marked && !m.editsOf(msg.SequenceNumber).IsZero()
+		if marked && mark.outcome == bus.CleanupPending {
+			f.repair = dlqWrite && m.hasEligibleBatch()
+		}
 	}
-	f.repair = !m.opts.ReadOnly && m.subQueue == bus.DeadLetter
-	f.cleanup = f.cleanup && f.repair
 	return f
 }
 
+// hasEligibleBatch reports whether picked rows exist and none of them are
+// marked SendUncertain/CleanupPending.
+func (m Model) hasEligibleBatch() bool {
+	seqs := m.pickedSeqs()
+	if len(seqs) == 0 {
+		return false
+	}
+	for _, seq := range seqs {
+		if _, ok := m.markOf(seq); ok {
+			return false
+		}
+	}
+	return true
+}
+
 // optionsDropOrder are the options bar keys left out first when the bar
-// is too narrow, so the context's own keys and ? / q stay visible:
-// bulk picking first, inspect and tab navigation last.
+// is too narrow, so the context's primary navigation, resubmit, and ? / q
+// stay visible: bulk picking and secondary shortcuts first, inspect and
+// tab navigation last.
 var optionsDropOrder = []key.Help{
-	keys.Pick.Help(), keys.Jump.Help(), keys.Filter.Help(), keys.Search.Help(), keys.FocusMainOp.Help(), keys.SubQueue.Help(), tabsHint.Help(),
+	keys.Pick.Help(), keys.Jump.Help(), keys.Filter.Help(), keys.Search.Help(),
+	keys.AddPropMsg.Help(), keys.EditBody.Help(),
+	keys.FocusMainOp.Help(), keys.SubQueue.Help(), tabsHint.Help(),
 }
 
 // fitBindings drops bindings in optionsDropOrder until they fit in width
@@ -1102,7 +1192,16 @@ func (m Model) overlayHelp(screen string) string {
 	entries := m.helpEntries()
 	offset := max(0, min(m.help.offset, len(entries)-n))
 
-	lines := []string{hBorder(w, "┌", "┐", []seg{{"Keybindings", stTitleFocus}}, stBorderFocus)}
+	hideLast := n > 1 && offset+n-1 < len(entries) && entries[offset+n-1].section != "" && offset+n < len(entries)
+	title := []seg{{"Keybindings", stTitleFocus}}
+	if len(entries) > n {
+		end := min(len(entries), offset+n)
+		if hideLast {
+			end--
+		}
+		title = append(title, seg{fmt.Sprintf(" %d–%d/%d", offset+1, end, len(entries)), stDim})
+	}
+	lines := []string{hBorder(w, "┌", "┐", title, stBorderFocus)}
 	lines = append(lines, boxRow(row([]seg{{" Filter: ", stDim}, {m.help.filter, stPlain}, {"▏", stTitleFocus}}, inner, false), stBorderFocus))
 	lines = append(lines, stBorderFocus.Render("├"+strings.Repeat("─", inner)+"┤"))
 	for i := range n {
@@ -1114,6 +1213,9 @@ func (m Model) overlayHelp(screen string) string {
 			} else {
 				r = strings.Repeat(" ", inner)
 			}
+		case i == n-1 && hideLast:
+			// Avoid ending the viewport on a dangling section header.
+			r = strings.Repeat(" ", inner)
 		case entries[j].section != "":
 			r = row([]seg{{" " + entries[j].section, stBold}}, inner, false)
 		case entries[j].key == "":
@@ -1124,7 +1226,11 @@ func (m Model) overlayHelp(screen string) string {
 		}
 		lines = append(lines, boxRow(r, stBorderFocus))
 	}
-	lines = append(lines, hBorder(w, "└", "┘", []seg{{"type to filter · esc close", stDim}}, stBorderFocus))
+	footer := []seg{
+		{"↑↓", stKey}, {" scroll  ", stDim},
+		{"esc", stKey}, {" close", stDim},
+	}
+	lines = append(lines, hBorder(w, "└", "┘", footer, stBorderFocus))
 
 	return m.overlay(screen, lines, w)
 }
@@ -1164,18 +1270,17 @@ func (m Model) popupH() int {
 	return max(3, m.popupArea().h-2)
 }
 
-// overlay draws a popup of width w centred in the popup area. The area's
-// full width is blanked for the popup's rows and one row above and below
-// (inside the area), so no text under it shows beside the frame.
+// overlay draws a popup of width w centred in the popup area, blanking the
+// entire popup area so no stray content lines peek out above or below it
+// while keeping the side panels, main title/tabs, and Log intact.
 func (m Model) overlay(screen string, lines []string, w int) string {
 	a := m.popupArea()
 	h := len(lines)
 	x := a.x + max(0, (a.w-w)/2)
 	y := a.y + max(0, (a.h-h)/2)
-	top, bottom := max(a.y, y-1), min(a.y+a.h, y+h+1)
-	blank := strings.TrimSuffix(strings.Repeat(strings.Repeat(" ", a.w)+"\n", max(0, bottom-top)), "\n")
+	blank := strings.TrimSuffix(strings.Repeat(strings.Repeat(" ", a.w)+"\n", max(0, a.h)), "\n")
 	base := lipgloss.NewLayer(screen)
-	gutter := lipgloss.NewLayer(blank).X(a.x).Y(top).Z(1)
+	gutter := lipgloss.NewLayer(blank).X(a.x).Y(a.y).Z(1)
 	popup := lipgloss.NewLayer(strings.Join(lines, "\n")).X(x).Y(y).Z(2)
 	// The compositor trims trailing blanks; pad back to full width.
 	out := strings.Split(lipgloss.NewCompositor(base, gutter, popup).Render(), "\n")

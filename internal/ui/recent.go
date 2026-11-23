@@ -157,6 +157,11 @@ func (m Model) overlayRecent(screen string) string {
 		}
 		lines = append(lines, boxRow(row(segs, inner, j == cursor), stBorderFocus))
 	}
-	lines = append(lines, hBorder(w, "└", "┘", []seg{{"enter open · esc cancel", stDim}}, stBorderFocus))
+	footer := []seg{
+		{"enter", stKey}, {" open  ", stDim},
+		{"↑↓", stKey}, {" move  ", stDim},
+		{"esc", stKey}, {" cancel", stDim},
+	}
+	lines = append(lines, hBorder(w, "└", "┘", footer, stBorderFocus))
 	return m.overlay(screen, lines, w)
 }

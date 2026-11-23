@@ -554,15 +554,18 @@ func (m Model) editDiff(msg bus.Message, e bus.Edits) []diffLine {
 			was = o.Type.String() + " " + propertyValue(o, m.opts.Location)
 		}
 		var text string
+		level := statusOK
 		switch {
 		case pe.Remove:
 			text = "− " + pe.Key + " (was " + was + ")"
+			level = statusErr
 		case had:
 			text = "* " + pe.Key + ": " + was + " → " + pe.Type.String() + " " + m.peValue(pe)
+			level = statusWarn
 		default:
 			text = "+ " + pe.Key + ": " + pe.Type.String() + " " + m.peValue(pe)
 		}
-		out = append(out, diffLine{label, text, statusWarn, optional})
+		out = append(out, diffLine{label, text, level, optional})
 		label = ""
 	}
 	field := func(name, old string, cur *string) {

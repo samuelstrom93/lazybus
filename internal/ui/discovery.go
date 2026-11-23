@@ -353,12 +353,13 @@ func (m Model) noNamespaceLines(width int) []string {
 // subscriptionRowLines are the details of a placeholder row: the
 // subscription whose namespaces are loading or failed to list.
 func subscriptionRowLines(r nsRow, width int) []string {
-	lines := detailField("Subscription", r.sub.Name, stPlain, width)
-	lines = append(lines, detailField("Subscription ID", r.sub.ID, stPlain, width)...)
+	const labelW = 16
+	lines := detailField("Subscription", r.sub.Name, stPlain, labelW, width)
+	lines = append(lines, detailField("Subscription ID", r.sub.ID, stPlain, labelW, width)...)
 	if r.kind == rowSubLoading {
-		return append(lines, detailField("Status", "listing namespaces…", stDim, width)...)
+		return append(lines, detailField("Status", "listing namespaces…", stDim, labelW, width)...)
 	}
-	return append(lines, detailField("Status", "listing namespaces failed: "+r.err.Error(), stErr, width)...)
+	return append(lines, detailField("Status", "listing namespaces failed: "+r.err.Error(), stErr, labelW, width)...)
 }
 
 // namespaceLines are the details of namespace ns, and whether it is the
@@ -368,21 +369,35 @@ func (m Model) namespaceLines(ns bus.Namespace, width int) []string {
 	if strings.EqualFold(sku, "Basic") {
 		sku += " (queues only: Basic has no topics)"
 	}
-	var lines []string
-	for _, f := range []struct{ label, value string }{
-		{"Namespace", ns.Name}, {"FQDN", ns.FQDN}, {"Subscription", ns.Subscription},
-		{"Subscription ID", ns.SubscriptionID}, {"Resource group", ns.ResourceGroup},
-		{"SKU", sku}, {"Location", ns.Location}, {"Auth", ns.Auth},
-	} {
-		lines = append(lines, detailField(f.label, f.value, stPlain, width)...)
+	fields := []struct {
+		label, value string
+		st           lipgloss.Style
+	}{
+		{"Namespace", ns.Name, stPlain}, {"FQDN", ns.FQDN, stPlain}, {"Subscription", ns.Subscription, stPlain},
+		{"Subscription ID", ns.SubscriptionID, stPlain}, {"Resource group", ns.ResourceGroup, stPlain},
+		{"SKU", sku, stPlain}, {"Location", ns.Location, stPlain}, {"Auth", ns.Auth, stPlain},
 	}
 	if ns.SubscriptionID == "" {
-		lines = append(lines, detailField("Source", "command line (not discovered)", stDim, width)...)
+		fields = append(fields, struct {
+			label, value string
+			st           lipgloss.Style
+		}{"Source", "command line (not discovered)", stDim})
+	}
+	labelW := 0
+	for _, f := range fields {
+		if f.value != "" {
+			labelW = max(labelW, len(f.label)+1)
+		}
+	}
+	labelW = min(max(labelW, 10), 16)
+	var lines []string
+	for _, f := range fields {
+		lines = append(lines, detailField(f.label, f.value, f.st, labelW, width)...)
 	}
 	if m.openNS == nil || m.openNS.FQDN != ns.FQDN {
 		return append(lines, "", row([]seg{{" enter opens it in Entities", stDim}}, width, false))
 	}
-	lines = append(lines, "", row([]seg{{" open in Entities", stDim}}, width, false))
+	lines = append(lines, "", row([]seg{{" currently open in Entities", stDim}}, width, false))
 	// A failed load of the open namespace shows here in full: the panel
 	// rows and the log cut it.
 	if m.entities.err != nil || m.messages.err != nil {
@@ -394,8 +409,7 @@ func (m Model) namespaceLines(ns bus.Namespace, width int) []string {
 
 // detailField is one labeled field of the details, wrapped in width
 // cells with the label on its first line; nothing when value is empty.
-func detailField(label, value string, st lipgloss.Style, width int) []string {
-	const labelW = 16
+func detailField(label, value string, st lipgloss.Style, labelW, width int) []string {
 	if value == "" {
 		return nil
 	}

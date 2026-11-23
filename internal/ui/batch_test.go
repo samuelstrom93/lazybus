@@ -219,3 +219,31 @@ func TestBulkResubmitReadsCountsOnceAfterPossibleSend(t *testing.T) {
 		})
 	}
 }
+
+func TestBulkConfirm80x24KeepsWarningsWithManySkipped(t *testing.T) {
+	be := fake.New()
+	m := keysIn(t, onOrders(t, be), "v")
+	for range 24 {
+		m = keysIn(t, m, "j")
+	}
+	m = keysIn(t, m, "v")
+	seqs := m.pickedSeqs()
+	if len(seqs) != 25 {
+		t.Fatalf("picked %d, want 25", len(seqs))
+	}
+	for _, seq := range seqs[1:] {
+		be.SetUnsupported("sb-prod-weu", "orders", bus.KindQueue, seq, "AmqpValue body")
+	}
+	m = keysIn(t, m, "r")
+	m.confirm.batchPlan.Warnings = []string{"delivered only to subscriptions whose rules match; no match = dropped"}
+	m = resized(t, m, 80, 24)
+	text := stripBoxes(m.View().Content)
+	for _, want := range []string{"MessageId", "no match = dropped", "first SendUncertain", "more lines", "y resubmit 1"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("80x24 bulk confirm with 24 skipped lacks %q:\n%s", want, screenText(m))
+		}
+	}
+	if got := len(m.pickedSeqs()); got != 1 {
+		t.Errorf("refused rows should be unpicked: %d picked, want 1", got)
+	}
+}

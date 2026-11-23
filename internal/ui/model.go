@@ -177,9 +177,10 @@ func (l *list[T]) scrollTo(n int) {
 }
 
 type logEntry struct {
-	at   time.Time
-	text string
-	err  bool
+	at    time.Time
+	text  string
+	err   bool
+	level statusLevel
 }
 
 type helpState struct {
@@ -435,7 +436,20 @@ func (m *Model) peekFrom(ns bus.Namespace, ent bus.Entity, sub bus.SubQueue, fro
 }
 
 func (m *Model) logf(isErr bool, format string, args ...any) {
-	m.log = append(m.log, logEntry{at: m.opts.Now(), text: fmt.Sprintf(format, args...), err: isErr})
+	level := statusInfo
+	if isErr {
+		level = statusErr
+	}
+	m.logLevel(level, format, args...)
+}
+
+func (m *Model) logLevel(level statusLevel, format string, args ...any) {
+	m.log = append(m.log, logEntry{
+		at:    m.opts.Now(),
+		text:  fmt.Sprintf(format, args...),
+		err:   level == statusErr || level == statusWarn,
+		level: level,
+	})
 }
 
 // errText is the log line for a failed call: a *bus.Error already names

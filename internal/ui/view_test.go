@@ -352,3 +352,54 @@ func TestOptionsBar(t *testing.T) {
 		t.Errorf("busy: %q", got)
 	}
 }
+
+func TestFitEntityPathKeepsSubscription(t *testing.T) {
+	a := fitEntityPath("order-events/billing", 15)
+	b := fitEntityPath("order-events/shipping", 15)
+	if !strings.HasSuffix(strings.TrimSpace(a), "/billing") {
+		t.Errorf("got %q, want /billing suffix", a)
+	}
+	if !strings.HasSuffix(strings.TrimSpace(b), "/shipping") {
+		t.Errorf("got %q, want /shipping suffix", b)
+	}
+	if a == b {
+		t.Errorf("sibling subscriptions collided: %q", a)
+	}
+}
+
+func TestMessageRowDropsTimeForNarrowAndLongSeq(t *testing.T) {
+	// Side panel inner width at 80×24 is 24 cells (leftW=26).
+	showTime, reasonW, _ := messageRowLayout(24, 2, 24)
+	if showTime || reasonW < len("CleanupPending") {
+		t.Errorf("80x24 narrow: showTime=%v reasonW=%d, want time dropped and full outcome fit", showTime, reasonW)
+	}
+	// Side panel inner width at 120×30 is 38 cells (leftW=40) with a 17-digit partitioned seq.
+	showTimeLong, reasonWLong, _ := messageRowLayout(38, 17, 24)
+	if showTimeLong || reasonWLong < len("CleanupPending") {
+		t.Errorf("long seq: showTime=%v reasonW=%d, want time dropped", showTimeLong, reasonWLong)
+	}
+}
+
+func TestOptionsBarHidesBlockedKeysOnMarkedRows(t *testing.T) {
+	be := fake.New()
+	m := onOrders(t, be)
+	seq := selectedSeq(t, m)
+	mk, _ := m.markKeyOf(seq)
+	m.setMark(mk, rowMark{outcome: bus.CleanupPending, source: "orders/$DLQ", target: bus.Target{Kind: bus.TargetQueue, Name: "orders"}})
+	m.status = statusLine{}
+	bar := ansi.Strip(m.renderOptions())
+	if !strings.Contains(bar, "c finish cleanup") || strings.Contains(bar, "r resubmit") || strings.Contains(bar, "e set prop") || strings.Contains(bar, "E edit body") {
+		t.Errorf("CleanupPending bar = %q", bar)
+	}
+
+	m.setMark(mk, rowMark{outcome: bus.SendUncertain, source: "orders/$DLQ", target: bus.Target{Kind: bus.TargetQueue, Name: "orders"}})
+	bar = ansi.Strip(m.renderOptions())
+	if !strings.Contains(bar, "r resubmit") || strings.Contains(bar, "e set prop") || strings.Contains(bar, "E edit body") {
+		t.Errorf("SendUncertain bar = %q", bar)
+	}
+
+	nsBar := ansi.Strip(loaded(t).renderOptions())
+	if strings.Contains(nsBar, "[ ] details") {
+		t.Errorf("Namespaces bar should not advertise [ ] details: %q", nsBar)
+	}
+}

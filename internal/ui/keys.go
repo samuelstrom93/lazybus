@@ -108,8 +108,8 @@ var keys = keyMap{
 	Zoom:            key.NewBinding(key.WithKeys("+"), key.WithHelp("+", "zoom")),
 
 	Open:        key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open")),
-	FocusMainOp: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "focus main pane")),
-	SubQueue:    key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "DLQ / Active")),
+	FocusMainOp: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "inspect")),
+	SubQueue:    key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "DLQ/Active")),
 
 	Resubmit:      key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "resubmit")),
 	FinishCleanup: key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "finish cleanup")),
@@ -119,7 +119,7 @@ var keys = keyMap{
 	PickReason:    key.NewBinding(key.WithKeys("A"), key.WithHelp("A", "pick same reason")),
 
 	EditBody:   key.NewBinding(key.WithKeys("E"), key.WithHelp("E", "edit body")),
-	AddPropMsg: key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "add prop")),
+	AddPropMsg: key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "set prop")),
 	EditProp:   key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit prop")),
 	EditField:  key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit ✎ field")),
 	AddProp:    key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add prop")),
@@ -204,10 +204,11 @@ func globalBindings() []key.Binding {
 
 // optionFlags say which context keys apply to the selected message.
 type optionFlags struct {
-	repair  bool    // r: DLQ tab, not --read-only
-	cleanup bool    // c: a CleanupPending row, r allowed
-	edit    bool    // edit keys: DLQ tab with a message selected
-	discard bool    // x: the message has Pending Edits
+	repair  bool    // r: DLQ tab, not --read-only, and allowed for the selected row / picks
+	pick    bool    // space: DLQ tab, not --read-only
+	cleanup bool    // c: a CleanupPending row, not --read-only
+	edit    bool    // edit keys: DLQ tab with an editable message selected
+	discard bool    // x: the message has Pending Edits (and is editable)
 	search  bool    // n N: a main pane search term is set
 	tab     mainTab // main pane tab: which edit keys it takes
 }
@@ -217,14 +218,10 @@ type optionFlags struct {
 var tabsHint = key.NewBinding(key.WithKeys("[", "]"), key.WithHelp("[ ]", "details"))
 
 // optionsBindings are the keys shown in the options bar for context c. A
-// popup's bar leaves out the keys its own bottom border lists.
+// popup's bar is empty because its own bottom border lists its controls.
 func optionsBindings(c ContextID, f optionFlags) []key.Binding { //nolint:gocognit,gocyclo // flat table: one case per key with the one-line condition under which the options bar shows it
 	switch c {
-	case CtxHelp:
-		return []key.Binding{keys.HelpUp, keys.HelpDown}
-	case CtxJump, CtxRecent:
-		return []key.Binding{keys.JumpUp, keys.JumpDown}
-	case CtxConfirm, CtxEdit, CtxBusy:
+	case CtxHelp, CtxJump, CtxRecent, CtxConfirm, CtxEdit, CtxBusy:
 		return nil
 	}
 	var out []key.Binding
@@ -232,8 +229,12 @@ func optionsBindings(c ContextID, f optionFlags) []key.Binding { //nolint:gocogn
 		switch b.Help() {
 		case keys.PickRange.Help(), keys.PickReason.Help():
 			continue // in the ? menu; the bar has room for space only
-		case keys.Resubmit.Help(), keys.Pick.Help():
+		case keys.Resubmit.Help():
 			if !f.repair {
+				continue
+			}
+		case keys.Pick.Help():
+			if !f.pick {
 				continue
 			}
 		case keys.FinishCleanup.Help():
@@ -267,7 +268,9 @@ func optionsBindings(c ContextID, f optionFlags) []key.Binding { //nolint:gocogn
 		}
 		out = append(out, b)
 	}
-	out = append(out, tabsHint)
+	if c != CtxNamespaces {
+		out = append(out, tabsHint)
+	}
 	if c.isSide() {
 		out = append(out, keys.Filter)
 	}

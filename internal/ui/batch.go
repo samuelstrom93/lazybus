@@ -288,6 +288,7 @@ func (m Model) batchPlanDone(msg batchPlanDoneMsg) (Model, tea.Cmd) {
 		case p.Refused == "":
 			ready.Items = append(ready.Items, it)
 		default:
+			m.setPicked(false, it.SequenceNumber)
 			m.logf(true, "resubmit %s seq %d: %s", msg.plan.Source, p.SequenceNumber, p.Refused)
 		}
 	}
@@ -327,7 +328,7 @@ func (m Model) batchDone(msg batchDoneMsg) (Model, tea.Cmd) {
 	m.endBusy()
 	m.clearPicks()
 	for _, l := range msg.res.Log {
-		m.logf(l.Err, "%s", l.Text)
+		m.logBusLine(l)
 	}
 	if msg.err != nil {
 		text := repairErrorText(batchOp(msg.req), msg.err, true)
@@ -444,7 +445,7 @@ func (m Model) batchBlocks(b *confirmBuilder) (title string, footer []seg) {
 		}
 	}
 	if len(skipped) > 0 {
-		b.field("Skipped", strings.Join(skipped, "; "), statusWarn, false)
+		b.listStyled("Skipped", skipped, statusWarn)
 	}
 	b.field("Markers", "removed: "+strings.Join(p.MarkersRemoved, ", "), statusInfo, true)
 	if c.newID {
@@ -457,6 +458,7 @@ func (m Model) batchBlocks(b *confirmBuilder) (title string, footer []seg) {
 		b.field("MessageId", "kept (each copy keeps its original)", level, false)
 	}
 	b.field("Scan", p.ScanCost, statusInfo, true)
+	b.gap()
 	b.note("one by one after one scan; stops at the first SendUncertain or CleanupPending, and the rest are not sent", statusInfo)
 	for _, w := range p.Warnings {
 		b.note(w, statusWarn)

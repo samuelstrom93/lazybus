@@ -355,7 +355,7 @@ func (m Model) execute(c confirmState) (Model, tea.Cmd) {
 func (m Model) repairDone(msg repairDoneMsg) (Model, tea.Cmd) {
 	m.endBusy()
 	for _, l := range msg.res.Log {
-		m.logf(l.Err, "%s", l.Text)
+		m.logBusLine(l)
 	}
 	if msg.err != nil {
 		text := repairErrorText(msg.kind.op(msg.req), msg.err, msg.kind == confirmRepair)
@@ -386,6 +386,16 @@ func (m *Model) applyResult(kind confirmKind, req bus.RepairRequest, res bus.Rep
 	return rows
 }
 
+// logBusLine writes a service-layer log line, keeping uncertain sends amber
+// to match the row, banner, and status bar.
+func (m *Model) logBusLine(l bus.LogLine) {
+	if l.Err && strings.Contains(l.Text, "→ uncertain") {
+		m.logLevel(statusWarn, "%s", l.Text)
+		return
+	}
+	m.logf(l.Err, "%s", l.Text)
+}
+
 // logOutcome is the command-log line of one outcome.
 func (m *Model) logOutcome(kind confirmKind, req bus.RepairRequest, res bus.RepairResult) {
 	t := res.Target
@@ -399,9 +409,11 @@ func (m *Model) logOutcome(kind confirmKind, req bus.RepairRequest, res bus.Repa
 	}
 	switch res.Outcome {
 	case bus.Resubmitted, bus.Cleaned, bus.NotFound:
-		m.logf(false, "%s", summary)
+		m.logLevel(statusInfo, "%s", summary)
+	case bus.SendUncertain:
+		m.logLevel(statusWarn, "%s", summary)
 	default:
-		m.logf(true, "%s", summary)
+		m.logLevel(statusErr, "%s", summary)
 	}
 }
 
@@ -581,20 +593,28 @@ func (m Model) markLines(seq int64, width int) []string {
 	if !ok {
 		return nil
 	}
-	var text string
+	var lead, body string
 	switch mark.outcome {
 	case bus.CleanupPending:
-		text = fmt.Sprintf("CleanupPending: send accepted by %s %s, completion unconfirmed for %s. Press c to check and remove the original if present. Nothing is sent.",
+		lead = "CleanupPending:"
+		body = fmt.Sprintf("send accepted by %s %s, completion unconfirmed for %s. Press c to check and remove the original if present. Nothing is sent.",
 			mark.target.Kind, mark.target.Name, mark.source)
 	case bus.SendUncertain:
-		text = fmt.Sprintf("SendUncertain: acceptance by %s %s is unknown. Check the target before pressing r again.",
+		lead = "SendUncertain:"
+		body = fmt.Sprintf("acceptance by %s %s is unknown. Check the target before pressing r again.",
 			mark.target.Kind, mark.target.Name)
 	default:
 		return nil
 	}
 	st := levelStyle(markStyleOf(mark.outcome))
-	var out []string
-	for _, l := range wrapLines(text, width-2) {
+	boldSt := st.Bold(true)
+	lines := wrapLines(lead+" "+body, width-2)
+	out := make([]string, 0, len(lines))
+	for i, l := range lines {
+		if i == 0 && strings.HasPrefix(l, lead) {
+			out = append(out, row([]seg{{" " + lead, boldSt}, {l[len(lead):], st}}, width, false))
+			continue
+		}
 		out = append(out, row([]seg{{" " + l, st}}, width, false))
 	}
 	return out
@@ -682,24 +702,34 @@ func (b *confirmBuilder) edits(diff []diffLine) {
 // list adds one block of values, one per row, each cut to the value
 // column; the block is cut on a short terminal.
 func (b *confirmBuilder) list(label string, values []string) {
+	b.listStyled(label, values, statusInfo)
+}
+
+// listStyled adds a collapsible list block styled with level.
+func (b *confirmBuilder) listStyled(label string, values []string, level statusLevel) {
+	st := levelStyle(level)
 	var lines []string
 	for i, v := range values {
 		lab := ""
 		if i == 0 {
 			lab = label
 		}
-		lines = append(lines, row([]seg{{" " + fitPlain(lab, confirmLabelW), stDim}, {fitPlain(v, b.valW), stPlain}}, b.inner, false))
+		lines = append(lines, row([]seg{{" " + fitPlain(lab, confirmLabelW), stDim}, {fitPlain(v, b.valW), st}}, b.inner, false))
 	}
 	b.blocks = append(b.blocks, confirmBlock{lines: lines, more: b.more})
 }
 
-// note adds a warning.
+// note adds a warning or informational note.
 func (b *confirmBuilder) note(text string, level statusLevel) {
+	lead := " · "
+	if level == statusWarn || level == statusErr {
+		lead = " ! "
+	}
 	var lines []string
 	for i, l := range wrapLines(sanitize(text), b.inner-4) {
 		prefix := "   "
 		if i == 0 {
-			prefix = " ! "
+			prefix = lead
 		}
 		lines = append(lines, row([]seg{{prefix + l, levelStyle(level)}}, b.inner, false))
 	}

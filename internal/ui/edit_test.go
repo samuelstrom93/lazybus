@@ -64,7 +64,7 @@ func TestPropertyEditPopupChangeKeepsType(t *testing.T) {
 		t.Fatalf("edit = %+v", pe)
 	}
 	s := screenText(m)
-	if !strings.Contains(s, "*orderId") || !strings.Contains(s, "12  (was 4002)") || !strings.Contains(s, "✎ 1 pending") {
+	if !strings.Contains(s, "*orderId") || !strings.Contains(s, "12  (was 4002)") || !strings.Contains(s, "✎ 1 edited msg") {
 		t.Fatalf("Properties tab lacks the * marker or pending flag:\n%s", s)
 	}
 

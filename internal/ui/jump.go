@@ -177,10 +177,14 @@ func (m Model) overlayJump(screen string) string {
 		}
 		lines = append(lines, boxRow(r, stBorderFocus))
 	}
-	footer := "enter open · esc cancel"
-	if len(matches) > n {
-		footer = strconv.Itoa(len(matches)) + " matches · " + footer
+	footer := []seg{
+		{"enter", stKey}, {" open  ", stDim},
+		{"↑↓", stKey}, {" move  ", stDim},
+		{"esc", stKey}, {" cancel", stDim},
 	}
-	lines = append(lines, hBorder(w, "└", "┘", []seg{{footer, stDim}}, stBorderFocus))
+	if len(matches) > n {
+		footer = append([]seg{{strconv.Itoa(len(matches)) + " matches  ", stDim}}, footer...)
+	}
+	lines = append(lines, hBorder(w, "└", "┘", footer, stBorderFocus))
 	return m.overlay(screen, lines, w)
 }

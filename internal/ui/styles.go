@@ -19,18 +19,20 @@ var (
 )
 
 var (
-	stPlain       = lipgloss.NewStyle()
-	stBold        = lipgloss.NewStyle().Bold(true)
-	stBorder      = lipgloss.NewStyle().Foreground(colDim)
-	stBorderFocus = lipgloss.NewStyle().Foreground(colGreen).Bold(true)
-	stTitleFocus  = lipgloss.NewStyle().Foreground(colGreen).Bold(true)
-	stDim         = lipgloss.NewStyle().Foreground(colDim)
-	stSelected    = lipgloss.NewStyle().Background(colBlue).Bold(true)
-	stKey         = lipgloss.NewStyle().Foreground(colCyan)
-	stErr         = lipgloss.NewStyle().Foreground(colRed)
-	stWarn        = lipgloss.NewStyle().Foreground(colYellow)
-	stFailure     = lipgloss.NewStyle().Foreground(colYellow).Bold(true) // DeadLetterReason in the failure strip
-	stReadOnly    = lipgloss.NewStyle().Foreground(colRed).Bold(true)
+	stPlain        = lipgloss.NewStyle()
+	stBold         = lipgloss.NewStyle().Bold(true)
+	stBorder       = lipgloss.NewStyle().Foreground(colDim)
+	stBorderFocus  = lipgloss.NewStyle().Foreground(colGreen).Bold(true)
+	stTitleFocus   = lipgloss.NewStyle().Foreground(colGreen).Bold(true)
+	stDim          = lipgloss.NewStyle().Faint(true)
+	stSelected     = lipgloss.NewStyle().Background(colBlue).Foreground(lipgloss.Color("15")).Bold(true)
+	stSelectedWarn = lipgloss.NewStyle().Background(colYellow).Foreground(lipgloss.Color("0")).Bold(true)
+	stSelectedErr  = lipgloss.NewStyle().Background(colRed).Foreground(lipgloss.Color("15")).Bold(true)
+	stKey          = lipgloss.NewStyle().Foreground(colCyan)
+	stErr          = lipgloss.NewStyle().Foreground(colRed)
+	stWarn         = lipgloss.NewStyle().Foreground(colYellow)
+	stFailure      = lipgloss.NewStyle().Foreground(colYellow).Bold(true) // DeadLetterReason in the failure strip
+	stReadOnly     = lipgloss.NewStyle().Foreground(colRed).Bold(true)
 )
 
 // levelStyle is the colour of a status level.
@@ -116,11 +118,17 @@ func row(segs []seg, width int, selected bool) string {
 	if selected {
 		bg = &stSelected
 	}
+	return rowBG(segs, width, bg)
+}
+
+// rowBG renders segs into exactly width cells, filling the row with bg
+// when non-nil.
+func rowBG(segs []seg, width int, bg *lipgloss.Style) string {
 	s, w := renderSegs(segs, width, bg)
 	if pad := width - w; pad > 0 {
 		p := strings.Repeat(" ", pad)
-		if selected {
-			p = stSelected.Render(p)
+		if bg != nil {
+			p = bg.Render(p)
 		}
 		s += p
 	}
@@ -138,6 +146,29 @@ func fitPlain(s string, width int) string {
 		s = ansi.Truncate(s, width-1, "") + "…"
 	}
 	return s + strings.Repeat(" ", max(0, width-ansi.StringWidth(s)))
+}
+
+// fitEntityPath fits an entity path into width cells. For topic/subscription
+// paths that overflow, it middle-truncates the topic so sibling subscriptions
+// stay distinct (e.g. "order-e…/billing").
+func fitEntityPath(path string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	s := sanitize(path)
+	if ansi.StringWidth(s) <= width {
+		return s + strings.Repeat(" ", width-ansi.StringWidth(s))
+	}
+	if i := strings.LastIndexByte(s, '/'); i > 0 {
+		sub := s[i:] // includes leading '/'
+		subW := ansi.StringWidth(sub)
+		if subW+2 <= width {
+			prefix := ansi.Truncate(s[:i], width-1-subW, "")
+			out := prefix + "…" + sub
+			return out + strings.Repeat(" ", max(0, width-ansi.StringWidth(out)))
+		}
+	}
+	return fitPlain(s, width)
 }
 
 // padLeft right-aligns plain text in width cells.

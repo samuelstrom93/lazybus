@@ -131,7 +131,7 @@ Edits are made on the DLQ tab and kept as **Pending Edits** of that message unti
 
 The property popup has Key, Type and Value. Types are String, Int (32-bit), Long (64-bit), Double, Bool (`true`/`false`), Guid and DateTime (RFC 3339, e.g. `2026-09-18T22:15:00Z`); the copy sends each with its AMQP type. A new key starts as String; an existing key keeps its type unless you pick another. An invalid value keeps the popup open with the error. `DeadLetterReason` and `DeadLetterErrorDescription` are never edited: they are removed on resubmit anyway.
 
-Pending Edits show inline: `*` changed (with the old value), `+` added, `−` removed; the Body tab says `(edited)`, and the options bar shows `✎ N pending` (messages with Pending Edits).
+Pending Edits show inline: `*` changed (with the old value), `+` added, `−` removed; the Body tab says `(edited)`, and the options bar shows `✎ N edited msg(s)` (messages with Pending Edits).
 
 The body goes to a temp file (mode 0600, in the system temp directory, removed afterwards). A JSON body (by ContentType, or because it parses as JSON) opens pretty-printed, and the copy is sent with the bytes as you saved them, not re-compacted. If you save JSON that does not parse, it is kept as the Pending Edit and flagged in the Body tab and the confirm popup. `E` again opens the pending body. Saving the file unchanged adds no edit; one trailing newline added by the editor is dropped.
 
