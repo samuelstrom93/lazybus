@@ -310,11 +310,14 @@ func listRowsStyled[T any](l list[T], focused bool, width, n int, status []seg, 
 		if cursor {
 			mark = "▸ "
 		}
-		segs := []seg{{mark, stPlain}}
+		itemSegs := render(l.items[i])
+		segs := make([]seg, 0, 2+len(itemSegs))
 		if picked != nil && picked(i) {
-			segs = []seg{{mark[:len(mark)-1], stPlain}, {"●", stKey}}
+			segs = append(segs, seg{mark[:len(mark)-1], stPlain}, seg{"●", stKey})
+		} else {
+			segs = append(segs, seg{mark, stPlain})
 		}
-		segs = append(segs, render(l.items[i])...)
+		segs = append(segs, itemSegs...)
 		var bg *lipgloss.Style
 		if cursor && focused {
 			bg = &stSelected
@@ -505,7 +508,8 @@ func (m Model) messageRowSegs(msg bus.Message, seqW int, showTime bool, reasonW,
 	if mark, ok := m.markOf(msg.SequenceNumber); ok {
 		return m.markedMessageSegs(msg, mark, seq, at, reasonW, idW)
 	}
-	segs := []seg{{seq, stPlain}}
+	segs := make([]seg, 0, 4)
+	segs = append(segs, seg{seq, stPlain})
 	if at != "" {
 		segs = append(segs, seg{at, stDim})
 	}
@@ -1159,6 +1163,11 @@ func (m Model) renderOptions() string {
 		left = append(left, seg{"working…", stDim})
 	}
 	bindings := fitBindings(m.optionsBarBindings(), max(0, m.width-rw-2))
+	if cap(left) < len(left)+len(bindings)*3 {
+		grown := make([]seg, len(left), len(left)+len(bindings)*3)
+		copy(grown, left)
+		left = grown
+	}
 	for i, b := range bindings {
 		if i > 0 {
 			left = append(left, seg{"  ", stPlain})

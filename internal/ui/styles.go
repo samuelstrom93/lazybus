@@ -71,11 +71,21 @@ func renderSegs(segs []seg, width int, bg *lipgloss.Style) (string, int) {
 	if width <= 0 {
 		return "", 0
 	}
-	clean := make([]seg, len(segs))
+	// Only copy segs when sanitize actually changes a segment; most strings
+	// are already clean ASCII and lipgloss.Style is large by value.
+	var clean []seg
 	for i, s := range segs {
-		clean[i] = seg{sanitize(s.text), s.style}
+		if t := sanitize(s.text); t != s.text {
+			if clean == nil {
+				clean = make([]seg, len(segs))
+				copy(clean, segs)
+			}
+			clean[i].text = t
+		}
 	}
-	segs = clean
+	if clean != nil {
+		segs = clean
+	}
 	var b strings.Builder
 	style := func(s seg, text string) string {
 		if bg != nil {

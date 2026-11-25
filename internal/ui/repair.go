@@ -312,6 +312,9 @@ func (m Model) handleConfirmKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 }
 
 func (m *Model) scrollConfirm(msg tea.KeyPressMsg) bool {
+	if !key.Matches(msg, keys.Down, keys.Up, keys.HalfDown, keys.HalfUp, keys.Top, keys.Bottom) {
+		return false
+	}
 	_, _, _, room, offset, maxScroll := m.confirmViewport()
 	if maxScroll == 0 {
 		return false
@@ -330,8 +333,6 @@ func (m *Model) scrollConfirm(msg tea.KeyPressMsg) bool {
 		m.confirm.scroll = 0
 	case key.Matches(msg, keys.Bottom):
 		m.confirm.scroll = maxScroll
-	default:
-		return false
 	}
 	return true
 }
