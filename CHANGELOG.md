@@ -4,6 +4,8 @@ All notable changes to lazybus are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-25
+
 ### Changed
 
 - Modal popups now own the green focus border while the background panel dims and keeps `▸` on its active row, blanking the full popup area so no stray lines peek above or below the frame.
@@ -111,7 +113,8 @@ The first release.
 - Tag-driven releases: `scripts/release.sh vX.Y.Z` measures the release benchmarks (startup, a 10,000-message DLQ, repair, binary size), compares them with the previous release and tags `origin/main`; the tag runs a GitHub workflow that refuses a material regression and publishes the release with the benchmark report.
 - Emulator end-to-end tests (`go test -tags emulator ./...`) and real-namespace end-to-end tests (`go test -tags azure ./...`).
 
-[Unreleased]: https://github.com/samuelstrom93/lazybus/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/samuelstrom93/lazybus/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/samuelstrom93/lazybus/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/samuelstrom93/lazybus/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/samuelstrom93/lazybus/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/samuelstrom93/lazybus/compare/v0.1.1...v0.2.0
